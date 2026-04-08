@@ -1,4 +1,5 @@
 import { DesktopViewportGuard } from "@/components/desktop-viewport-guard";
+import { BackToMenu } from "@/components/back-to-menu";
 import { KioskSecurityControls } from "@/components/kiosk-security-controls";
 import { KioskAnalyticsHub } from "@/components/kiosk-analytics-hub";
 import { requireProtectedSession } from "@/lib/auth/guards";
@@ -17,6 +18,9 @@ export default async function KioskHybridPage() {
 
   return (
     <section className="space-y-8 py-6">
+      <div className="fixed left-4 top-4 z-[10001]">
+        <BackToMenu />
+      </div>
       <header className="space-y-2">
         <h1 className="text-4xl font-bold text-cyan-300 md:text-5xl">
           Kiosk ibrido (Serie A, B, Champions, Europa + altre leghe)
