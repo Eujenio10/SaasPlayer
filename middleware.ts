@@ -196,6 +196,14 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL("/forbidden", request.url));
   }
 
+  // Viewer: solo /display e /kiosk/hybrid — /kiosk base reindirizza al kiosk ibrido
+  if (membership.role === "viewer") {
+    const p = request.nextUrl.pathname;
+    if (p === "/kiosk") {
+      return NextResponse.redirect(new URL("/kiosk/hybrid", request.url));
+    }
+  }
+
   const subscription = await getLatestSubscription(membership.organization_id);
   const isSubscriptionActive =
     subscription &&
@@ -232,7 +240,10 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL("/forbidden", request.url));
   }
 
-  if (!isSubscriptionActive && membership.role !== "admin") {
+  // I viewer usano solo display / kiosk hybrid: non li blocchiamo per subscription org (evita suspended ingiusti)
+  const viewerProductAccess =
+    membership.role === "viewer" && isViewerAllowedPath(request.nextUrl.pathname);
+  if (!isSubscriptionActive && membership.role !== "admin" && !viewerProductAccess) {
     await writeAuditLog({
       userId: user.id,
       organizationId,
