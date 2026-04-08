@@ -35,7 +35,7 @@ export async function GET(request: Request) {
     const away = url.searchParams.get("away")?.trim().toLowerCase() ?? "";
     const competition = url.searchParams.get("competition")?.trim().toLowerCase() ?? "";
     const menuCacheHours = Number(process.env.TACTICAL_MATCHES_MENU_CACHE_HOURS ?? "120");
-    const menuCacheKey = `tactical_matches_menu:v9:${home || "_"}:${away || "_"}:${competition || "_"}`;
+    const menuCacheKey = `tactical_matches_menu:v12:${home || "_"}:${away || "_"}:${competition || "_"}`;
 
     /** Menu completo: stessa sorgente/cache usata dal programma `/display`. */
     if (!home && !away && !competition) {

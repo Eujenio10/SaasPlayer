@@ -939,7 +939,10 @@ function isStrictTop5DomesticEvent(event: SportApiEvent): boolean {
   const allowedCountries = STRICT_TOP5_COMPETITIONS[slug];
   if (!allowedCountries) return false;
   const countries = eventCountryTokens(event);
-  if (countries.size === 0) return false;
+  if (countries.size === 0) {
+    /** scheduled-events spesso non espone category.country: stesso motivo della Serie B nel menu kiosk. */
+    return true;
+  }
   for (const token of countries) {
     if (allowedCountries.has(token)) return true;
   }
@@ -1018,6 +1021,37 @@ function extractEvents(payload: unknown): SportApiEvent[] {
 function normalizeCompetitionSlug(raw?: string): string {
   const slug = raw?.toLowerCase().trim() ?? "";
   if (slug === "la-liga") return "laliga";
+  /** La Liga: spesso `spain-laliga` o prefisso `spain-` + laliga (non in STRICT_TOP5 keys). */
+  if (slug === "spain-laliga" || slug === "spain_la_liga" || slug === "spain-la-liga") return "laliga";
+  if (
+    slug.startsWith("spain-") &&
+    slug.includes("laliga") &&
+    !slug.includes("laliga-2") &&
+    !slug.includes("2-laliga") &&
+    !slug.includes("segunda") &&
+    !slug.includes("smartbank") &&
+    !slug.includes("hypermotion")
+  ) {
+    return "laliga";
+  }
+  /** Serie A: lo slug uniqueTournament spesso è `italy-serie-a` (non in STRICT_TOP5 keys). */
+  if (slug === "italy-serie-a" || slug === "italy_serie_a") return "serie-a";
+  if (slug.startsWith("italy-") && slug.includes("serie-a") && !slug.includes("serie-b")) return "serie-a";
+  /** Premier / Bundesliga / Ligue 1: prefisso paese sullo slug uniqueTournament. */
+  if (slug === "england-premier-league" || slug === "england_premier_league") return "premier-league";
+  if (slug.startsWith("england-") && slug.includes("premier-league")) return "premier-league";
+  if (slug === "germany-bundesliga" || slug === "germany_bundesliga") return "bundesliga";
+  if (
+    slug.startsWith("germany-") &&
+    slug.includes("bundesliga") &&
+    !slug.includes("bundesliga-2") &&
+    !slug.includes("2-bundesliga") &&
+    !slug.includes("zweite")
+  ) {
+    return "bundesliga";
+  }
+  if (slug === "france-ligue-1" || slug === "france_ligue_1" || slug === "france-ligue1") return "ligue-1";
+  if (slug.startsWith("france-") && slug.includes("ligue-1")) return "ligue-1";
   return slug;
 }
 
@@ -1330,8 +1364,13 @@ async function discoverTargetEvents(
   const selected: SportApiEvent[] = [];
   for (const [competitionKey, events] of byCompetition) {
     const slugNorm = normalizeCompetitionSlug(competitionKey);
-    /** Serie B: spesso `roundInfo` assente o parziale → il filtro “solo min round” lasciava 1 partita. */
+    /** Top domestic + Serie B: `roundInfo` spesso assente o incoerente → il filtro “solo min round” svuotava il menu. */
     const skipRoundSlice =
+      slugNorm === "serie-a" ||
+      slugNorm === "laliga" ||
+      slugNorm === "premier-league" ||
+      slugNorm === "bundesliga" ||
+      slugNorm === "ligue-1" ||
       slugNorm === "serie-b" ||
       slugNorm === "italy-serie-b" ||
       (slugNorm.includes("serie-b") && slugNorm.includes("italy"));
