@@ -45,7 +45,7 @@ function isKickoffOnDisplayDay(
 function displayProgramCacheKey(): string {
   const tz = displayDayTimeZone();
   const day = calendarDateInTimeZone(new Date(), tz);
-  return `tactical_display_program:v8:serie_a_day:${day}`;
+  return `tactical_display_program:v9:serie_a_day:${day}`;
 }
 
 function normalizeCompetitionSlug(raw: string): string {

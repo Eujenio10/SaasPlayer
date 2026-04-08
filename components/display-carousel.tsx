@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { FrictionPitchHeatmap } from "@/components/friction-pitch-heatmap";
+import { frictionExplanationForDisplay } from "@/lib/friction-display-copy";
 import type { DisplayProgramPayload, DisplayProgramSlide } from "@/lib/types";
 
 const SLIDE_MS = 10_000;
@@ -158,6 +159,8 @@ export function DisplayCarousel({
 }
 
 function FrictionSlide({ slide }: { slide: Extract<DisplayProgramSlide, { kind: "friction" }> }) {
+  const explanation = frictionExplanationForDisplay(slide.frictionExplanation);
+
   return (
     <div className="space-y-6">
       <header className="space-y-2 border-b border-white/10 pb-6">
@@ -172,15 +175,13 @@ function FrictionSlide({ slide }: { slide: Extract<DisplayProgramSlide, { kind: 
 
       <div className="rounded-xl border border-emerald-500/20 bg-slate-950/50 p-4 md:p-6">
         <p className="mb-4 text-sm font-medium text-slate-400 md:text-base">
-          Heatmap stagionale — zone di gioco sovrapposte (stesso orientamento di campo)
+          Heatmap stagionale — confronto tra le zone di presenza in campionato
         </p>
         <FrictionPitchHeatmap {...slide.heatmap} />
       </div>
 
-      {slide.frictionExplanation ? (
-        <p className="text-lg leading-relaxed text-slate-300 md:text-xl lg:text-2xl">
-          {slide.frictionExplanation}
-        </p>
+      {explanation ? (
+        <p className="text-lg leading-relaxed text-slate-300 md:text-xl lg:text-2xl">{explanation}</p>
       ) : null}
     </div>
   );
