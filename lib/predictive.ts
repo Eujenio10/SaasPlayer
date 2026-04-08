@@ -184,30 +184,30 @@ function buildEstimatedHeatmapPoints(
 function buildFrictionExplanation(
   athlete: SportPerformanceInput,
   opponent: SportPerformanceInput,
-  heatmapOk: boolean,
-  alignedToHomePitchFrame: boolean
+  heatmapOk: boolean
 ): string {
   const aName = athlete.athleteName;
   const bName = opponent.athleteName;
   const aFc = athlete.foulsCommittedSeasonAvg;
+  const aFs = athlete.foulsSufferedSeasonAvg;
+  const bFc = opponent.foulsCommittedSeasonAvg;
   const bFs = opponent.foulsSufferedSeasonAvg;
 
-  const base =
-    `${aName} in campionato commette in media circa ${fmtSimpleStat(aFc)} falli a partita; ` +
-    `${bName} ne subisce in media circa ${fmtSimpleStat(bFs)}. ` +
-    "Da qui il possibile contrasto fisico in campo.";
+  const foulsBlock =
+    `${aName}: in media circa ${fmtSimpleStat(aFc)} falli commessi e ${fmtSimpleStat(aFs)} subiti a partita in campionato. ` +
+    `${bName}: circa ${fmtSimpleStat(bFc)} commessi e ${fmtSimpleStat(bFs)} subiti. `;
 
   if (heatmapOk) {
-    let spatial =
-      " La mappa mostra dove sono stati più presenti sul terreno in stagione: dove i colori si avvicinano, le loro zone di gioco si sovrappongono.";
-    if (alignedToHomePitchFrame) {
-      spatial +=
-        " Per il confronto tattico, le coordinate della squadra ospite sono state invertite su lunghezza e larghezza (x′=100−x, y′=100−y) rispetto ai dati grezzi, così direzioni d’attacco opposte si leggono nello stesso spazio e le fasce di gioco dirette si possono sovrapporre correttamente.";
-    }
-    return base + spatial;
+    return (
+      foulsBlock +
+      "Le heatmap stagionali indicano zone di campo vicine o sovrapposte: è molto plausibile che in partita si incrocino spesso nello stesso settore e che lo scontro diretto sia tra i più probabili."
+    );
   }
 
-  return base + " I dati di posizione sul campo sono parziali: il quadro si completa soprattutto con le medie sui falli.";
+  return (
+    foulsBlock +
+    "I dati di posizione sul campo sono parziali; il quadro resta guidato soprattutto dalle medie sui falli."
+  );
 }
 
 function roleToIcon(role: string): TacticalMetrics["roleIcon"] {
@@ -299,12 +299,7 @@ function calculateSparkDetector(
 
   const narrative = `Possibile scontro in campo tra ${athlete.athleteName} e ${opp.athleteName}.`;
 
-  const frictionExplanation = buildFrictionExplanation(
-    athlete,
-    opp,
-    heatmapOk,
-    useHomePitchFrame
-  );
+  const frictionExplanation = buildFrictionExplanation(athlete, opp, heatmapOk);
 
   const oppPointsForDisplay = useHomePitchFrame
     ? opp.heatmapPoints.length > 0

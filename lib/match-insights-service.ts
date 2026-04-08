@@ -582,7 +582,7 @@ export function buildMatchInsightsCacheKey(input: {
   playerAnalyticsMode: "full" | "serie_a_players";
 }): string {
   const slug = input.competitionSlug ?? "domestic";
-  return `match_insights:v39:${input.eventId}:${input.scope}:${slug}:diag_${input.includeDiagnostics ? "1" : "0"}:single_${input.singleMatchTest ? "1" : "0"}:refresh_${input.forceBlueprintRefresh ? "1" : "0"}:pa_${input.playerAnalyticsMode}`;
+  return `match_insights:v40:${input.eventId}:${input.scope}:${slug}:diag_${input.includeDiagnostics ? "1" : "0"}:single_${input.singleMatchTest ? "1" : "0"}:refresh_${input.forceBlueprintRefresh ? "1" : "0"}:pa_${input.playerAnalyticsMode}`;
 }
 
 export type MatchInsightsApiPayload = {

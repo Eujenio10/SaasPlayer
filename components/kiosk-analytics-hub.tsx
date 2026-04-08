@@ -570,9 +570,10 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
     const sorted = Array.from(map.values()).sort((a, b) => b.pairPriority - a.pairPriority);
     const usedPairs = new Set<string>();
     const usedPlayers = new Set<string>();
+    const maxInterestingFrictionPairs = 4;
     const out: Array<{ left: TacticalMetrics; right: TacticalMetrics; pairPriority: number }> = [];
     for (const pair of sorted) {
-      if (out.length >= 2) break;
+      if (out.length >= maxInterestingFrictionPairs) break;
       const aId = pair.left.playerId;
       const bId = pair.right.playerId;
       const pairKey =
@@ -1206,8 +1207,9 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
           ) : (
             <>
           <p className="text-sm text-slate-300">
-            Fino a due possibili scontri tra giocatori avversari, con mappa del campo e numeri sui falli (media
-            campionato).
+            Per la partita selezionata vengono evidenziati i <strong>4 scontri più interessanti</strong> tra
+            giocatori avversari (priorità a sovrapposizione heatmap e profilo falli), con mappa del campo e medie
+            campionato.
           </p>
 
           <div className="grid gap-2 lg:grid-cols-2">
@@ -1239,7 +1241,9 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
           ) : null}
           {matchFrictionPairs.map((pair, idx) => (
             <section key={`${pair.left.playerName}-${pair.right.playerName}-${idx}`} className="space-y-3">
-              <p className="text-xs uppercase tracking-wide text-cyan-300">Possibile scontro {idx + 1}</p>
+              <p className="text-xs uppercase tracking-wide text-cyan-300">
+                Scontro {idx + 1} — tra i più interessanti
+              </p>
               <p className="text-sm text-slate-200">{pair.left.sparkNarrative}</p>
               {pair.left.sparkFrictionHeatmap ? (
                 <div className="rounded-xl border border-emerald-500/25 bg-slate-950/80 p-4 shadow-inner">
