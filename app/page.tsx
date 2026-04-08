@@ -58,12 +58,12 @@ export default async function HomePage({
   const isAdmin = session.organization?.role === "admin";
 
   return (
-    <section className="grid gap-8 py-10">
-      <header className="rounded-2xl border border-cyan-300/30 bg-graphite/80 p-8 shadow-broadcast">
-        <h1 className="text-4xl font-bold text-slate-100 md:text-5xl">
+    <section className="grid gap-6 py-6 sm:gap-8 sm:py-10">
+      <header className="rounded-2xl border border-cyan-300/30 bg-graphite/80 p-5 shadow-broadcast sm:p-8">
+        <h1 className="text-3xl font-bold text-slate-100 sm:text-4xl md:text-5xl">
           Tactical Intelligence Hub
         </h1>
-        <p className="mt-4 max-w-3xl text-lg text-slate-300">
+        <p className="mt-4 max-w-3xl text-base text-slate-300 sm:text-lg">
           Hub editoriale B2B per analisi tattica calcistica in tempo reale, progettato
           per sale operative di agenzie sportive.
         </p>
@@ -87,9 +87,9 @@ export default async function HomePage({
       <div className="grid gap-4 md:grid-cols-2">
         <Link
           href="/display"
-          className="rounded-2xl border border-cyan-400/40 bg-darkGray p-6 transition hover:border-cyan-300"
+          className="rounded-2xl border border-cyan-400/40 bg-darkGray p-4 transition hover:border-cyan-300 sm:p-6"
         >
-          <h2 className="text-2xl font-semibold text-cyan-300">/display Tactical TV</h2>
+          <h2 className="text-xl font-semibold text-cyan-300 sm:text-2xl">/display Tactical TV</h2>
           <p className="mt-2 text-slate-300">
             Serie A: heatmap degli scontri e top tiratori (ultime 2) solo per le partite del giorno, carosello
             automatico. Per vetrina: pulsante &quot;schermo intero&quot; o link dedicato{" "}
@@ -99,9 +99,9 @@ export default async function HomePage({
         {isAdmin ? (
           <Link
             href="/kiosk"
-            className="rounded-2xl border border-cyan-400/40 bg-darkGray p-6 transition hover:border-cyan-300"
+            className="rounded-2xl border border-cyan-400/40 bg-darkGray p-4 transition hover:border-cyan-300 sm:p-6"
           >
-            <h2 className="text-2xl font-semibold text-cyan-300">/kiosk Interactive</h2>
+            <h2 className="text-xl font-semibold text-cyan-300 sm:text-2xl">/kiosk Interactive</h2>
             <p className="mt-2 text-slate-300">
               Modalita desktop interna con confronto 1 vs 1 tra giocatori (tutte le leghe).
             </p>
@@ -109,9 +109,9 @@ export default async function HomePage({
         ) : null}
         <Link
           href="/kiosk/hybrid"
-          className="rounded-2xl border border-emerald-400/40 bg-darkGray p-6 transition hover:border-emerald-300"
+          className="rounded-2xl border border-emerald-400/40 bg-darkGray p-4 transition hover:border-emerald-300 sm:p-6"
         >
-          <h2 className="text-2xl font-semibold text-emerald-300">/kiosk/hybrid</h2>
+          <h2 className="text-xl font-semibold text-emerald-300 sm:text-2xl">/kiosk/hybrid</h2>
           <p className="mt-2 text-slate-300">
             Serie B nel menu con solo statistiche squadra; analisi giocatori e heatmap per Serie A, Champions ed
             Europa League; altre leghe solo statistiche di squadra.
@@ -120,9 +120,9 @@ export default async function HomePage({
         {isAdmin ? (
           <Link
             href="/kiosk-testing"
-            className="rounded-2xl border border-amber-400/40 bg-darkGray p-6 transition hover:border-amber-300"
+            className="rounded-2xl border border-amber-400/40 bg-darkGray p-4 transition hover:border-amber-300 sm:p-6"
           >
-            <h2 className="text-2xl font-semibold text-amber-300">/kiosk-testing</h2>
+            <h2 className="text-xl font-semibold text-amber-300 sm:text-2xl">/kiosk-testing</h2>
             <p className="mt-2 text-slate-300">
               Test mirato su PSG vs Tolosa per verificare estrazione e mapping dati con meno chiamate API.
             </p>
@@ -134,9 +134,9 @@ export default async function HomePage({
         <div className="grid gap-4">
           <Link
             href="/admin/subscriptions"
-            className="rounded-2xl border border-cyan-400/40 bg-darkGray p-6 transition hover:border-cyan-300"
+            className="rounded-2xl border border-cyan-400/40 bg-darkGray p-4 transition hover:border-cyan-300 sm:p-6"
           >
-            <h2 className="text-2xl font-semibold text-cyan-300">/admin/subscriptions</h2>
+            <h2 className="text-xl font-semibold text-cyan-300 sm:text-2xl">/admin/subscriptions</h2>
             <p className="mt-2 text-slate-300">
               Pannello amministrativo per attivazione, sospensione e rinnovo manuale
               dell&apos;abbonamento tramite bonifico.

@@ -13,10 +13,10 @@ export default function LoginPage({
   const error = searchParams.error;
 
   return (
-    <section className="mx-auto flex min-h-[70vh] max-w-lg items-center">
-      <div className="w-full rounded-2xl border border-cyan-300/30 bg-graphite/80 p-8 shadow-broadcast">
-        <h1 className="text-3xl font-bold text-cyan-300">Accesso Operatore</h1>
-        <p className="mt-3 text-slate-300">
+    <section className="mx-auto flex min-h-[65dvh] max-w-lg items-center px-1 sm:px-0">
+      <div className="w-full rounded-2xl border border-cyan-300/30 bg-graphite/80 p-5 shadow-broadcast sm:p-8">
+        <h1 className="text-2xl font-bold text-cyan-300 sm:text-3xl">Accesso Operatore</h1>
+        <p className="mt-3 text-sm text-slate-300 sm:text-base">
           Inserisci credenziali autorizzate per entrare nell&apos;area monitor.
         </p>
 

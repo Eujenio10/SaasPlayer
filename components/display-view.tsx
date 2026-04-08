@@ -90,10 +90,10 @@ export function DisplayView({
         {!immersive ? (
           <header className="space-y-4">
             <div className="space-y-2">
-              <h1 className="text-5xl font-bold tracking-tight text-cyan-300 md:text-7xl">
+              <h1 className="text-3xl font-bold tracking-tight text-cyan-300 sm:text-5xl md:text-7xl">
                 Tactical TV — Serie A
               </h1>
-              <p className="text-2xl text-slate-300 md:text-3xl">
+              <p className="text-base text-slate-300 sm:text-2xl md:text-3xl">
                 Heatmap scontri e top tiratori: in giornata le partite di Serie A di oggi; se non ce ne sono, il
                 prossimo match più vicino tra Serie A, Champions League ed Europa League. Stessa cache del kiosk.
               </p>

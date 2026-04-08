@@ -791,13 +791,13 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
   }, [view, selectedMatch, blueprintDebug?.home?.tournamentId, blueprintDebug?.home?.seasonId, blueprintDebug?.away?.tournamentId, blueprintDebug?.away?.seasonId]);
 
   return (
-    <section className="space-y-6 rounded-2xl border border-cyan-400/30 bg-slate-900/50 p-5">
+    <section className="space-y-5 rounded-2xl border border-cyan-400/30 bg-slate-900/50 p-3 sm:space-y-6 sm:p-5">
       <header className="space-y-2">
-        <h2 className="text-2xl font-semibold text-cyan-300">{kioskTitle}</h2>
+        <h2 className="text-xl font-semibold text-cyan-300 sm:text-2xl">{kioskTitle}</h2>
         {kioskDescription ? (
-          <p className="text-sm text-slate-400">{kioskDescription}</p>
+          <p className="text-xs text-slate-400 sm:text-sm">{kioskDescription}</p>
         ) : null}
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <button
             type="button"
             onClick={() => setView("MATCH_TEAMS")}
@@ -900,7 +900,7 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
 
           {matchesError ? <p className="text-sm text-rose-300">{matchesError}</p> : null}
 
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <button
               type="button"
               onClick={() => setTeamMode("OFFENSE")}

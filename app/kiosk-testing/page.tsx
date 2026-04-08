@@ -9,10 +9,12 @@ export default async function KioskTestingPage() {
   const session = await requireProtectedSession();
 
   return (
-    <section className="space-y-8 py-6">
+    <section className="space-y-6 py-4 sm:space-y-8 sm:py-6">
       <header className="space-y-2">
-        <h1 className="text-4xl font-bold text-cyan-300 md:text-5xl">Kiosk Testing (PSG vs Tolosa)</h1>
-        <p className="text-lg text-slate-300">
+        <h1 className="text-2xl font-bold text-cyan-300 sm:text-4xl md:text-5xl">
+          Kiosk Testing (PSG vs Tolosa)
+        </h1>
+        <p className="text-sm text-slate-300 sm:text-lg">
           Ambiente di test dedicato a una sola partita per verificare mapping e qualità dati con consumo API minimo.
         </p>
       </header>
