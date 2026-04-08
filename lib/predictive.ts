@@ -5,8 +5,7 @@ function clamp(value: number, min = 0, max = 100): number {
 }
 
 /**
- * Ribalta la coordinata X sul campo 0–100 (asse lungo: porta–porta), per sovrapporre due profili
- * quando i dati stagionali sono espressi come “attacco verso destra” per entrambe le squadre.
+ * Ribalta solo X (fallback legacy quando non si conosce la squadra di casa).
  */
 function mirrorHeatmapPointsX(
   points: SportPerformanceInput["heatmapPoints"]
@@ -18,9 +17,23 @@ function mirrorHeatmapPointsX(
 }
 
 /**
- * Porta tutti i punti nel sistema di riferimento della squadra di casa (stesso orientamento della
- * partita in diretta): la heatmap dei giocatori in trasferta viene ribaltata lungo l'asse lungo,
- * così terzini/esterni avversari non risultano sovrapposti per errore pur occupando fasce opposte.
+ * Inverte entrambe le coordinate sul campo [0,100]×[0,100] (simmetria centrale):
+ * così la Squadra B (away), con dati grezzi in direzione d’attacco opposta alla A, viene portata
+ * nello stesso sistema della casa: TD vs AS avversaria possono sovrapporsi nella stessa fascia tattica.
+ */
+function flipHeatmapCoordinatesForAwayTeam(
+  points: SportPerformanceInput["heatmapPoints"]
+): SportPerformanceInput["heatmapPoints"] {
+  return points.map((p) => ({
+    ...p,
+    x: clamp(100 - p.x, 0, 100),
+    y: clamp(100 - p.y, 0, 100)
+  }));
+}
+
+/**
+ * Sistema di riferimento unico “come la Squadra A (casa)”: i punti della trasferta subiscono
+ * `flipHeatmapCoordinatesForAwayTeam` prima di overlap, centroidi e rendering.
  */
 function normalizeHeatmapToHomeFrame(
   points: SportPerformanceInput["heatmapPoints"],
@@ -29,7 +42,7 @@ function normalizeHeatmapToHomeFrame(
 ): SportPerformanceInput["heatmapPoints"] {
   if (!points.length) return points;
   if (teamId === homeTeamId) return points;
-  return mirrorHeatmapPointsX(points);
+  return flipHeatmapCoordinatesForAwayTeam(points);
 }
 
 function heatmapCentroid(
@@ -189,7 +202,7 @@ function buildFrictionExplanation(
       " La mappa mostra dove sono stati più presenti sul terreno in stagione: dove i colori si avvicinano, le loro zone di gioco si sovrappongono.";
     if (alignedToHomePitchFrame) {
       spatial +=
-        " Per il confronto sull’incontro, la heatmap della squadra ospite è stata ribaltata lungo l’asse lungo del campo (come in diretta dalla parte della casa), così le due mappe sono nello stesso sistema di riferimento e non si sovrappongono per errore su fasce opposte.";
+        " Per il confronto tattico, le coordinate della squadra ospite sono state invertite su lunghezza e larghezza (x′=100−x, y′=100−y) rispetto ai dati grezzi, così direzioni d’attacco opposte si leggono nello stesso spazio e le fasce di gioco dirette si possono sovrapporre correttamente.";
     }
     return base + spatial;
   }
