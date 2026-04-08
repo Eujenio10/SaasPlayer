@@ -1,0 +1,87 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  min-height: 100%;
+  background: #111827;
+  color: #e5e7eb;
+}
+
+body {
+  font-family: Inter, Segoe UI, Arial, sans-serif;
+}
+
+.watermark-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  user-select: none;
+  z-index: 9999;
+}
+
+.watermark-text {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: clamp(1.4rem, 3.8vw, 4.2rem);
+  font-weight: 700;
+  color: rgba(103, 232, 249, 0.14);
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  transform: rotate(-18deg);
+}
+
+.legal-footer {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10000;
+  background: rgba(17, 24, 39, 0.95);
+  border-top: 1px solid rgba(0, 191, 255, 0.28);
+  color: #cbd5e1;
+}
+
+.kiosk-lock-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid rgba(0, 191, 255, 0.32);
+  border-radius: 0.9rem;
+  background: rgba(17, 24, 39, 0.8);
+  color: #cbd5e1;
+  font-size: 0.9rem;
+}
+
+/* Modalità vetrina /display: massimizza area utile e nasconde footer fisso */
+body.display-street-mode {
+  overflow-x: hidden;
+  padding-bottom: 0 !important;
+}
+
+body.display-street-mode main {
+  max-width: none !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+  padding-top: 0 !important;
+  margin: 0 !important;
+  min-height: 100vh;
+}
+
+body.display-street-mode .legal-footer {
+  display: none !important;
+}
+
+body.display-street-mode .display-route-root {
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+}

@@ -1,0 +1,57 @@
+1)Modificare l'env.local con le variabili corretto a fine implementazione del modello.
+
+Step 1 — Blindare identita B2B e accessi
+Implementare login reale Supabase Auth (email/password o SSO B2B).
+Associare ogni utente a organization_id in modo certo (non da header spoofabile).
+Rendere /display e /kiosk accessibili solo a utenti autenticati + organization valida.
+Step 2 — Rafforzare IP Whitelisting (oggi e funzionale ma migliorabile)
+Spostare il controllo IP su fonte affidabile (proxy/load balancer) con trust chain definita.
+Supportare whitelist multipla CIDR (es. rete ufficio + backup line).
+Loggare tentativi negati (IP, org, timestamp) con audit trail.
+Step 3 — Applicare vincolo subscription attiva
+Bloccare accesso alle pagine protette se subscriptions.status != active.
+Gestire grace period e scadenza current_period_end.
+Mostrare schermata “servizio sospeso” in stile editoriale (non commerciale).
+Step 4 — Rendere RLS Supabase veramente sicuro
+Le policy attuali sono troppo permissive (using (true)): da restringere per organization.
+Aggiungere colonne di tenancy (es. organization_id su player_stats) e policy per tenant.
+Eliminare query lato client non necessarie con service role.
+Step 5 — Completare pipeline dati realtime
+Creare endpoint server consolidato (/api/tactical/snapshot) che:
+chiama API esterne,
+normalizza,
+calcola metriche,
+salva snapshot/versione.
+Collegare Realtime Supabase per aggiornare UI su dati gia normalizzati.
+Gestire fallback quando API esterne falliscono (ultimo snapshot valido).
+Step 6 — Hardening del fuzzy matching
+Rendere threshold configurabile via env/admin.
+Aggiungere dizionario alias manuali (es. accenti, nomi abbreviati).
+Salvare “match confidence” e casi dubbi per revisione editoriale.
+Step 7 — Compliance UX/Legal completa
+Verificare al 100% che tutta la UI eviti terminologia vietata fuori dal disclaimer obbligatorio.
+Aggiungere pagine legali minime: privacy, termini B2B, data processing.
+Implementare retention policy dati + registro trattamenti (GDPR lato operativo).
+Step 8 — Watermark anti-manomissione piu robusto
+Oltre overlay CSS, aggiungere controlli anti-tampering lato runtime (integrity checks, heartbeat).
+In kiosk mode, lock browser full-screen e disabilitazioni contestuali (policy dispositivo).
+Inserire identificativo sessione/agenzia nel watermark (non solo nome).
+Step 9 — No mobile enforcement reale
+Bloccare user-agent mobile su /display e /kiosk con pagina “desktop only”.
+Aggiungere controllo viewport minimo e fallback.
+Validare che non esistano endpoint “share/export” indiretti.
+Step 10 — Stripe produzione-grade
+Validare priceId contro allowlist server-side.
+Aggiungere idempotency su webhook + gestione eventi deleted, past_due, unpaid.
+Sincronizzare stato Stripe -> Supabase con job di riconciliazione periodica.
+Step 11 — Performance e osservabilita
+Caching strategico (ISR/revalidateTag) per snapshot tattici.
+Rate limiting su API route + timeout/retry circuit breaker per API esterne.
+Logging strutturato + metriche (latency, error rate, data freshness).
+Step 12 — Qualita, test e rilascio
+Test automatici:
+unit (metriche + fuzzy),
+integration (middleware + API),
+e2e (/display, /kiosk, blocchi 403).
+Pipeline CI/CD con lint, typecheck, test, build.
+Check-list go-live: env, secrets, monitoraggio, backup, rollback.
