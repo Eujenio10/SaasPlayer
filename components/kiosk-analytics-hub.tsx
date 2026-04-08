@@ -463,7 +463,11 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
   }, []);
 
   const upcomingMatches = useMemo(
-    () => filterMatchesKickoffInFuture(matches),
+    () => {
+      // Recompute time-based "future match" filtering every minute.
+      void matchListTimeTick;
+      return filterMatchesKickoffInFuture(matches);
+    },
     [matches, matchListTimeTick]
   );
 
