@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { stripe } from "@/lib/stripe";
+import { getStripe } from "@/lib/stripe";
 import { env } from "@/lib/env";
 
 const bodySchema = z.object({
@@ -10,6 +10,10 @@ const bodySchema = z.object({
 });
 
 export async function POST(request: Request) {
+  if (!env.STRIPE_SECRET_KEY) {
+    return NextResponse.json({ error: "stripe_not_configured" }, { status: 501 });
+  }
+  const stripe = getStripe();
   const json = await request.json();
   const body = bodySchema.parse(json);
 

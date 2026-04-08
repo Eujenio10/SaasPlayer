@@ -21,18 +21,10 @@ export const env = {
     return value;
   },
   get STRIPE_SECRET_KEY() {
-    const value = process.env.STRIPE_SECRET_KEY;
-    if (!value) {
-      throw new Error("Missing required environment variable: STRIPE_SECRET_KEY");
-    }
-    return value;
+    return process.env.STRIPE_SECRET_KEY ?? "";
   },
   get STRIPE_WEBHOOK_SECRET() {
-    const value = process.env.STRIPE_WEBHOOK_SECRET;
-    if (!value) {
-      throw new Error("Missing required environment variable: STRIPE_WEBHOOK_SECRET");
-    }
-    return value;
+    return process.env.STRIPE_WEBHOOK_SECRET ?? "";
   },
   get NEXT_PUBLIC_APP_URL() {
     const value = process.env.NEXT_PUBLIC_APP_URL;

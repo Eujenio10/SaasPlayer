@@ -1,4 +1,5 @@
-import { createServerClient } from "@supabase/ssr";
+// Deep import to avoid bundling browser client/realtime in Edge middleware.
+import { createServerClient } from "@supabase/ssr/dist/module/createServerClient";
 import type { NextRequest, NextResponse } from "next/server";
 
 export function createSupabaseMiddlewareClient(

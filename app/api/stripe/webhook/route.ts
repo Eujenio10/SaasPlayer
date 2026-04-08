@@ -1,7 +1,7 @@
 import { headers } from "next/headers";
 import { NextResponse } from "next/server";
 import type Stripe from "stripe";
-import { stripe } from "@/lib/stripe";
+import { getStripe } from "@/lib/stripe";
 import { env } from "@/lib/env";
 import { createSupabaseServiceClient } from "@/lib/supabase/server";
 
@@ -41,6 +41,10 @@ async function updateSubscriptionStatus(
 }
 
 export async function POST(request: Request) {
+  if (!env.STRIPE_WEBHOOK_SECRET || !env.STRIPE_SECRET_KEY) {
+    return new NextResponse("Stripe not configured", { status: 501 });
+  }
+  const stripe = getStripe();
   const payload = await request.text();
   const signature = headers().get("stripe-signature");
 
