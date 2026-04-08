@@ -5,8 +5,6 @@ import { isSubscriptionOperational } from "@/lib/subscription-policy";
 import { createSupabaseMiddlewareClient } from "@/lib/supabase/middleware";
 
 const protectedPrefixes = ["/display", "/kiosk", "/kiosk-testing", "/admin", "/api/admin"];
-const mobileUserAgentPattern =
-  /android|iphone|ipad|ipod|mobile|blackberry|opera mini|iemobile|windows phone/i;
 
 function isProtectedPath(pathname: string): boolean {
   return protectedPrefixes.some((prefix) => pathname.startsWith(prefix));
@@ -24,11 +22,6 @@ function isViewerAllowedPath(pathname: string): boolean {
   if (pathname.startsWith("/display")) return true;
   if (pathname === "/kiosk/hybrid" || pathname.startsWith("/kiosk/hybrid/")) return true;
   return false;
-}
-
-function isMobileUserAgent(userAgent: string | null): boolean {
-  if (!userAgent) return false;
-  return mobileUserAgentPattern.test(userAgent);
 }
 
 function buildApiUrl(path: string): string | null {
@@ -140,20 +133,6 @@ export async function middleware(request: NextRequest) {
   const clientIp = getClientIp(request, { trustProxy, trustedProxyHops });
   const forwardedFor = request.headers.get("x-forwarded-for");
   const userAgent = request.headers.get("user-agent");
-
-  if (isMobileUserAgent(userAgent)) {
-    await writeAuditLog({
-      userId: null,
-      organizationId: null,
-      ip: clientIp,
-      xForwardedFor: forwardedFor,
-      userAgent,
-      path: request.nextUrl.pathname,
-      reason: "mobile_user_agent_blocked",
-      result: "forbidden"
-    });
-    return NextResponse.redirect(new URL("/desktop-only", request.url));
-  }
 
   const response = NextResponse.next();
   const supabase = createSupabaseMiddlewareClient(request, response);
