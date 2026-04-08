@@ -5,9 +5,8 @@ function clamp(value: number, min = 0, max = 100): number {
 }
 
 /**
- * Ribalta la coordinata X sul campo 0–100: allinea la heatmap dell'avversario al sistema del giocatore
- * di riferimento (stesso verso di gioco), così difensori su metà campo opposte non risultano
- * artificialmente lontani nello scontro.
+ * Ribalta la coordinata X sul campo 0–100 (asse lungo: porta–porta), per sovrapporre due profili
+ * quando i dati stagionali sono espressi come “attacco verso destra” per entrambe le squadre.
  */
 function mirrorHeatmapPointsX(
   points: SportPerformanceInput["heatmapPoints"]
@@ -16,6 +15,21 @@ function mirrorHeatmapPointsX(
     ...p,
     x: clamp(100 - p.x, 0, 100)
   }));
+}
+
+/**
+ * Porta tutti i punti nel sistema di riferimento della squadra di casa (stesso orientamento della
+ * partita in diretta): la heatmap dei giocatori in trasferta viene ribaltata lungo l'asse lungo,
+ * così terzini/esterni avversari non risultano sovrapposti per errore pur occupando fasce opposte.
+ */
+function normalizeHeatmapToHomeFrame(
+  points: SportPerformanceInput["heatmapPoints"],
+  teamId: number,
+  homeTeamId: number
+): SportPerformanceInput["heatmapPoints"] {
+  if (!points.length) return points;
+  if (teamId === homeTeamId) return points;
+  return mirrorHeatmapPointsX(points);
 }
 
 function heatmapCentroid(
@@ -65,17 +79,34 @@ function foulFrictionScore(athlete: SportPerformanceInput, opponent: SportPerfor
   );
 }
 
-function frictionOverlapScore(athlete: SportPerformanceInput, opponent: SportPerformanceInput): number {
+function frictionOverlapScore(
+  athlete: SportPerformanceInput,
+  opponent: SportPerformanceInput,
+  homeTeamId?: number
+): number {
   const aN = athlete.heatmapPoints.length;
   const bN = opponent.heatmapPoints.length;
   const foulsTrigger =
     athlete.foulsCommitted > 1.0 && opponent.foulsSuffered > 1.5 ? 1.25 : 1;
 
   if (aN >= MIN_HEATMAP_POINTS_FOR_SPATIAL && bN >= MIN_HEATMAP_POINTS_FOR_SPATIAL) {
-    const distance = centroidDistance(
-      athlete.heatmapPoints,
-      mirrorHeatmapPointsX(opponent.heatmapPoints)
-    );
+    let distance: number;
+    if (homeTeamId !== undefined && homeTeamId > 0) {
+      distance = centroidDistance(
+        normalizeHeatmapToHomeFrame(athlete.heatmapPoints, athlete.teamId, homeTeamId),
+        normalizeHeatmapToHomeFrame(opponent.heatmapPoints, opponent.teamId, homeTeamId)
+      );
+    } else {
+      const d1 = centroidDistance(
+        athlete.heatmapPoints,
+        mirrorHeatmapPointsX(opponent.heatmapPoints)
+      );
+      const d2 = centroidDistance(
+        mirrorHeatmapPointsX(athlete.heatmapPoints),
+        opponent.heatmapPoints
+      );
+      distance = Math.min(d1, d2);
+    }
     const spatial = clamp(100 - distance, 0, 100);
     const foulBlend = foulFrictionScore(athlete, opponent);
     return (spatial * 0.72 + foulBlend * 0.28) * foulsTrigger;
@@ -140,7 +171,8 @@ function buildEstimatedHeatmapPoints(
 function buildFrictionExplanation(
   athlete: SportPerformanceInput,
   opponent: SportPerformanceInput,
-  heatmapOk: boolean
+  heatmapOk: boolean,
+  alignedToHomePitchFrame: boolean
 ): string {
   const aName = athlete.athleteName;
   const bName = opponent.athleteName;
@@ -153,10 +185,13 @@ function buildFrictionExplanation(
     "Da qui il possibile contrasto fisico in campo.";
 
   if (heatmapOk) {
-    return (
-      base +
-      " La mappa mostra dove sono stati più presenti sul terreno in stagione: dove i colori si avvicinano, le loro zone di gioco si sovrappongono."
-    );
+    let spatial =
+      " La mappa mostra dove sono stati più presenti sul terreno in stagione: dove i colori si avvicinano, le loro zone di gioco si sovrappongono.";
+    if (alignedToHomePitchFrame) {
+      spatial +=
+        " Per il confronto sull’incontro, la heatmap della squadra ospite è stata ribaltata lungo l’asse lungo del campo (come in diretta dalla parte della casa), così le due mappe sono nello stesso sistema di riferimento e non si sovrappongono per errore su fasce opposte.";
+    }
+    return base + spatial;
   }
 
   return base + " I dati di posizione sul campo sono parziali: il quadro si completa soprattutto con le medie sui falli.";
@@ -193,7 +228,8 @@ function calculateFirepowerIndex(athlete: SportPerformanceInput): {
 
 function calculateSparkDetector(
   athlete: SportPerformanceInput,
-  nearbyAthletes: SportPerformanceInput[]
+  nearbyAthletes: SportPerformanceInput[],
+  homeTeamId?: number
 ): {
   index: number;
   narrative: string;
@@ -216,13 +252,17 @@ function calculateSparkDetector(
   const bestOpponent = nearbyAthletes
     .map((opponent) => ({
       opponent,
-      overlap: frictionOverlapScore(athlete, opponent)
+      overlap: frictionOverlapScore(athlete, opponent, homeTeamId)
     }))
     .sort((a, b) => b.overlap - a.overlap)[0];
 
   const opp = bestOpponent.opponent;
-  const hasSpatialZone = athlete.heatmapPoints.length >= MIN_HEATMAP_POINTS_FOR_SPATIAL;
-  const c = heatmapCentroid(athlete.heatmapPoints);
+  const useHomePitchFrame = homeTeamId !== undefined && homeTeamId > 0;
+  const athleteZonePoints = useHomePitchFrame
+    ? normalizeHeatmapToHomeFrame(athlete.heatmapPoints, athlete.teamId, homeTeamId)
+    : athlete.heatmapPoints;
+  const hasSpatialZone = athleteZonePoints.length >= MIN_HEATMAP_POINTS_FOR_SPATIAL;
+  const c = heatmapCentroid(athleteZonePoints);
   const index = clamp(bestOpponent.overlap);
   const zone = {
     x: hasSpatialZone ? clamp(c.x, 0, 100) : 50,
@@ -246,18 +286,33 @@ function calculateSparkDetector(
 
   const narrative = `Possibile scontro in campo tra ${athlete.athleteName} e ${opp.athleteName}.`;
 
-  const frictionExplanation = buildFrictionExplanation(athlete, opp, heatmapOk);
+  const frictionExplanation = buildFrictionExplanation(
+    athlete,
+    opp,
+    heatmapOk,
+    useHomePitchFrame
+  );
 
-  const oppPointsInAthleteFrame =
-    opp.heatmapPoints.length > 0 ? mirrorHeatmapPointsX(opp.heatmapPoints) : [];
-  const oppCentroid = heatmapCentroid(oppPointsInAthleteFrame);
+  const oppPointsForDisplay = useHomePitchFrame
+    ? opp.heatmapPoints.length > 0
+      ? normalizeHeatmapToHomeFrame(opp.heatmapPoints, opp.teamId, homeTeamId)
+      : []
+    : opp.heatmapPoints.length > 0
+      ? mirrorHeatmapPointsX(opp.heatmapPoints)
+      : [];
+  const oppCentroid = heatmapCentroid(oppPointsForDisplay);
+  const athletePointsForDisplay = useHomePitchFrame
+    ? athlete.heatmapPoints.length > 0
+      ? normalizeHeatmapToHomeFrame(athlete.heatmapPoints, athlete.teamId, homeTeamId)
+      : []
+    : athlete.heatmapPoints;
   const pointsA =
-    athlete.heatmapPoints.length > 0
-      ? capHeatmapPointsForPayload(athlete.heatmapPoints)
+    athletePointsForDisplay.length > 0
+      ? capHeatmapPointsForPayload(athletePointsForDisplay)
       : buildEstimatedHeatmapPoints(zone.x, zone.y, `${athlete.athleteName}|${opp.athleteName}|A`);
   const pointsB =
-    oppPointsInAthleteFrame.length > 0
-      ? capHeatmapPointsForPayload(oppPointsInAthleteFrame)
+    oppPointsForDisplay.length > 0
+      ? capHeatmapPointsForPayload(oppPointsForDisplay)
       : buildEstimatedHeatmapPoints(
           oppCentroid.x > 0 || oppCentroid.y > 0 ? oppCentroid.x : zone.x + 3.5,
           oppCentroid.x > 0 || oppCentroid.y > 0 ? oppCentroid.y : zone.y - 1.5,
@@ -294,11 +349,12 @@ function avgShotsConcededByTeam(team: string, rows: SportPerformanceInput[]): nu
 
 export function buildTacticalMetrics(
   athlete: SportPerformanceInput,
-  allAthletes: SportPerformanceInput[]
+  allAthletes: SportPerformanceInput[],
+  options?: { homeTeamId?: number }
 ): TacticalMetrics {
   const nearbyAthletes = allAthletes.filter((opponent) => opponent.team !== athlete.team);
   const firepower = calculateFirepowerIndex(athlete);
-  const spark = calculateSparkDetector(athlete, nearbyAthletes);
+  const spark = calculateSparkDetector(athlete, nearbyAthletes, options?.homeTeamId);
   const wallIndex = calculateWallIndex(athlete);
 
   return {

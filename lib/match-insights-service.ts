@@ -582,7 +582,7 @@ export function buildMatchInsightsCacheKey(input: {
   playerAnalyticsMode: "full" | "serie_a_players";
 }): string {
   const slug = input.competitionSlug ?? "domestic";
-  return `match_insights:v37:${input.eventId}:${input.scope}:${slug}:diag_${input.includeDiagnostics ? "1" : "0"}:single_${input.singleMatchTest ? "1" : "0"}:refresh_${input.forceBlueprintRefresh ? "1" : "0"}:pa_${input.playerAnalyticsMode}`;
+  return `match_insights:v38:${input.eventId}:${input.scope}:${slug}:diag_${input.includeDiagnostics ? "1" : "0"}:single_${input.singleMatchTest ? "1" : "0"}:refresh_${input.forceBlueprintRefresh ? "1" : "0"}:pa_${input.playerAnalyticsMode}`;
 }
 
 export type MatchInsightsApiPayload = {
@@ -667,8 +667,13 @@ export async function computeMatchInsightsPayload(
       throw new Error("SportAPI error: no_performance_rows");
     }
 
+    const homeTeamIdForHeatmap =
+      typeof homeTeamId === "number" && homeTeamId > 0 ? homeTeamId : undefined;
+
     const metrics = performance.length
-      ? performance.map((athlete) => buildTacticalMetrics(athlete, performance))
+      ? performance.map((athlete) =>
+          buildTacticalMetrics(athlete, performance, { homeTeamId: homeTeamIdForHeatmap })
+        )
       : [];
 
     const inferredTeams = performance.length

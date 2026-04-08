@@ -21,7 +21,9 @@ export interface PlayerStat {
 
 /**
  * Doppia mappa posizioni sul campo per analisi tecnica; coordinate 0–100 come da API stagionale.
- * `pointsB` è nel medesimo sistema orizzontale di `pointsA` (X dell’avversario ribaltato sullo stesso verso di campo).
+ * Con contesto partita, entrambe le serie sono nel sistema della squadra di casa (heatmap ospite
+ * ribaltata lungo l’asse lungo); senza contesto, `pointsB` resta allineata allo stesso frame di `pointsA`
+ * tramite ribaltamento rispetto al primo giocatore scelto dal modello.
  */
 export interface SparkFrictionHeatmapPayload {
   labelA: string;
