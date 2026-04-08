@@ -4,12 +4,26 @@ import { isIpAllowed } from "@/lib/ip-policy";
 import { isSubscriptionOperational } from "@/lib/subscription-policy";
 import { createSupabaseMiddlewareClient } from "@/lib/supabase/middleware";
 
-const protectedPrefixes = ["/display", "/kiosk"];
+const protectedPrefixes = ["/display", "/kiosk", "/kiosk-testing", "/admin", "/api/admin"];
 const mobileUserAgentPattern =
   /android|iphone|ipad|ipod|mobile|blackberry|opera mini|iemobile|windows phone/i;
 
 function isProtectedPath(pathname: string): boolean {
   return protectedPrefixes.some((prefix) => pathname.startsWith(prefix));
+}
+
+function isAdminOnlyPath(pathname: string): boolean {
+  return (
+    pathname.startsWith("/admin") ||
+    pathname.startsWith("/api/admin") ||
+    pathname.startsWith("/kiosk-testing")
+  );
+}
+
+function isViewerAllowedPath(pathname: string): boolean {
+  if (pathname.startsWith("/display")) return true;
+  if (pathname === "/kiosk/hybrid" || pathname.startsWith("/kiosk/hybrid/")) return true;
+  return false;
 }
 
 function isMobileUserAgent(userAgent: string | null): boolean {
@@ -211,6 +225,34 @@ export async function middleware(request: NextRequest) {
       currentPeriodEnd: subscription.current_period_end
     });
 
+  if (membership.role === "viewer" && !isViewerAllowedPath(request.nextUrl.pathname)) {
+    await writeAuditLog({
+      userId: user.id,
+      organizationId,
+      ip: clientIp,
+      xForwardedFor: forwardedFor,
+      userAgent,
+      path: request.nextUrl.pathname,
+      reason: "role_not_allowed",
+      result: "forbidden"
+    });
+    return NextResponse.redirect(new URL("/forbidden", request.url));
+  }
+
+  if (isAdminOnlyPath(request.nextUrl.pathname) && membership.role !== "admin") {
+    await writeAuditLog({
+      userId: user.id,
+      organizationId,
+      ip: clientIp,
+      xForwardedFor: forwardedFor,
+      userAgent,
+      path: request.nextUrl.pathname,
+      reason: "role_not_allowed",
+      result: "forbidden"
+    });
+    return NextResponse.redirect(new URL("/forbidden", request.url));
+  }
+
   if (!isSubscriptionActive && membership.role !== "admin") {
     await writeAuditLog({
       userId: user.id,
@@ -256,5 +298,11 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/display/:path*", "/kiosk/:path*"]
+  matcher: [
+    "/display/:path*",
+    "/kiosk/:path*",
+    "/kiosk-testing/:path*",
+    "/admin/:path*",
+    "/api/admin/:path*"
+  ]
 };

@@ -1,8 +1,12 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { getSessionContext } from "@/lib/auth/session";
 
 export default async function HomePage() {
   const session = await getSessionContext();
+  if (!session) {
+    redirect("/login");
+  }
 
   return (
     <section className="grid gap-8 py-10">
@@ -15,28 +19,19 @@ export default async function HomePage() {
           per sale operative di agenzie sportive.
         </p>
         <div className="mt-6 flex flex-wrap items-center gap-3">
-          {session ? (
-            <>
-              <span className="rounded-lg border border-cyan-400/40 px-3 py-1 text-sm text-cyan-200">
-                Operatore: {session.email ?? "utente autenticato"}
-              </span>
-              <form action="/auth/logout" method="post">
-                <button
-                  type="submit"
-                  className="rounded-lg border border-cyan-400/40 px-3 py-1 text-sm text-cyan-200"
-                >
-                  Disconnetti
-                </button>
-              </form>
-            </>
-          ) : (
-            <Link
-              href="/login"
-              className="rounded-lg border border-cyan-400/40 px-3 py-1 text-sm text-cyan-200"
-            >
-              Vai al login
-            </Link>
-          )}
+          <>
+            <span className="rounded-lg border border-cyan-400/40 px-3 py-1 text-sm text-cyan-200">
+              Operatore: {session.email ?? "utente autenticato"}
+            </span>
+            <form action="/auth/logout" method="post">
+              <button
+                type="submit"
+                className="rounded-lg border border-cyan-400/40 px-3 py-1 text-sm text-cyan-200"
+              >
+                Disconnetti
+              </button>
+            </form>
+          </>
         </div>
       </header>
 
