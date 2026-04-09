@@ -45,7 +45,7 @@ function isKickoffOnDisplayDay(
 function displayProgramCacheKey(): string {
   const tz = displayDayTimeZone();
   const day = calendarDateInTimeZone(new Date(), tz);
-  return `tactical_display_program:v9:serie_a_day:${day}`;
+  return `tactical_display_program:v10:serie_a_day:${day}`;
 }
 
 function normalizeCompetitionSlug(raw: string): string {
@@ -397,7 +397,13 @@ export async function getSerieADisplayProgram(forceRefresh: boolean): Promise<Di
   }
 
   const built = await buildSerieADisplayProgramBody();
-  await setApiCache(cacheKey, built, cacheHours);
+  /**
+   * Non congelare un programma vuoto per ore: può capitare durante cambio piano/quota o cache menu vuota.
+   * Se non ci sono slide, lasciamo che la prossima richiesta ritenti (o usi `refresh=1`).
+   */
+  if (built.slides.length > 0) {
+    await setApiCache(cacheKey, built, cacheHours);
+  }
   return built;
 }
 

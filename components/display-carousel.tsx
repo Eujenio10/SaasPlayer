@@ -64,12 +64,18 @@ export function DisplayCarousel({
       }
     }
 
+    // Se la pagina è stata renderizzata durante un momento di cache “vuota” (es. quota/piano aggiornati),
+    // forza un refresh una sola volta al mount per riprendersi subito senza attendere il polling.
+    if (!slides.length) {
+      void pull(true);
+    }
+
     const interval = window.setInterval(() => {
       void pull(false);
     }, REFRESH_MS);
 
     return () => window.clearInterval(interval);
-  }, [organizationId]);
+  }, [organizationId, slides.length]);
 
   const current = slides[index];
   const motionKey = useMemo(
