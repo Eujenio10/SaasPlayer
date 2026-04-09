@@ -3,7 +3,7 @@ import { filterMatchesKickoffInFuture } from "@/lib/tactical-matches-filters";
 import { fetchUpcomingTopCompetitionMatches, type UpcomingMatchItem } from "@/services/sportapi";
 
 /** Stessa chiave usata da `/api/tactical/matches` senza filtri home/away/competition. */
-export const TACTICAL_MATCHES_MENU_FULL_CACHE_KEY = "tactical_matches_menu:v12:_:_:_";
+export const TACTICAL_MATCHES_MENU_FULL_CACHE_KEY = "tactical_matches_menu:v13:_:_:_";
 
 /**
  * Elenco partite top-league (come il menu kiosk): cache Supabase condivisa.
@@ -19,10 +19,16 @@ export async function getOrRefreshTacticalMatchesMenuFull(): Promise<UpcomingMat
   }
 
   const matches = await fetchUpcomingTopCompetitionMatches();
-  await setApiCache(
-    TACTICAL_MATCHES_MENU_FULL_CACHE_KEY,
-    { matches, total: matches.length },
-    menuCacheHours
-  );
+  /**
+   * Importante: se il provider ha risposto vuoto (o abbiamo filtrato via tutto per errori/limiti),
+   * non vogliamo “congelare” un menu vuoto per ore/giorni: meglio ritentare alla prossima richiesta.
+   */
+  if (matches.length > 0) {
+    await setApiCache(
+      TACTICAL_MATCHES_MENU_FULL_CACHE_KEY,
+      { matches, total: matches.length },
+      menuCacheHours
+    );
+  }
   return filterMatchesKickoffInFuture(matches);
 }
