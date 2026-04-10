@@ -147,6 +147,19 @@ function capHeatmapPointsForPayload(
   return sorted.slice(0, HEATMAP_POINTS_RENDER_CAP);
 }
 
+/** Stesso frame usato per gli scontri friction (normalizzazione ospite), capped per il payload API. */
+export function buildHeatmapPointsMatchFrameForPayload(
+  points: SportPerformanceInput["heatmapPoints"],
+  teamId: number,
+  homeTeamId: number | undefined
+): SportPerformanceInput["heatmapPoints"] {
+  const inFrame =
+    homeTeamId !== undefined && homeTeamId > 0
+      ? normalizeHeatmapToHomeFrame(points, teamId, homeTeamId)
+      : points;
+  return capHeatmapPointsForPayload(inFrame);
+}
+
 function stableSeed01(seed: string): number {
   let h = 2166136261;
   for (let i = 0; i < seed.length; i += 1) {
@@ -399,6 +412,11 @@ export function buildTacticalMetrics(
     savesLastTwoSampleCount: athlete.savesLastTwoSampleCount,
     foulsCommittedLastTwoSampleCount: athlete.foulsCommittedLastTwoSampleCount,
     foulsSufferedLastTwoSampleCount: athlete.foulsSufferedLastTwoSampleCount,
-    lastUpdated: new Date().toISOString()
+    lastUpdated: new Date().toISOString(),
+    heatmapPointsMatchFrame: buildHeatmapPointsMatchFrameForPayload(
+      athlete.heatmapPoints,
+      athlete.teamId,
+      options?.homeTeamId
+    )
   };
 }

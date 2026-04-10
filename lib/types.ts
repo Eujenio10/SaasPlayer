@@ -84,6 +84,11 @@ export interface TacticalMetrics {
   foulsCommittedLastTwoSampleCount?: number;
   foulsSufferedLastTwoSampleCount?: number;
   lastUpdated: string;
+  /**
+   * Punti heatmap stagionali nel frame della squadra di casa (stesso orientamento degli scontri friction).
+   * Presente quando `match-insights` costruisce le metriche con `homeTeamId`.
+   */
+  heatmapPointsMatchFrame?: Array<{ x: number; y: number; intensity?: number }>;
 }
 
 export interface TacticalSnapshotRow {

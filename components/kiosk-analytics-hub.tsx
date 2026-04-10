@@ -2,10 +2,15 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { FrictionPitchHeatmap } from "@/components/friction-pitch-heatmap";
+import { analyzeFoulRisk } from "@/lib/foul-risk-analysis";
 import { filterMatchesKickoffInFuture } from "@/lib/tactical-matches-filters";
 import type { CompetitionScope, TacticalMetrics, TeamPerformanceBlueprint } from "@/lib/types";
 
-type KioskView = "MATCH_TEAMS" | "PLAYER_FRICTION";
+type KioskView =
+  | "MATCH_TEAMS"
+  | "PLAYER_FRICTION"
+  | "FOUL_RISK_SUFFERED"
+  | "FOUL_RISK_COMMITTED";
 type TeamStatView = "OFFENSE" | "DEFENSE";
 
 interface UpcomingMatchItem {
@@ -605,6 +610,39 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
     [selectedMatchMetrics]
   );
 
+  const playerAnalyticsView: KioskView | null =
+    view === "PLAYER_FRICTION" || view === "FOUL_RISK_SUFFERED" || view === "FOUL_RISK_COMMITTED"
+      ? view
+      : null;
+
+  const foulRiskSufferedEntries = useMemo(() => {
+    if (!selectedMatch) return [];
+    return analyzeFoulRisk({
+      metrics: selectedMatchMetrics,
+      homeTeamId: selectedMatch.homeTeam.id,
+      awayTeamId: selectedMatch.awayTeam.id,
+      kind: "suffered"
+    });
+  }, [selectedMatch, selectedMatchMetrics]);
+
+  const foulRiskCommittedEntries = useMemo(() => {
+    if (!selectedMatch) return [];
+    return analyzeFoulRisk({
+      metrics: selectedMatchMetrics,
+      homeTeamId: selectedMatch.homeTeam.id,
+      awayTeamId: selectedMatch.awayTeam.id,
+      kind: "committed"
+    });
+  }, [selectedMatch, selectedMatchMetrics]);
+
+  const hasMatchFrameHeatmaps = useMemo(
+    () =>
+      selectedMatchMetrics.some(
+        (m) => m.roleIcon !== "🧤" && (m.heatmapPointsMatchFrame?.length ?? 0) >= 3
+      ),
+    [selectedMatchMetrics]
+  );
+
   useEffect(() => {
     async function loadMatches() {
       if (presetMatch) {
@@ -820,6 +858,28 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
             }`}
           >
             Scontri in campo
+          </button>
+          <button
+            type="button"
+            onClick={() => setView("FOUL_RISK_SUFFERED")}
+            className={`rounded-lg border px-3 py-2 text-xs font-semibold tracking-wide ${
+              view === "FOUL_RISK_SUFFERED"
+                ? "border-cyan-300 bg-cyan-400/20 text-cyan-200"
+                : "border-slate-700 bg-slate-900 text-slate-300"
+            }`}
+          >
+            Rischio falli subiti
+          </button>
+          <button
+            type="button"
+            onClick={() => setView("FOUL_RISK_COMMITTED")}
+            className={`rounded-lg border px-3 py-2 text-xs font-semibold tracking-wide ${
+              view === "FOUL_RISK_COMMITTED"
+                ? "border-cyan-300 bg-cyan-400/20 text-cyan-200"
+                : "border-slate-700 bg-slate-900 text-slate-300"
+            }`}
+          >
+            Rischio falli commessi
           </button>
         </div>
       </header>
@@ -1191,7 +1251,7 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
         </div>
       ) : null}
 
-      {view === "PLAYER_FRICTION" ? (
+      {playerAnalyticsView ? (
         <div className="space-y-4">
           {playerDetailLevel === "team_only" ? (
             <div className="rounded-xl border border-slate-600 bg-slate-950/70 p-6 text-center">
@@ -1206,131 +1266,236 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
             </div>
           ) : (
             <>
-          <p className="text-sm text-slate-300">
-            Per la partita selezionata vengono evidenziati i <strong>4 scontri più interessanti</strong> tra
-            giocatori avversari (priorità a sovrapposizione heatmap e profilo falli), con mappa del campo e medie
-            campionato.
-          </p>
-
-          <div className="grid gap-2 lg:grid-cols-2">
-            {visibleMatches.map((match) => (
-              <button
-                key={`friction-${match.eventId}`}
-                type="button"
-                onClick={() => setSelectedMatchId(match.eventId)}
-                className={`rounded-xl border p-3 text-left ${
-                  selectedMatch?.eventId === match.eventId
-                    ? "border-cyan-300 bg-cyan-400/10"
-                    : "border-slate-700 bg-slate-900/40"
-                }`}
-              >
-                <p className="text-xs uppercase text-slate-400">
-                  {competitionLabel(match.competitionSlug)}
+              {playerAnalyticsView === "PLAYER_FRICTION" ? (
+                <p className="text-sm text-slate-300">
+                  Per la partita selezionata vengono evidenziati i <strong>4 scontri più interessanti</strong> tra
+                  giocatori avversari (priorità a sovrapposizione heatmap e profilo falli), con mappa del campo e medie
+                  campionato.
                 </p>
-                <p className="text-sm font-semibold text-slate-100">
-                  {match.homeTeam.name} vs {match.awayTeam.name}
+              ) : playerAnalyticsView === "FOUL_RISK_SUFFERED" ? (
+                <p className="text-sm text-slate-300">
+                  Giocatori la cui <strong>heatmap stagionale</strong> (stesso orientamento degli scontri) si sovrappone
+                  in modo significativo a avversari con media <strong>falli commessi &gt; 1,00</strong> a partita in
+                  campionato: possibile esposizione a falli subiti.
                 </p>
-              </button>
-            ))}
-          </div>
+              ) : (
+                <p className="text-sm text-slate-300">
+                  Giocatori con forte incrocio territoriale verso avversari che <strong>subiscono in media più di 1,00</strong>{" "}
+                  falli a partita: contestazione frequente e rischio di entrare in situazioni da fallo commesso.
+                </p>
+              )}
 
-          {matchFrictionPairs.length === 0 ? (
-            <p className="text-sm text-amber-200">
-              Per questa partita non risultano scontri tra giocatori particolarmente evidenti.
-            </p>
-          ) : null}
-          {matchFrictionPairs.map((pair, idx) => (
-            <section key={`${pair.left.playerName}-${pair.right.playerName}-${idx}`} className="space-y-3">
-              <p className="text-xs uppercase tracking-wide text-cyan-300">
-                Scontro {idx + 1} — tra i più interessanti
-              </p>
-              <p className="text-sm text-slate-200">{pair.left.sparkNarrative}</p>
-              {pair.left.sparkFrictionHeatmap ? (
-                <div className="rounded-xl border border-emerald-500/25 bg-slate-950/80 p-4 shadow-inner">
-                  <p className="mb-3 text-xs font-medium text-slate-400">
-                    Mappa del campo — dove i due giocatori sono stati più presenti in stagione
+              <div className="grid gap-2 lg:grid-cols-2">
+                {visibleMatches.map((match) => (
+                  <button
+                    key={`player-view-${match.eventId}`}
+                    type="button"
+                    onClick={() => setSelectedMatchId(match.eventId)}
+                    className={`rounded-xl border p-3 text-left ${
+                      selectedMatch?.eventId === match.eventId
+                        ? "border-cyan-300 bg-cyan-400/10"
+                        : "border-slate-700 bg-slate-900/40"
+                    }`}
+                  >
+                    <p className="text-xs uppercase text-slate-400">
+                      {competitionLabel(match.competitionSlug)}
+                    </p>
+                    <p className="text-sm font-semibold text-slate-100">
+                      {match.homeTeam.name} vs {match.awayTeam.name}
+                    </p>
+                  </button>
+                ))}
+              </div>
+
+              {!hasMatchFrameHeatmaps ? (
+                <p className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-amber-100">
+                  Heatmap giocatore nel frame partita non disponibili (cache precedente). Ricarica i dati del match o
+                  attendi il prossimo aggiornamento insights.
+                </p>
+              ) : null}
+
+              {playerAnalyticsView === "PLAYER_FRICTION" ? (
+                <>
+                  {matchFrictionPairs.length === 0 ? (
+                    <p className="text-sm text-amber-200">
+                      Per questa partita non risultano scontri tra giocatori particolarmente evidenti.
+                    </p>
+                  ) : null}
+                  {matchFrictionPairs.map((pair, idx) => (
+                    <section key={`${pair.left.playerName}-${pair.right.playerName}-${idx}`} className="space-y-3">
+                      <p className="text-xs uppercase tracking-wide text-cyan-300">
+                        Scontro {idx + 1} — tra i più interessanti
+                      </p>
+                      <p className="text-sm text-slate-200">{pair.left.sparkNarrative}</p>
+                      {pair.left.sparkFrictionHeatmap ? (
+                        <div className="rounded-xl border border-emerald-500/25 bg-slate-950/80 p-4 shadow-inner">
+                          <p className="mb-3 text-xs font-medium text-slate-400">
+                            Mappa del campo — dove i due giocatori sono stati più presenti in stagione
+                          </p>
+                          <FrictionPitchHeatmap {...pair.left.sparkFrictionHeatmap} />
+                        </div>
+                      ) : null}
+                      {pair.left.sparkFrictionExplanation ? (
+                        <p className="rounded-xl border border-slate-600/50 bg-slate-900/60 p-4 text-sm leading-relaxed text-slate-200">
+                          {pair.left.sparkFrictionExplanation}
+                        </p>
+                      ) : null}
+                      <div className="grid gap-4 lg:grid-cols-2">
+                        <article className="rounded-xl border border-cyan-400/25 bg-slate-950/70 p-4">
+                          <p className="text-sm font-semibold text-slate-100">{pair.left.playerName}</p>
+                          <p className="text-xs text-slate-400">{pair.left.team}</p>
+                          <p className="mt-2 text-sm text-slate-300">
+                            Falli commessi in media (campionato): circa {pair.left.foulsCommittedSeasonAvg.toFixed(1)} a
+                            partita.
+                          </p>
+                        </article>
+                        <article className="rounded-xl border border-violet-400/25 bg-slate-950/70 p-4">
+                          <p className="text-sm font-semibold text-slate-100">{pair.right.playerName}</p>
+                          <p className="text-xs text-slate-400">{pair.right.team}</p>
+                          <p className="mt-2 text-sm text-slate-300">
+                            Falli subiti in media (campionato): circa {pair.right.foulsSufferedSeasonAvg.toFixed(1)} a
+                            partita.
+                          </p>
+                        </article>
+                      </div>
+                    </section>
+                  ))}
+                </>
+              ) : playerAnalyticsView === "FOUL_RISK_SUFFERED" ? (
+                foulRiskSufferedEntries.length === 0 ? (
+                  <p className="text-sm text-amber-200">
+                    Nessun giocatore supera le soglie di sovrapposizione heatmap con avversari “fisici” (falli commessi
+                    &gt; 1,00) per questa partita.
                   </p>
-                  <FrictionPitchHeatmap {...pair.left.sparkFrictionHeatmap} />
+                ) : (
+                  foulRiskSufferedEntries.map((entry, idx) => (
+                    <section
+                      key={`foul-suffered-${entry.playerId ?? entry.playerName}-${idx}`}
+                      className="space-y-3 rounded-xl border border-rose-500/20 bg-slate-950/70 p-4"
+                    >
+                      <p className="text-xs uppercase tracking-wide text-rose-200">
+                        Rischio subiti — {idx + 1} · {entry.playerName}
+                      </p>
+                      <p className="text-xs text-slate-400">
+                        {entry.team} · punteggio sintetico {entry.riskScore.toFixed(1)} · sovrapposizione massima ~{" "}
+                        {entry.maxCollisionPercent}%
+                      </p>
+                      <div className="rounded-xl border border-emerald-500/25 bg-slate-950/80 p-4 shadow-inner">
+                        <p className="mb-3 text-xs font-medium text-slate-400">
+                          Heatmap: giocatore (A) e principali zone di pressione avversaria (B)
+                        </p>
+                        <FrictionPitchHeatmap {...entry.heatmap} />
+                      </div>
+                      <p className="rounded-xl border border-slate-600/50 bg-slate-900/60 p-4 text-sm leading-relaxed text-slate-200">
+                        {entry.justification}
+                      </p>
+                      {entry.aggressors.length > 0 ? (
+                        <ul className="space-y-1 text-xs text-slate-400">
+                          {entry.aggressors.map((a) => (
+                            <li key={`${entry.playerName}-${a.playerName}`}>
+                              <span className="font-medium text-slate-300">{a.playerName}</span> ({a.team}): collisione
+                              ~{a.collisionPercent}% · falli commessi/stag. ~{a.foulsCommittedSeasonAvg.toFixed(2)}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
+                    </section>
+                  ))
+                )
+              ) : foulRiskCommittedEntries.length === 0 ? (
+                <p className="text-sm text-amber-200">
+                  Nessun giocatore supera le soglie con avversari che subiscono in media più di 1,00 falli a partita.
+                </p>
+              ) : (
+                foulRiskCommittedEntries.map((entry, idx) => (
+                  <section
+                    key={`foul-committed-${entry.playerId ?? entry.playerName}-${idx}`}
+                    className="space-y-3 rounded-xl border border-violet-500/20 bg-slate-950/70 p-4"
+                  >
+                    <p className="text-xs uppercase tracking-wide text-violet-200">
+                      Rischio commessi — {idx + 1} · {entry.playerName}
+                    </p>
+                    <p className="text-xs text-slate-400">
+                      {entry.team} · punteggio sintetico {entry.riskScore.toFixed(1)} · sovrapposizione massima ~{" "}
+                      {entry.maxCollisionPercent}%
+                    </p>
+                    <div className="rounded-xl border border-emerald-500/25 bg-slate-950/80 p-4 shadow-inner">
+                      <p className="mb-3 text-xs font-medium text-slate-400">
+                        Heatmap: giocatore (A) e zone occupate dagli avversari più “tirati” (B)
+                      </p>
+                      <FrictionPitchHeatmap {...entry.heatmap} />
+                    </div>
+                    <p className="rounded-xl border border-slate-600/50 bg-slate-900/60 p-4 text-sm leading-relaxed text-slate-200">
+                      {entry.justification}
+                    </p>
+                    {entry.aggressors.length > 0 ? (
+                      <ul className="space-y-1 text-xs text-slate-400">
+                        {entry.aggressors.map((a) => (
+                          <li key={`${entry.playerName}-${a.playerName}`}>
+                            <span className="font-medium text-slate-300">{a.playerName}</span> ({a.team}): collisione
+                            ~{a.collisionPercent}% · falli subiti/stag. ~{a.foulsSufferedSeasonAvg.toFixed(2)}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </section>
+                ))
+              )}
+
+              {playerAnalyticsView === "PLAYER_FRICTION" ? (
+                <div className="grid gap-4 lg:grid-cols-2">
+                  <TopPlayersSeasonTable
+                    title="Top 5 Tiratori — Stagione"
+                    rows={playerRowsNoKeepers}
+                    valueSelector={(item) => numeric(item.shotsSeasonAvg)}
+                    onTopPlayersComputed={(top) =>
+                      setSeasonShooterKeys(new Set(top.map((p) => playerStableKey(p))))
+                    }
+                  />
+                  <TopPlayersLastTwoTable
+                    title="Top 5 Tiratori — Ultimi 2"
+                    rows={playerRowsNoKeepers}
+                    valueSelector={(item) => numeric(item.shotsLastTwoAvg)}
+                    sampleCountSelector={(item) => item.shotsLastTwoSampleCount}
+                    excludePlayers={seasonShooterKeys}
+                  />
+                  <TopPlayersSeasonTable
+                    title="Portieri — Parate (stagione)"
+                    rows={goalkeeperRows}
+                    valueSelector={(item) => numeric(item.savesSeasonAvg)}
+                  />
+                  <TopPlayersSeasonTable
+                    title="Top 5 Più Fallosi — Stagione"
+                    rows={playerRowsNoKeepers}
+                    valueSelector={(item) => numeric(item.foulsCommittedSeasonAvg)}
+                    onTopPlayersComputed={(top) =>
+                      setSeasonFoulsCommittedKeys(new Set(top.map((p) => playerStableKey(p))))
+                    }
+                  />
+                  <TopPlayersLastTwoTable
+                    title="Top 5 Più Fallosi — Ultimi 2"
+                    rows={playerRowsNoKeepers}
+                    valueSelector={(item) => numeric(item.foulsCommittedLastTwoAvg)}
+                    sampleCountSelector={(item) => item.foulsCommittedLastTwoSampleCount}
+                    excludePlayers={seasonFoulsCommittedKeys}
+                  />
+                  <TopPlayersSeasonTable
+                    title="Top 5 Falli Subiti — Stagione"
+                    rows={playerRowsNoKeepers}
+                    valueSelector={(item) => numeric(item.foulsSufferedSeasonAvg)}
+                    onTopPlayersComputed={(top) =>
+                      setSeasonFoulsSufferedKeys(new Set(top.map((p) => playerStableKey(p))))
+                    }
+                  />
+                  <TopPlayersLastTwoTable
+                    title="Top 5 Falli Subiti — Ultimi 2"
+                    rows={playerRowsNoKeepers}
+                    valueSelector={(item) => numeric(item.foulsSufferedLastTwoAvg)}
+                    sampleCountSelector={(item) => item.foulsSufferedLastTwoSampleCount}
+                    excludePlayers={seasonFoulsSufferedKeys}
+                  />
                 </div>
               ) : null}
-              {pair.left.sparkFrictionExplanation ? (
-                <p className="rounded-xl border border-slate-600/50 bg-slate-900/60 p-4 text-sm leading-relaxed text-slate-200">
-                  {pair.left.sparkFrictionExplanation}
-                </p>
-              ) : null}
-              <div className="grid gap-4 lg:grid-cols-2">
-                <article className="rounded-xl border border-cyan-400/25 bg-slate-950/70 p-4">
-                  <p className="text-sm font-semibold text-slate-100">{pair.left.playerName}</p>
-                  <p className="text-xs text-slate-400">{pair.left.team}</p>
-                  <p className="mt-2 text-sm text-slate-300">
-                    Falli commessi in media (campionato): circa {pair.left.foulsCommittedSeasonAvg.toFixed(1)} a
-                    partita.
-                  </p>
-                </article>
-                <article className="rounded-xl border border-violet-400/25 bg-slate-950/70 p-4">
-                  <p className="text-sm font-semibold text-slate-100">{pair.right.playerName}</p>
-                  <p className="text-xs text-slate-400">{pair.right.team}</p>
-                  <p className="mt-2 text-sm text-slate-300">
-                    Falli subiti in media (campionato): circa {pair.right.foulsSufferedSeasonAvg.toFixed(1)} a
-                    partita.
-                  </p>
-                </article>
-              </div>
-            </section>
-          ))}
-
-          <div className="grid gap-4 lg:grid-cols-2">
-            <TopPlayersSeasonTable
-              title="Top 5 Tiratori — Stagione"
-              rows={playerRowsNoKeepers}
-              valueSelector={(item) => numeric(item.shotsSeasonAvg)}
-              onTopPlayersComputed={(top) =>
-                setSeasonShooterKeys(new Set(top.map((p) => playerStableKey(p))))
-              }
-            />
-            <TopPlayersLastTwoTable
-              title="Top 5 Tiratori — Ultimi 2"
-              rows={playerRowsNoKeepers}
-              valueSelector={(item) => numeric(item.shotsLastTwoAvg)}
-              sampleCountSelector={(item) => item.shotsLastTwoSampleCount}
-              excludePlayers={seasonShooterKeys}
-            />
-            <TopPlayersSeasonTable
-              title="Portieri — Parate (stagione)"
-              rows={goalkeeperRows}
-              valueSelector={(item) => numeric(item.savesSeasonAvg)}
-            />
-            <TopPlayersSeasonTable
-              title="Top 5 Più Fallosi — Stagione"
-              rows={playerRowsNoKeepers}
-              valueSelector={(item) => numeric(item.foulsCommittedSeasonAvg)}
-              onTopPlayersComputed={(top) =>
-                setSeasonFoulsCommittedKeys(new Set(top.map((p) => playerStableKey(p))))
-              }
-            />
-            <TopPlayersLastTwoTable
-              title="Top 5 Più Fallosi — Ultimi 2"
-              rows={playerRowsNoKeepers}
-              valueSelector={(item) => numeric(item.foulsCommittedLastTwoAvg)}
-              sampleCountSelector={(item) => item.foulsCommittedLastTwoSampleCount}
-              excludePlayers={seasonFoulsCommittedKeys}
-            />
-            <TopPlayersSeasonTable
-              title="Top 5 Falli Subiti — Stagione"
-              rows={playerRowsNoKeepers}
-              valueSelector={(item) => numeric(item.foulsSufferedSeasonAvg)}
-              onTopPlayersComputed={(top) =>
-                setSeasonFoulsSufferedKeys(new Set(top.map((p) => playerStableKey(p))))
-              }
-            />
-            <TopPlayersLastTwoTable
-              title="Top 5 Falli Subiti — Ultimi 2"
-              rows={playerRowsNoKeepers}
-              valueSelector={(item) => numeric(item.foulsSufferedLastTwoAvg)}
-              sampleCountSelector={(item) => item.foulsSufferedLastTwoSampleCount}
-              excludePlayers={seasonFoulsSufferedKeys}
-            />
-          </div>
             </>
           )}
         </div>
