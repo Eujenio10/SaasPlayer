@@ -461,6 +461,11 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
     away?: TeamBlueprintDebugMeta;
   } | null>(null);
 
+  /** `undefined` = caricamento in corso o non avviato; array = risposta API (anche vuota). */
+  const [serieARoundFormRows, setSerieARoundFormRows] = useState<TacticalMetrics[] | undefined>(undefined);
+  const [serieARoundFormLoading, setSerieARoundFormLoading] = useState(false);
+  const [serieARoundFormUsedFallback, setSerieARoundFormUsedFallback] = useState(false);
+
   useEffect(() => {
     const id = window.setInterval(() => {
       setMatchListTimeTick((t) => t + 1);
@@ -649,9 +654,62 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
     Boolean(selectedMatch && normalizeKioskCompetitionSlug(selectedMatch.competitionSlug) === "serie-a") &&
     playerDetailLevel === "full";
 
+  useEffect(() => {
+    if (!showSerieAFormFromFriction || !selectedMatch) {
+      setSerieARoundFormRows(undefined);
+      setSerieARoundFormLoading(false);
+      setSerieARoundFormUsedFallback(false);
+      return;
+    }
+    let cancelled = false;
+    const ac = new AbortController();
+    setSerieARoundFormRows(undefined);
+    setSerieARoundFormUsedFallback(false);
+    setSerieARoundFormLoading(true);
+
+    async function loadRoundForm() {
+      try {
+        const res = await fetch(
+          `/api/tactical/serie-a-round-form?eventId=${selectedMatch.eventId}`,
+          { cache: "no-store", signal: ac.signal }
+        );
+        if (!res.ok) {
+          if (!cancelled) {
+            setSerieARoundFormRows([]);
+            setSerieARoundFormUsedFallback(true);
+          }
+          return;
+        }
+        const json = (await res.json()) as { metrics?: TacticalMetrics[] };
+        const list = Array.isArray(json.metrics) ? json.metrics : [];
+        if (!cancelled) {
+          setSerieARoundFormRows(list);
+          setSerieARoundFormUsedFallback(list.length === 0);
+        }
+      } catch {
+        if (!cancelled) {
+          setSerieARoundFormRows([]);
+          setSerieARoundFormUsedFallback(true);
+        }
+      } finally {
+        if (!cancelled) setSerieARoundFormLoading(false);
+      }
+    }
+
+    void loadRoundForm();
+    return () => {
+      cancelled = true;
+      ac.abort();
+    };
+  }, [showSerieAFormFromFriction, selectedMatch?.eventId]);
+
   const serieAFormLeaders = useMemo(() => {
     if (!showSerieAFormFromFriction) return null;
+    if (serieARoundFormRows === undefined) return null;
     const TOP = 10;
+
+    const baseRows =
+      serieARoundFormRows.length > 0 ? serieARoundFormRows : selectedMatchMetrics;
 
     /** Stessa persona può comparire più volte in `metrics` (merge supplementari / id vs nome): una sola riga per squadra+nome. */
     const normalizePlayerName = (name: string) => name.replace(/\s+/g, " ").trim().toUpperCase();
@@ -664,7 +722,7 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
       return a;
     };
     const byRoster = new Map<string, TacticalMetrics>();
-    for (const m of selectedMatchMetrics) {
+    for (const m of baseRows) {
       const k = rosterKey(m);
       const prev = byRoster.get(k);
       byRoster.set(k, prev ? pickBetterRow(m, prev) : m);
@@ -697,7 +755,7 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
     const foulsSuffered = takeUnique(() => true, (m) => m.foulsSufferedLastFiveAvg);
 
     return { foulsCommitted, foulsSuffered, shots, saves };
-  }, [showSerieAFormFromFriction, selectedMatchMetrics]);
+  }, [showSerieAFormFromFriction, selectedMatchMetrics, serieARoundFormRows]);
 
   useEffect(() => {
     async function loadMatches() {
@@ -940,21 +998,27 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
         </div>
       </header>
 
-      {showSerieAFormFromFriction && serieAFormLeaders ? (
+      {showSerieAFormFromFriction ? (
         <article className="rounded-xl border border-amber-400/25 bg-slate-950/80 p-4">
           <h3 className="mb-1 text-sm font-semibold uppercase tracking-wide text-amber-200">
-            Serie A — forma recente (stessi dati degli scontri)
+            Serie A — forma recente (giornata intera)
           </h3>
           <p className="mb-4 text-[11px] leading-relaxed text-slate-500">
-            Top 10 tra i giocatori delle due squadre della partita selezionata (medie sulle{" "}
-            <strong>ultime partite di campionato</strong> già usate per gli scontri; fino a 5 match nel campione, nessuna
-            richiesta aggiuntiva).{" "}
-            <strong>Ogni giocatore compare al massimo in una sola classifica</strong>. Assegnazione interna: parate
-            (portieri) → tiri (fuori porta) → falli commessi → falli subiti, così le quattro top non si sovrappongono.
+            Top 10 calcolate sul pool di <strong>tutti i giocatori coinvolti nella stessa giornata</strong> di Serie A del
+            match selezionato (stesso <code className="text-slate-400">round</code>), con le stesse medie sulle ultime
+            partite usate per il modello scontri.{" "}
+            <strong>Ogni giocatore compare al massimo in una sola classifica</strong> (ordine: parate → tiri → falli
+            commessi → subiti).
           </p>
-          {loadingTeamStats ? (
-            <p className="text-sm text-slate-400">Caricamento statistiche partita…</p>
-          ) : (
+          {serieARoundFormUsedFallback ? (
+            <p className="mb-3 rounded-lg border border-amber-600/40 bg-amber-950/40 px-3 py-2 text-[11px] text-amber-100/95">
+              Dati giornata non disponibili: classifica provvisoria solo sulle due squadre del prossimo match (come il
+              caricamento match-insights).
+            </p>
+          ) : null}
+          {serieARoundFormRows === undefined || serieARoundFormLoading ? (
+            <p className="text-sm text-slate-400">Caricamento giocatori della giornata Serie A…</p>
+          ) : serieAFormLeaders ? (
             <div className="grid gap-4 lg:grid-cols-2">
               {(
                 [
@@ -990,7 +1054,7 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
                 </div>
               ))}
             </div>
-          )}
+          ) : null}
         </article>
       ) : null}
 

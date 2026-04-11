@@ -608,6 +608,143 @@ export function parseSeasonContextFromEventJson(payload: unknown): SeasonContext
   return { tournamentId, seasonId };
 }
 
+function parseRoundFromEventPayload(payload: unknown): number | undefined {
+  if (!payload || typeof payload !== "object") return undefined;
+  const e = extractEventNodeFromPayload(payload as Record<string, unknown>);
+  if (!e) return undefined;
+  const ri = e.roundInfo;
+  if (ri && typeof ri === "object") {
+    const r = coerceFiniteNumber((ri as Record<string, unknown>).round);
+    if (r !== undefined && r >= 1) return r;
+  }
+  return undefined;
+}
+
+async function collectUniqueTournamentSeasonEventPool(
+  uniqueTournamentId: number,
+  seasonId: number
+): Promise<SportApiEvent[]> {
+  const out: SportApiEvent[] = [];
+  const seen = new Set<number>();
+  for (const dir of ["next", "last"] as const) {
+    for (let page = 0; page < 18; page += 1) {
+      const response = await sportApiFetch(
+        `/api/v1/unique-tournament/${uniqueTournamentId}/season/${seasonId}/events/${dir}/${page}`,
+        {
+          requestType: "snapshot",
+          revalidateSeconds: 300
+        }
+      );
+      if (!response.ok) break;
+      const data = (await response.json()) as SportApiTeamEventsResponse;
+      const list = data.events ?? [];
+      if (!list.length) break;
+      for (const ev of list) {
+        const id = ev.id;
+        if (!id || seen.has(id)) continue;
+        seen.add(id);
+        out.push(ev);
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Tutti i giocatori delle partite di Serie A della stessa giornata (`round`) del match di riferimento.
+ * Usa le stesse chiamate aggregate di `fetchSportPerformanceForTeams` per ogni fixture della giornata.
+ */
+export async function fetchSerieARoundPlayerPerformances(anchorEventId: number): Promise<SportPerformanceInput[]> {
+  const eventResponse = await sportApiFetch(`/api/v1/event/${anchorEventId}`, {
+    requestType: "snapshot",
+    revalidateSeconds: 120
+  });
+  if (!eventResponse.ok) return [];
+  const payload: unknown = await eventResponse.json();
+  const ctx = parseSeasonContextFromEventJson(payload);
+  if (!ctx) return [];
+  const { tournamentId: utTournamentId, seasonId: utSeasonId } = ctx;
+
+  const anchorNode = extractEventNodeFromPayload(payload as Record<string, unknown>);
+  if (!anchorNode) return [];
+
+  const pseudoEvent = { tournament: anchorNode.tournament } as SportApiEvent;
+  if (normalizeCompetitionSlug(competitionSlug(pseudoEvent)) !== "serie-a") return [];
+
+  const round = parseRoundFromEventPayload(payload);
+  const homeTeam = anchorNode.homeTeam as SportApiEvent["homeTeam"] | undefined;
+  const awayTeam = anchorNode.awayTeam as SportApiEvent["awayTeam"] | undefined;
+  const homeTeamId = coerceFiniteNumber(homeTeam?.id as number | undefined);
+  const awayTeamId = coerceFiniteNumber(awayTeam?.id as number | undefined);
+  const homeTeamName = String(homeTeam?.name ?? "Home");
+  const awayTeamName = String(awayTeam?.name ?? "Away");
+
+  async function loadSingleMatch(): Promise<SportPerformanceInput[]> {
+    if (!homeTeamId || !awayTeamId) return [];
+    return fetchSportPerformanceForTeams({
+      eventId: anchorEventId,
+      homeTeamId,
+      homeTeamName,
+      awayTeamId,
+      awayTeamName,
+      competitionSlug: "serie-a",
+      tournamentId: utTournamentId,
+      seasonId: utSeasonId
+    });
+  }
+
+  if (round === undefined || round < 1) {
+    return loadSingleMatch();
+  }
+
+  const pool = await collectUniqueTournamentSeasonEventPool(utTournamentId, utSeasonId);
+  const sid = Number(utSeasonId);
+  const inRound = pool.filter((ev) => {
+    if (!ev.id || !ev.homeTeam?.id || !ev.awayTeam?.id) return false;
+    if (normalizeCompetitionSlug(competitionSlug(ev)) !== "serie-a") return false;
+    if (Number(ev.season?.id) !== sid) return false;
+    return Number(ev.roundInfo?.round) === round;
+  });
+
+  if (inRound.length === 0) {
+    return loadSingleMatch();
+  }
+
+  const byKey = new Map<string, SportPerformanceInput>();
+  const mergeRows = (rows: SportPerformanceInput[]) => {
+    for (const row of rows) {
+      const k =
+        row.athleteId && row.athleteId > 0
+          ? `id:${row.athleteId}`
+          : `t:${row.teamId}:${row.athleteName.replace(/\s+/g, " ").trim().toUpperCase()}`;
+      if (!byKey.has(k)) byKey.set(k, row);
+    }
+  };
+
+  const fixtures = inRound.slice(0, 14);
+  const batchSize = 3;
+  for (let i = 0; i < fixtures.length; i += batchSize) {
+    const chunk = fixtures.slice(i, i + batchSize);
+    const batches = await Promise.all(
+      chunk.map((ev) =>
+        fetchSportPerformanceForTeams({
+          eventId: ev.id as number,
+          homeTeamId: ev.homeTeam!.id as number,
+          homeTeamName: ev.homeTeam?.name ?? "Home",
+          awayTeamId: ev.awayTeam!.id as number,
+          awayTeamName: ev.awayTeam?.name ?? "Away",
+          competitionSlug: "serie-a",
+          tournamentId: utTournamentId,
+          seasonId: utSeasonId
+        })
+      )
+    );
+    for (const rows of batches) mergeRows(rows);
+  }
+
+  return Array.from(byKey.values());
+}
+
 export async function fetchEventSeasonContextForInsights(eventId: number): Promise<SeasonContext | null> {
   const eventResponse = await sportApiFetch(`/api/v1/event/${eventId}`, {
     requestType: "snapshot",
