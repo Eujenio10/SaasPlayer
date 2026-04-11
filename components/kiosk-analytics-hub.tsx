@@ -426,6 +426,7 @@ function TopPlayersLastTwoTable({
 export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
   const {
     initialMetrics,
+    fixtureId,
     playerAnalyticsPolicy = "full",
     kioskTitle = "Kiosk Tactical Menu",
     kioskDescription,
@@ -642,6 +643,30 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
       ),
     [selectedMatchMetrics]
   );
+
+  const showSerieAFormFromFriction =
+    fixtureId === "kiosk-hybrid" &&
+    Boolean(selectedMatch && normalizeKioskCompetitionSlug(selectedMatch.competitionSlug) === "serie-a") &&
+    playerDetailLevel === "full";
+
+  const serieAFormLeaders = useMemo(() => {
+    if (!showSerieAFormFromFriction) return null;
+    const rows = selectedMatchMetrics;
+    const take = (
+      predicate: (m: TacticalMetrics) => boolean,
+      score: (m: TacticalMetrics) => number
+    ): TacticalMetrics[] =>
+      [...rows]
+        .filter(predicate)
+        .sort((a, b) => score(b) - score(a))
+        .slice(0, 5);
+    return {
+      foulsCommitted: take(() => true, (m) => m.foulsCommittedLastFiveAvg),
+      foulsSuffered: take(() => true, (m) => m.foulsSufferedLastFiveAvg),
+      shots: take((m) => m.roleIcon !== "🧤", (m) => m.shotsLastFiveAvg),
+      saves: take((m) => m.roleIcon === "🧤", (m) => m.savesLastFiveAvg)
+    };
+  }, [showSerieAFormFromFriction, selectedMatchMetrics]);
 
   useEffect(() => {
     async function loadMatches() {
@@ -883,6 +908,58 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
           </button>
         </div>
       </header>
+
+      {showSerieAFormFromFriction && serieAFormLeaders ? (
+        <article className="rounded-xl border border-amber-400/25 bg-slate-950/80 p-4">
+          <h3 className="mb-1 text-sm font-semibold uppercase tracking-wide text-amber-200">
+            Serie A — forma recente (stessi dati degli scontri)
+          </h3>
+          <p className="mb-4 text-[11px] leading-relaxed text-slate-500">
+            Classifiche tra i giocatori delle due squadre della partita selezionata, calcolate sulle{" "}
+            <strong>ultime partite di campionato</strong> già aggregate per il modello scontri (fino a 5 match, nessuna
+            richiesta aggiuntiva).
+          </p>
+          {loadingTeamStats ? (
+            <p className="text-sm text-slate-400">Caricamento statistiche partita…</p>
+          ) : (
+            <div className="grid gap-4 lg:grid-cols-2">
+              {(
+                [
+                  ["Falli commessi (media ultimi 5)", serieAFormLeaders.foulsCommitted, (m: TacticalMetrics) => m.foulsCommittedLastFiveAvg, (m: TacticalMetrics) => m.foulsCommittedLastFiveSampleCount ?? 0],
+                  ["Falli subiti (media ultimi 5)", serieAFormLeaders.foulsSuffered, (m: TacticalMetrics) => m.foulsSufferedLastFiveAvg, (m: TacticalMetrics) => m.foulsSufferedLastFiveSampleCount ?? 0],
+                  ["Tiri (media ultimi 5)", serieAFormLeaders.shots, (m: TacticalMetrics) => m.shotsLastFiveAvg, (m: TacticalMetrics) => m.shotsLastFiveSampleCount ?? 0],
+                  ["Parate (media ultimi 5)", serieAFormLeaders.saves, (m: TacticalMetrics) => m.savesLastFiveAvg, (m: TacticalMetrics) => m.savesLastFiveSampleCount ?? 0]
+                ] as const
+              ).map(([title, list, val, nMatches]) => (
+                <div key={title} className="rounded-lg border border-slate-700/80 bg-slate-900/50 p-3">
+                  <p className="mb-2 text-xs font-semibold text-slate-200">{title}</p>
+                  {list.length === 0 ? (
+                    <p className="text-xs text-slate-500">Nessun dato disponibile.</p>
+                  ) : (
+                    <ol className="space-y-1.5 text-xs">
+                      {list.map((m, idx) => (
+                        <li key={`${title}-${m.playerId ?? m.playerName}-${idx}`} className="flex justify-between gap-2">
+                          <span className="text-slate-300">
+                            <span className="font-semibold text-amber-100/90">{idx + 1}.</span> {m.playerName}{" "}
+                            <span className="text-slate-500">({m.team})</span>
+                          </span>
+                          <span className="shrink-0 font-mono text-slate-200">
+                            {formatStat(val(m))}
+                            <span className="text-slate-500">
+                              {" "}
+                              / {Math.min(5, nMatches(m))} p.
+                            </span>
+                          </span>
+                        </li>
+                      ))}
+                    </ol>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </article>
+      ) : null}
 
       {view === "MATCH_TEAMS" ? (
         <div className="space-y-4">

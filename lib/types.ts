@@ -68,21 +68,29 @@ export interface TacticalMetrics {
   wallIndex: number;
   shotsSeasonAvg: number;
   shotsLastTwoAvg: number;
+  shotsLastFiveAvg: number;
   savesSeasonAvg: number;
   savesLastTwoAvg: number;
+  savesLastFiveAvg: number;
   opponentShotsOnTargetSeasonAvg: number;
   opponentShotsOnTargetLeagueAvg: number;
   opponentShotsOnTargetLastTwoAvg: number;
   opponentShotsOnTargetLastTwoLeagueAvg: number;
   foulsCommittedSeasonAvg: number;
   foulsCommittedLastTwoAvg: number;
+  foulsCommittedLastFiveAvg: number;
   foulsSufferedSeasonAvg: number;
   foulsSufferedLastTwoAvg: number;
+  foulsSufferedLastFiveAvg: number;
   /** Partite campionate per la media "ultimi 2" (0 = nessun dato reale, evitare confronto con la stagione). */
   shotsLastTwoSampleCount?: number;
   savesLastTwoSampleCount?: number;
   foulsCommittedLastTwoSampleCount?: number;
   foulsSufferedLastTwoSampleCount?: number;
+  shotsLastFiveSampleCount?: number;
+  savesLastFiveSampleCount?: number;
+  foulsCommittedLastFiveSampleCount?: number;
+  foulsSufferedLastFiveSampleCount?: number;
   lastUpdated: string;
   /**
    * Punti heatmap stagionali nel frame della squadra di casa (stesso orientamento degli scontri friction).
@@ -157,6 +165,7 @@ export interface SportPerformanceInput {
   clubColor: string;
   shotsTotal: number;
   shotsLastTwoAvg: number;
+  shotsLastFiveAvg: number;
   shotsSeasonAvg: number;
   opponentShotsConcededTotal: number;
   leagueAvgShotsConceded: number;
@@ -164,12 +173,15 @@ export interface SportPerformanceInput {
   foulsSuffered: number;
   foulsCommittedSeasonAvg: number;
   foulsCommittedLastTwoAvg: number;
+  foulsCommittedLastFiveAvg: number;
   foulsSufferedSeasonAvg: number;
   foulsSufferedLastTwoAvg: number;
+  foulsSufferedLastFiveAvg: number;
   opponentExpectedGoalsCreated: number;
   savePercentage: number;
   savesSeasonAvg: number;
   savesLastTwoAvg: number;
+  savesLastFiveAvg: number;
   opponentShotsOnTargetSeasonAvg: number;
   opponentShotsOnTargetLeagueAvg: number;
   opponentShotsOnTargetLastTwoAvg: number;
@@ -179,6 +191,10 @@ export interface SportPerformanceInput {
   savesLastTwoSampleCount: number;
   foulsCommittedLastTwoSampleCount: number;
   foulsSufferedLastTwoSampleCount: number;
+  shotsLastFiveSampleCount: number;
+  savesLastFiveSampleCount: number;
+  foulsCommittedLastFiveSampleCount: number;
+  foulsSufferedLastFiveSampleCount: number;
 }
 
 export type CompetitionScope = "DOMESTIC" | "CUP" | "EUROPE";

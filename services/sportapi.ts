@@ -1482,6 +1482,7 @@ function mapLineupPlayerToPerformance(params: {
     clubColor: params.clubColor,
     shotsTotal,
     shotsLastTwoAvg: shotsTotal,
+    shotsLastFiveAvg: shotsTotal,
     shotsSeasonAvg: Math.max(shotsTotal, 0.1),
     opponentShotsConcededTotal: params.opponentShotsOnTarget,
     leagueAvgShotsConceded: Math.max(params.leagueShotsOnTargetAvg, 0.1),
@@ -1489,12 +1490,15 @@ function mapLineupPlayerToPerformance(params: {
     foulsSuffered: foulsSufferedFromLineupStats(params.player.statistics),
     foulsCommittedSeasonAvg: params.player.statistics?.fouls ?? 0,
     foulsCommittedLastTwoAvg: params.player.statistics?.fouls ?? 0,
+    foulsCommittedLastFiveAvg: params.player.statistics?.fouls ?? 0,
     foulsSufferedSeasonAvg: foulsSufferedFromLineupStats(params.player.statistics),
     foulsSufferedLastTwoAvg: foulsSufferedFromLineupStats(params.player.statistics),
+    foulsSufferedLastFiveAvg: foulsSufferedFromLineupStats(params.player.statistics),
     opponentExpectedGoalsCreated: 0,
     savePercentage: saveDenominator > 0 ? (saves / saveDenominator) * 100 : 65,
     savesSeasonAvg: saves,
     savesLastTwoAvg: saves,
+    savesLastFiveAvg: saves,
     opponentShotsOnTargetSeasonAvg: params.opponentShotsOnTarget,
     opponentShotsOnTargetLeagueAvg: Math.max(params.leagueShotsOnTargetAvg, 0.1),
     opponentShotsOnTargetLastTwoAvg: params.opponentShotsOnTarget,
@@ -1503,7 +1507,11 @@ function mapLineupPlayerToPerformance(params: {
     shotsLastTwoSampleCount: 1,
     savesLastTwoSampleCount: 1,
     foulsCommittedLastTwoSampleCount: 1,
-    foulsSufferedLastTwoSampleCount: 1
+    foulsSufferedLastTwoSampleCount: 1,
+    shotsLastFiveSampleCount: 1,
+    savesLastFiveSampleCount: 1,
+    foulsCommittedLastFiveSampleCount: 1,
+    foulsSufferedLastFiveSampleCount: 1
   };
 }
 
@@ -1638,6 +1646,7 @@ async function fetchFallbackPlayersForTeam(params: {
     clubColor: params.clubColor,
     shotsTotal: 0,
     shotsLastTwoAvg: 0,
+    shotsLastFiveAvg: 0,
     shotsSeasonAvg: 0.1,
     opponentShotsConcededTotal: 0,
     leagueAvgShotsConceded: 1,
@@ -1645,12 +1654,15 @@ async function fetchFallbackPlayersForTeam(params: {
     foulsSuffered: 0,
     foulsCommittedSeasonAvg: 0,
     foulsCommittedLastTwoAvg: 0,
+    foulsCommittedLastFiveAvg: 0,
     foulsSufferedSeasonAvg: 0,
     foulsSufferedLastTwoAvg: 0,
+    foulsSufferedLastFiveAvg: 0,
     opponentExpectedGoalsCreated: 0,
     savePercentage: 65,
     savesSeasonAvg: 0,
     savesLastTwoAvg: 0,
+    savesLastFiveAvg: 0,
     opponentShotsOnTargetSeasonAvg: 0,
     opponentShotsOnTargetLeagueAvg: 4.6,
     opponentShotsOnTargetLastTwoAvg: 0,
@@ -1659,7 +1671,11 @@ async function fetchFallbackPlayersForTeam(params: {
     shotsLastTwoSampleCount: 0,
     savesLastTwoSampleCount: 0,
     foulsCommittedLastTwoSampleCount: 0,
-    foulsSufferedLastTwoSampleCount: 0
+    foulsSufferedLastTwoSampleCount: 0,
+    shotsLastFiveSampleCount: 0,
+    savesLastFiveSampleCount: 0,
+    foulsCommittedLastFiveSampleCount: 0,
+    foulsSufferedLastFiveSampleCount: 0
   }));
 }
 
@@ -1720,6 +1736,7 @@ export async function fetchSportPerformanceForTeams(params: {
   const maxSeasonMatches = parsePositiveInt(process.env.TACTICAL_PLAYER_AVG_MATCHES, 60);
   const maxEventPages = parsePositiveInt(process.env.TACTICAL_PLAYER_SEASON_PAGES, 10);
   const starterLastTwoMatches = parsePositiveInt(process.env.TACTICAL_PLAYER_LAST_TWO_MATCHES, 2);
+  const starterLastFiveMatches = parsePositiveInt(process.env.TACTICAL_PLAYER_LAST_FIVE_MATCHES, 5);
   const maxPlayersPerTeam = parsePositiveInt(process.env.TACTICAL_PLAYER_ROSTER_LIMIT, 40);
   /** Heatmap stagionale per analisi scontri in campo: disattiva con TACTICAL_FETCH_PLAYER_HEATMAP=0 per ridurre le richieste API. */
   const fetchSeasonHeatmaps = process.env.TACTICAL_FETCH_PLAYER_HEATMAP !== "0";
@@ -2018,20 +2035,32 @@ export async function fetchSportPerformanceForTeams(params: {
           shotsSeries.reduce((a, b) => a + b, 0) / Math.max(1, shotsSeries.length);
         const shotsLastTwoAvg =
           shotsSeries.slice(0, 2).reduce((a, b) => a + b, 0) / Math.max(1, Math.min(2, shotsSeries.length));
+        const shotsLastFiveAvg =
+          shotsSeries.slice(0, starterLastFiveMatches).reduce((a, b) => a + b, 0) /
+          Math.max(1, Math.min(starterLastFiveMatches, shotsSeries.length));
         const savesSeasonAvg =
           savesSeries.reduce((a, b) => a + b, 0) / Math.max(1, savesSeries.length);
         const savesLastTwoAvg =
           savesSeries.slice(0, 2).reduce((a, b) => a + b, 0) / Math.max(1, Math.min(2, savesSeries.length));
+        const savesLastFiveAvg =
+          savesSeries.slice(0, starterLastFiveMatches).reduce((a, b) => a + b, 0) /
+          Math.max(1, Math.min(starterLastFiveMatches, savesSeries.length));
         const foulsCommittedSeasonAvg =
           foulsCommittedSeries.reduce((a, b) => a + b, 0) / Math.max(1, foulsCommittedSeries.length);
         const foulsCommittedLastTwoAvg =
           foulsCommittedSeries.slice(0, 2).reduce((a, b) => a + b, 0) /
           Math.max(1, Math.min(2, foulsCommittedSeries.length));
+        const foulsCommittedLastFiveAvg =
+          foulsCommittedSeries.slice(0, starterLastFiveMatches).reduce((a, b) => a + b, 0) /
+          Math.max(1, Math.min(starterLastFiveMatches, foulsCommittedSeries.length));
         const foulsSufferedSeasonAvg =
           foulsSufferedSeries.reduce((a, b) => a + b, 0) / Math.max(1, foulsSufferedSeries.length);
         const foulsSufferedLastTwoAvg =
           foulsSufferedSeries.slice(0, 2).reduce((a, b) => a + b, 0) /
           Math.max(1, Math.min(2, foulsSufferedSeries.length));
+        const foulsSufferedLastFiveAvg =
+          foulsSufferedSeries.slice(0, starterLastFiveMatches).reduce((a, b) => a + b, 0) /
+          Math.max(1, Math.min(starterLastFiveMatches, foulsSufferedSeries.length));
 
         const row = {
           athleteId: undefined,
@@ -2043,6 +2072,7 @@ export async function fetchSportPerformanceForTeams(params: {
           clubColor: team.clubColor,
           shotsTotal: shotsSeries[0] ?? 0,
           shotsLastTwoAvg,
+          shotsLastFiveAvg,
           shotsSeasonAvg: Math.max(shotsSeasonAvg, 0.1),
           opponentShotsConcededTotal: concededSeasonAvg,
           leagueAvgShotsConceded: Math.max(leagueBaseline, 0.1),
@@ -2050,12 +2080,15 @@ export async function fetchSportPerformanceForTeams(params: {
           foulsSuffered: foulsSufferedSeasonAvg,
           foulsCommittedSeasonAvg,
           foulsCommittedLastTwoAvg,
+          foulsCommittedLastFiveAvg,
           foulsSufferedSeasonAvg,
           foulsSufferedLastTwoAvg,
+          foulsSufferedLastFiveAvg,
           opponentExpectedGoalsCreated: 0,
           savePercentage: 65,
           savesSeasonAvg,
           savesLastTwoAvg,
+          savesLastFiveAvg,
           opponentShotsOnTargetSeasonAvg: concededSeasonAvg,
           opponentShotsOnTargetLeagueAvg: Math.max(leagueBaseline, 0.1),
           opponentShotsOnTargetLastTwoAvg: concededLastTwoAvg,
@@ -2064,7 +2097,11 @@ export async function fetchSportPerformanceForTeams(params: {
           shotsLastTwoSampleCount: Math.min(2, shotsSeries.length),
           savesLastTwoSampleCount: Math.min(2, savesSeries.length),
           foulsCommittedLastTwoSampleCount: Math.min(2, foulsCommittedSeries.length),
-          foulsSufferedLastTwoSampleCount: Math.min(2, foulsSufferedSeries.length)
+          foulsSufferedLastTwoSampleCount: Math.min(2, foulsSufferedSeries.length),
+          shotsLastFiveSampleCount: Math.min(starterLastFiveMatches, shotsSeries.length),
+          savesLastFiveSampleCount: Math.min(starterLastFiveMatches, savesSeries.length),
+          foulsCommittedLastFiveSampleCount: Math.min(starterLastFiveMatches, foulsCommittedSeries.length),
+          foulsSufferedLastFiveSampleCount: Math.min(starterLastFiveMatches, foulsSufferedSeries.length)
         } satisfies SportPerformanceInput;
 
         params.savesDiagnosticsCollector?.({
@@ -2114,10 +2151,14 @@ export async function fetchSportPerformanceForTeams(params: {
       const eventsForSeason = recentEvents.slice(0, maxSeasonMatches);
 
       const shotsLastTwoByPlayer = new Map<number, number[]>();
+      const shotsLastFiveByPlayer = new Map<number, number[]>();
       const savesLastTwoByPlayer = new Map<number, number[]>();
+      const savesLastFiveByPlayer = new Map<number, number[]>();
       const savesSeasonByPlayer = new Map<number, number[]>();
       const foulsLastTwoByPlayer = new Map<number, number[]>();
+      const foulsLastFiveByPlayer = new Map<number, number[]>();
       const fouledLastTwoByPlayer = new Map<number, number[]>();
+      const fouledLastFiveByPlayer = new Map<number, number[]>();
       const foulsSeasonByPlayer = new Map<number, number[]>();
       const fouledSeasonByPlayer = new Map<number, number[]>();
       const teamConcededShotsOnTarget: number[] = [];
@@ -2141,10 +2182,14 @@ export async function fetchSportPerformanceForTeams(params: {
           const playerId = matchPlayer.player?.id;
           if (!playerId || !starterIds.has(playerId)) continue;
           if (!shotsLastTwoByPlayer.has(playerId)) shotsLastTwoByPlayer.set(playerId, []);
+          if (!shotsLastFiveByPlayer.has(playerId)) shotsLastFiveByPlayer.set(playerId, []);
           if (!savesLastTwoByPlayer.has(playerId)) savesLastTwoByPlayer.set(playerId, []);
+          if (!savesLastFiveByPlayer.has(playerId)) savesLastFiveByPlayer.set(playerId, []);
           if (!savesSeasonByPlayer.has(playerId)) savesSeasonByPlayer.set(playerId, []);
           if (!foulsLastTwoByPlayer.has(playerId)) foulsLastTwoByPlayer.set(playerId, []);
+          if (!foulsLastFiveByPlayer.has(playerId)) foulsLastFiveByPlayer.set(playerId, []);
           if (!fouledLastTwoByPlayer.has(playerId)) fouledLastTwoByPlayer.set(playerId, []);
+          if (!fouledLastFiveByPlayer.has(playerId)) fouledLastFiveByPlayer.set(playerId, []);
           if (!foulsSeasonByPlayer.has(playerId)) foulsSeasonByPlayer.set(playerId, []);
           if (!fouledSeasonByPlayer.has(playerId)) fouledSeasonByPlayer.set(playerId, []);
 
@@ -2155,14 +2200,26 @@ export async function fetchSportPerformanceForTeams(params: {
           if ((shotsLastTwoByPlayer.get(playerId)?.length ?? 0) < starterLastTwoMatches) {
             shotsLastTwoByPlayer.get(playerId)?.push(matchPlayer.statistics?.totalShots ?? 0);
           }
+          if ((shotsLastFiveByPlayer.get(playerId)?.length ?? 0) < starterLastFiveMatches) {
+            shotsLastFiveByPlayer.get(playerId)?.push(matchPlayer.statistics?.totalShots ?? 0);
+          }
           if ((savesLastTwoByPlayer.get(playerId)?.length ?? 0) < starterLastTwoMatches) {
             savesLastTwoByPlayer.get(playerId)?.push(savesFromLineupStats(matchPlayer.statistics));
+          }
+          if ((savesLastFiveByPlayer.get(playerId)?.length ?? 0) < starterLastFiveMatches) {
+            savesLastFiveByPlayer.get(playerId)?.push(savesFromLineupStats(matchPlayer.statistics));
           }
           if ((foulsLastTwoByPlayer.get(playerId)?.length ?? 0) < starterLastTwoMatches) {
             foulsLastTwoByPlayer.get(playerId)?.push(foulsCommittedFromLineupStats(matchPlayer.statistics));
           }
+          if ((foulsLastFiveByPlayer.get(playerId)?.length ?? 0) < starterLastFiveMatches) {
+            foulsLastFiveByPlayer.get(playerId)?.push(foulsCommittedFromLineupStats(matchPlayer.statistics));
+          }
           if ((fouledLastTwoByPlayer.get(playerId)?.length ?? 0) < starterLastTwoMatches) {
             fouledLastTwoByPlayer.get(playerId)?.push(foulsSufferedFromLineupStats(matchPlayer.statistics));
+          }
+          if ((fouledLastFiveByPlayer.get(playerId)?.length ?? 0) < starterLastFiveMatches) {
+            fouledLastFiveByPlayer.get(playerId)?.push(foulsSufferedFromLineupStats(matchPlayer.statistics));
           }
         }
       }
@@ -2217,17 +2274,26 @@ export async function fetchSportPerformanceForTeams(params: {
             : 0;
 
         const shotsLastTwoSeries = shotsLastTwoByPlayer.get(playerId) ?? [];
+        const shotsLastFiveSeries = shotsLastFiveByPlayer.get(playerId) ?? [];
         const savesLastTwoSeries = savesLastTwoByPlayer.get(playerId) ?? [];
+        const savesLastFiveSeries = savesLastFiveByPlayer.get(playerId) ?? [];
         const foulsLastTwoSeries = foulsLastTwoByPlayer.get(playerId) ?? [];
+        const foulsLastFiveSeries = foulsLastFiveByPlayer.get(playerId) ?? [];
         const fouledLastTwoSeries = fouledLastTwoByPlayer.get(playerId) ?? [];
+        const fouledLastFiveSeries = fouledLastFiveByPlayer.get(playerId) ?? [];
         const savesSeasonSeries = savesSeasonByPlayer.get(playerId) ?? [];
         const foulsSeasonSeries = foulsSeasonByPlayer.get(playerId) ?? [];
         const fouledSeasonSeries = fouledSeasonByPlayer.get(playerId) ?? [];
         const capLt = starterLastTwoMatches;
+        const capLf = starterLastFiveMatches;
         const shotsLastTwoN = shotsLastTwoSeries.length;
         const savesLastTwoN = savesLastTwoSeries.length;
         const foulsLastTwoN = foulsLastTwoSeries.length;
         const fouledLastTwoN = fouledLastTwoSeries.length;
+        const shotsLastFiveN = shotsLastFiveSeries.length;
+        const savesLastFiveN = savesLastFiveSeries.length;
+        const foulsLastFiveN = foulsLastFiveSeries.length;
+        const fouledLastFiveN = fouledLastFiveSeries.length;
         const savesSeasonN = savesSeasonSeries.length;
         const foulsSeasonN = foulsSeasonSeries.length;
         const fouledSeasonN = fouledSeasonSeries.length;
@@ -2250,6 +2316,26 @@ export async function fetchSportPerformanceForTeams(params: {
           fouledLastTwoN > 0
             ? fouledLastTwoSeries.reduce((a, b) => a + b, 0) /
               Math.max(1, Math.min(capLt, fouledLastTwoN))
+            : 0;
+        const shotsLastFiveAvg =
+          shotsLastFiveN > 0
+            ? shotsLastFiveSeries.reduce((a, b) => a + b, 0) /
+              Math.max(1, Math.min(capLf, shotsLastFiveN))
+            : 0;
+        const savesLastFiveAvg =
+          savesLastFiveN > 0
+            ? savesLastFiveSeries.reduce((a, b) => a + b, 0) /
+              Math.max(1, Math.min(capLf, savesLastFiveN))
+            : 0;
+        const foulsCommittedLastFiveAvg =
+          foulsLastFiveN > 0
+            ? foulsLastFiveSeries.reduce((a, b) => a + b, 0) /
+              Math.max(1, Math.min(capLf, foulsLastFiveN))
+            : 0;
+        const foulsSufferedLastFiveAvg =
+          fouledLastFiveN > 0
+            ? fouledLastFiveSeries.reduce((a, b) => a + b, 0) /
+              Math.max(1, Math.min(capLf, fouledLastFiveN))
             : 0;
 
         if (savesSeasonN > 0) {
@@ -2291,6 +2377,7 @@ export async function fetchSportPerformanceForTeams(params: {
           clubColor: team.clubColor,
           shotsTotal: shotsLastTwoSeries[0] ?? 0,
           shotsLastTwoAvg,
+          shotsLastFiveAvg,
           shotsSeasonAvg,
           opponentShotsConcededTotal: concededSeasonAvg,
           leagueAvgShotsConceded: Math.max(leagueBaseline, 0.1),
@@ -2298,12 +2385,15 @@ export async function fetchSportPerformanceForTeams(params: {
           foulsSuffered: foulsSufferedSeasonAvg,
           foulsCommittedSeasonAvg,
           foulsCommittedLastTwoAvg,
+          foulsCommittedLastFiveAvg,
           foulsSufferedSeasonAvg,
           foulsSufferedLastTwoAvg,
+          foulsSufferedLastFiveAvg,
           opponentExpectedGoalsCreated: 0,
           savePercentage: 65,
           savesSeasonAvg,
           savesLastTwoAvg,
+          savesLastFiveAvg,
           opponentShotsOnTargetSeasonAvg: concededSeasonAvg,
           opponentShotsOnTargetLeagueAvg: Math.max(leagueBaseline, 0.1),
           opponentShotsOnTargetLastTwoAvg: concededLastTwoAvg,
@@ -2312,7 +2402,11 @@ export async function fetchSportPerformanceForTeams(params: {
           shotsLastTwoSampleCount: shotsLastTwoN,
           savesLastTwoSampleCount: savesLastTwoN,
           foulsCommittedLastTwoSampleCount: foulsLastTwoN,
-          foulsSufferedLastTwoSampleCount: fouledLastTwoN
+          foulsSufferedLastTwoSampleCount: fouledLastTwoN,
+          shotsLastFiveSampleCount: shotsLastFiveN,
+          savesLastFiveSampleCount: savesLastFiveN,
+          foulsCommittedLastFiveSampleCount: foulsLastFiveN,
+          foulsSufferedLastFiveSampleCount: fouledLastFiveN
         } satisfies SportPerformanceInput;
 
         params.savesDiagnosticsCollector?.({
