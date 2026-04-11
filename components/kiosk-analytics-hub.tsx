@@ -652,19 +652,33 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
   const serieAFormLeaders = useMemo(() => {
     if (!showSerieAFormFromFriction) return null;
     const TOP = 10;
-    const rows = selectedMatchMetrics;
 
-    const playerKey = (m: TacticalMetrics): string => {
-      if (typeof m.playerId === "number" && m.playerId > 0) return `id:${m.playerId}`;
-      return `name:${m.teamId}:${m.playerName.trim().toUpperCase()}`;
+    /** Stessa persona può comparire più volte in `metrics` (merge supplementari / id vs nome): una sola riga per squadra+nome. */
+    const normalizePlayerName = (name: string) => name.replace(/\s+/g, " ").trim().toUpperCase();
+    const rosterKey = (m: TacticalMetrics) => `${m.teamId}|${normalizePlayerName(m.playerName)}`;
+    const pickBetterRow = (a: TacticalMetrics, b: TacticalMetrics): TacticalMetrics => {
+      const aId = typeof a.playerId === "number" && a.playerId > 0;
+      const bId = typeof b.playerId === "number" && b.playerId > 0;
+      if (aId && !bId) return a;
+      if (bId && !aId) return b;
+      return a;
     };
+    const byRoster = new Map<string, TacticalMetrics>();
+    for (const m of selectedMatchMetrics) {
+      const k = rosterKey(m);
+      const prev = byRoster.get(k);
+      byRoster.set(k, prev ? pickBetterRow(m, prev) : m);
+    }
+    const rowsUnique = Array.from(byRoster.values());
+
+    const playerKey = (m: TacticalMetrics): string => rosterKey(m);
 
     const used = new Set<string>();
     const takeUnique = (
       predicate: (m: TacticalMetrics) => boolean,
       score: (m: TacticalMetrics) => number
     ): TacticalMetrics[] => {
-      const picked = [...rows]
+      const picked = [...rowsUnique]
         .filter(predicate)
         .filter((m) => !used.has(playerKey(m)))
         .sort((a, b) => score(b) - score(a))
