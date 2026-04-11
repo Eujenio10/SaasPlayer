@@ -651,21 +651,38 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
 
   const serieAFormLeaders = useMemo(() => {
     if (!showSerieAFormFromFriction) return null;
+    const TOP = 10;
     const rows = selectedMatchMetrics;
-    const take = (
+
+    const playerKey = (m: TacticalMetrics): string => {
+      if (typeof m.playerId === "number" && m.playerId > 0) return `id:${m.playerId}`;
+      return `name:${m.teamId}:${m.playerName.trim().toUpperCase()}`;
+    };
+
+    const used = new Set<string>();
+    const takeUnique = (
       predicate: (m: TacticalMetrics) => boolean,
       score: (m: TacticalMetrics) => number
-    ): TacticalMetrics[] =>
-      [...rows]
+    ): TacticalMetrics[] => {
+      const picked = [...rows]
         .filter(predicate)
+        .filter((m) => !used.has(playerKey(m)))
         .sort((a, b) => score(b) - score(a))
-        .slice(0, 5);
-    return {
-      foulsCommitted: take(() => true, (m) => m.foulsCommittedLastFiveAvg),
-      foulsSuffered: take(() => true, (m) => m.foulsSufferedLastFiveAvg),
-      shots: take((m) => m.roleIcon !== "🧤", (m) => m.shotsLastFiveAvg),
-      saves: take((m) => m.roleIcon === "🧤", (m) => m.savesLastFiveAvg)
+        .slice(0, TOP);
+      for (const m of picked) used.add(playerKey(m));
+      return picked;
     };
+
+    /**
+     * Ordine di assegnazione: prima portieri (parate), poi fuori porta (tiri), poi tutti per i falli.
+     * Così i portieri non “consumano” slot nelle altre classifiche e i nomi restano distinti tra le quattro top.
+     */
+    const saves = takeUnique((m) => m.roleIcon === "🧤", (m) => m.savesLastFiveAvg);
+    const shots = takeUnique((m) => m.roleIcon !== "🧤", (m) => m.shotsLastFiveAvg);
+    const foulsCommitted = takeUnique(() => true, (m) => m.foulsCommittedLastFiveAvg);
+    const foulsSuffered = takeUnique(() => true, (m) => m.foulsSufferedLastFiveAvg);
+
+    return { foulsCommitted, foulsSuffered, shots, saves };
   }, [showSerieAFormFromFriction, selectedMatchMetrics]);
 
   useEffect(() => {
@@ -915,9 +932,11 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
             Serie A — forma recente (stessi dati degli scontri)
           </h3>
           <p className="mb-4 text-[11px] leading-relaxed text-slate-500">
-            Classifiche tra i giocatori delle due squadre della partita selezionata, calcolate sulle{" "}
-            <strong>ultime partite di campionato</strong> già aggregate per il modello scontri (fino a 5 match, nessuna
-            richiesta aggiuntiva).
+            Top 10 tra i giocatori delle due squadre della partita selezionata (medie sulle{" "}
+            <strong>ultime partite di campionato</strong> già usate per gli scontri; fino a 5 match nel campione, nessuna
+            richiesta aggiuntiva).{" "}
+            <strong>Ogni giocatore compare al massimo in una sola classifica</strong>. Assegnazione interna: parate
+            (portieri) → tiri (fuori porta) → falli commessi → falli subiti, così le quattro top non si sovrappongono.
           </p>
           {loadingTeamStats ? (
             <p className="text-sm text-slate-400">Caricamento statistiche partita…</p>
