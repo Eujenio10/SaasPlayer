@@ -138,8 +138,7 @@ function heatmapPointsInHomeFrame(
 /** Inclinazione laterale -1…+1 da heatmap (e integrazione con positionCode). */
 function effectiveLateralLean(
   athlete: SportPerformanceInput,
-  pointsHomeOrRaw: SportPerformanceInput["heatmapPoints"],
-  homeTeamId?: number
+  pointsHomeOrRaw: SportPerformanceInput["heatmapPoints"]
 ): number {
   const posFlank = lineupPositionFlank(athlete.positionCode);
   const posN = posFlank === 0 ? 0 : posFlank * 0.55;
@@ -166,8 +165,8 @@ function lateralLeanPairForMarking(
   const ptsB = heatmapPointsInHomeFrame(opponent, homeTeamId);
 
   if (useHome || ptsA.length < MIN_HEATMAP_POINTS_FOR_SPATIAL || ptsB.length < MIN_HEATMAP_POINTS_FOR_SPATIAL) {
-    const la = effectiveLateralLean(athlete, ptsA, homeTeamId);
-    const lb = effectiveLateralLean(opponent, ptsB, homeTeamId);
+    const la = effectiveLateralLean(athlete, ptsA);
+    const lb = effectiveLateralLean(opponent, ptsB);
     const ca = heatmapCentroid(ptsA);
     const cb = heatmapCentroid(ptsB);
     return { la, lb, ya: ca.y, yb: cb.y };

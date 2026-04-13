@@ -545,7 +545,7 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
       cancelled = true;
       ac.abort();
     };
-  }, [showSerieAFormFromFriction, selectedMatch?.eventId]);
+  }, [showSerieAFormFromFriction, selectedMatch]);
 
   const serieAFormLeaders = useMemo(() => {
     if (!showSerieAFormFromFriction) return null;
