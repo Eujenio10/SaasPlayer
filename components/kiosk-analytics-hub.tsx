@@ -4,14 +4,9 @@ import { useEffect, useMemo, useState } from "react";
 import { FrictionPitchHeatmap } from "@/components/friction-pitch-heatmap";
 import { analyzeFoulRisk } from "@/lib/foul-risk-analysis";
 import { filterMatchesKickoffInFuture } from "@/lib/tactical-matches-filters";
-import type { CompetitionScope, TacticalMetrics, TeamPerformanceBlueprint } from "@/lib/types";
+import type { CompetitionScope, TacticalMetrics } from "@/lib/types";
 
-type KioskView =
-  | "MATCH_TEAMS"
-  | "PLAYER_FRICTION"
-  | "FOUL_RISK_SUFFERED"
-  | "FOUL_RISK_COMMITTED";
-type TeamStatView = "OFFENSE" | "DEFENSE";
+type KioskView = "PLAYER_FRICTION" | "FOUL_RISK_SUFFERED" | "FOUL_RISK_COMMITTED";
 
 interface UpcomingMatchItem {
   eventId: number;
@@ -28,7 +23,7 @@ interface KioskAnalyticsHubProps {
   initialMetrics: TacticalMetrics[];
   organizationId: string;
   fixtureId: string;
-  /** `full`: sempre stats giocatori + heatmap. `serie_a_players`: pieno per Serie A, Champions ed Europa; solo squadra per Serie B e altre leghe del menu. */
+  /** `full`: sempre stats giocatori + heatmap. `serie_a_players`: pieno per Serie A, Champions, Europa e Conference (con Serie A); nessuna analisi giocatori per Serie B e altre leghe del menu. */
   playerAnalyticsPolicy?: PlayerAnalyticsPolicy;
   kioskTitle?: string;
   kioskDescription?: string;
@@ -39,100 +34,6 @@ interface KioskAnalyticsHubProps {
   };
   presetMatch?: UpcomingMatchItem;
 }
-
-interface MappingDiagnosticRow {
-  metricId: string;
-  label: string;
-  candidates: string[];
-  matchedKey: string | null;
-  homeValue: number;
-  awayValue: number;
-  source: "provider_key" | "derived";
-}
-
-interface MatchInsightsDiagnostics {
-  source: "event_statistics" | "event_statistics_recent" | "model_fallback";
-  eventId: number | null;
-  availableKeys: string[];
-  offensive: MappingDiagnosticRow[];
-  defensive: MappingDiagnosticRow[];
-  goalkeeperSaves?: Array<{
-    playerName: string;
-    teamId: number;
-    teamName: string;
-    role: string;
-    savesSeasonAvg: number;
-    savesSeasonSampleCount: number;
-    savesLastTwoAvg: number;
-    savesLastTwoSampleCount: number;
-    source: "season_event_series" | "overall_fallback" | "aggregate_event_series";
-  }>;
-}
-
-interface TeamBlueprintDebugMeta {
-  source:
-    | "cache_recent"
-    | "cache_no_upcoming_match"
-    | "cache_budget_block"
-    | "season_overall_direct_context"
-    | "season_overall_from_event_context"
-    | "event_statistics_fallback";
-  tournamentId?: number;
-  seasonId?: number;
-  cacheLastUpdated?: string;
-}
-
-type StandingsRow = {
-  position: number;
-  teamId: number;
-  teamName: string;
-  matches: number;
-  wins: number;
-  draws: number;
-  losses: number;
-  goalsFor: number;
-  goalsAgainst: number;
-  points: number;
-};
-
-const OFFENSE_KEYS: Array<[keyof TeamPerformanceBlueprint["offensive"], string]> = [
-  ["goalsArea", "Tiri in Area"],
-  ["goalsOutside", "Tiri Fuori Area"],
-  ["goalsLeft", "Goal Sinistro"],
-  ["goalsRight", "Goal Destro"],
-  ["goalsHead", "Goal Testa"],
-  ["bigChancesCreated", "Occasioni Create"],
-  ["bigChancesMissed", "Occasioni Mancate"],
-  ["shotsOn", "Tiri in Porta"],
-  ["shotsOff", "Tiri Fuori"],
-  ["shotsBlocked", "Tiri Respinti"],
-  ["dribbles", "Dribbling"],
-  ["corners", "Corner"],
-  ["freeKicksGoals", "Punizioni Goal"],
-  ["freeKicksTotal", "Punizioni Tot"],
-  ["penaltiesScored", "Rigori Segnati"],
-  ["penaltiesTotal", "Rigori Tot"],
-  ["counterattacks", "Contropiedi"],
-  ["offsides", "Fuorigioco"],
-  ["woodwork", "Pali/Traverse"]
-];
-
-const DEFENSE_KEYS: Array<[keyof TeamPerformanceBlueprint["defensive"], string]> = [
-  ["cleanSheets", "Porte Inviolate"],
-  ["goalsConceded", "Goal Subiti"],
-  ["tackles", "Contrasti"],
-  ["interceptions", "Intercetti"],
-  ["clearances", "Rinvii"],
-  ["recoveries", "Recuperi"],
-  ["errorsToShot", "Errori -> Tiro"],
-  ["errorsToGoal", "Errori -> Goal"],
-  ["penaltiesConceded", "Rigori Commessi"],
-  ["goalLineClearances", "Salvataggi sulla Linea"],
-  ["lastManFoul", "Fallo ultimo uomo"],
-  ["foulsCommitted", "Falli Fatti"],
-  ["yellowCards", "Gialli"],
-  ["redCards", "Rossi"]
-];
 
 const SINGLE_MATCH_MODE = process.env.NEXT_PUBLIC_KIOSK_SINGLE_MATCH_MODE === "1";
 const SINGLE_MATCH_HOME =
@@ -230,53 +131,6 @@ function formatStat(value: unknown): string {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2
   });
-}
-
-function TeamStatsPanel({
-  title,
-  blueprint,
-  mode,
-  emptyHint
-}: {
-  title: string;
-  blueprint: TeamPerformanceBlueprint | null;
-  mode: TeamStatView;
-  /** Messaggio se non c’è ancora un blueprint (evita la griglia tutta 0,00). */
-  emptyHint?: string;
-}) {
-  const rows = mode === "OFFENSE" ? OFFENSE_KEYS : DEFENSE_KEYS;
-
-  if (!blueprint) {
-    return (
-      <article className="rounded-xl border border-cyan-400/20 bg-slate-950/70 p-4">
-        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-cyan-200">{title}</h3>
-        <p className="text-sm text-slate-400">
-          {emptyHint ??
-            "Nessun dato squadra disponibile. Seleziona una partita dalla lista sopra oppure attendi il caricamento."}
-        </p>
-      </article>
-    );
-  }
-
-  const data =
-    mode === "OFFENSE"
-      ? (blueprint.offensive as unknown as Record<string, number>)
-      : (blueprint.defensive as unknown as Record<string, number>);
-
-  return (
-    <article className="rounded-xl border border-cyan-400/20 bg-slate-950/70 p-4">
-      <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-cyan-200">{title}</h3>
-      <p className="mb-2 text-[11px] uppercase tracking-wide text-slate-400">Valori medi per partita</p>
-      <div className="space-y-1 text-sm">
-        {rows.map(([key, label]) => (
-          <div key={key} className="flex items-center justify-between border-b border-slate-800 py-1">
-            <span className="text-slate-300">{label}</span>
-            <span className="font-semibold text-cyan-100">{formatStat(data[key])}</span>
-          </div>
-        ))}
-      </div>
-    </article>
-  );
 }
 
 const LAST_TWO_MIN_SAMPLES = 2;
@@ -433,7 +287,7 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
     testingMatch,
     presetMatch
   } = props;
-  const [view, setView] = useState<KioskView>("MATCH_TEAMS");
+  const [view, setView] = useState<KioskView>("PLAYER_FRICTION");
   const [metrics, setMetrics] = useState<TacticalMetrics[]>(initialMetrics);
   const [playerDetailLevel, setPlayerDetailLevel] = useState<"full" | "team_only">("full");
 
@@ -443,23 +297,13 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
   const [matchListTimeTick, setMatchListTimeTick] = useState(0);
   const [selectedCompetition, setSelectedCompetition] = useState<string>("ALL");
   const [selectedMatchId, setSelectedMatchId] = useState<number>(0);
-  const [teamMode, setTeamMode] = useState<TeamStatView>("OFFENSE");
-  const [homeBlueprint, setHomeBlueprint] = useState<TeamPerformanceBlueprint | null>(null);
-  const [awayBlueprint, setAwayBlueprint] = useState<TeamPerformanceBlueprint | null>(null);
-  const [loadingTeamStats, setLoadingTeamStats] = useState(false);
-  const [teamStatsError, setTeamStatsError] = useState<string | null>(null);
-  const [diagnostics, setDiagnostics] = useState<MatchInsightsDiagnostics | null>(null);
-  const [showDiagnostics, setShowDiagnostics] = useState(false);
+  const [loadingMatchInsights, setLoadingMatchInsights] = useState(false);
+  const [matchInsightsError, setMatchInsightsError] = useState<string | null>(null);
+  /** Incrementato dal pulsante “Aggiorna”: la prossima richiesta match-insights usa forceRefresh e bypass cache SportAPI. */
+  const [insightsRefreshNonce, setInsightsRefreshNonce] = useState(0);
   const [seasonShooterKeys, setSeasonShooterKeys] = useState<Set<string>>(new Set());
   const [seasonFoulsCommittedKeys, setSeasonFoulsCommittedKeys] = useState<Set<string>>(new Set());
   const [seasonFoulsSufferedKeys, setSeasonFoulsSufferedKeys] = useState<Set<string>>(new Set());
-  const [standingsRows, setStandingsRows] = useState<StandingsRow[]>([]);
-  const [standingsLoading, setStandingsLoading] = useState(false);
-  const [standingsError, setStandingsError] = useState<string | null>(null);
-  const [blueprintDebug, setBlueprintDebug] = useState<{
-    home?: TeamBlueprintDebugMeta;
-    away?: TeamBlueprintDebugMeta;
-  } | null>(null);
 
   /** `undefined` = caricamento in corso o non avviato; array = risposta API (anche vuota). */
   const [serieARoundFormRows, setSerieARoundFormRows] = useState<TacticalMetrics[] | undefined>(undefined);
@@ -809,28 +653,26 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
   }, [presetMatch, testingMatch]);
 
   useEffect(() => {
+    setInsightsRefreshNonce(0);
+  }, [selectedMatch?.eventId]);
+
+  useEffect(() => {
     if (!selectedMatch) {
-      setHomeBlueprint(null);
-      setAwayBlueprint(null);
-      setDiagnostics(null);
-      setBlueprintDebug(null);
       setMetrics([]);
       setPlayerDetailLevel("full");
-      setStandingsRows([]);
-      setStandingsLoading(false);
-      setStandingsError(null);
       return;
     }
 
     const scope = scopeFromCompetitionSlug(selectedMatch.competitionSlug);
     let cancelled = false;
     const abort = new AbortController();
+    const forceRefreshParam =
+      insightsRefreshNonce > 0 || testingMatch || presetMatch ? "&forceRefresh=1" : "";
 
-    async function loadTeamStats() {
-      setLoadingTeamStats(true);
-      setTeamStatsError(null);
+    async function loadMatchInsights() {
+      setLoadingMatchInsights(true);
+      setMatchInsightsError(null);
 
-      const testingForceRefresh = testingMatch || presetMatch ? "&forceRefresh=1" : "";
       const playerAnalyticsParam =
         playerAnalyticsPolicy === "serie_a_players" ? "&playerAnalytics=serie_a_players" : "";
       try {
@@ -839,109 +681,49 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
             selectedMatch.homeTeam.name
           )}&awayTeamName=${encodeURIComponent(
             selectedMatch.awayTeam.name
-          )}&competitionSlug=${encodeURIComponent(selectedMatch.competitionSlug)}&scope=${scope}${
-            showDiagnostics ? "&diagnostics=1" : ""
-          }${testingForceRefresh}${playerAnalyticsParam}`,
+          )}&competitionSlug=${encodeURIComponent(selectedMatch.competitionSlug)}&scope=${scope}${forceRefreshParam}${playerAnalyticsParam}`,
           { cache: "no-store", signal: abort.signal }
         );
 
         if (!response.ok) {
           if (!cancelled) {
-            setTeamStatsError("Statistiche squadre non disponibili per questo match.");
-            setLoadingTeamStats(false);
+            setMatchInsightsError("Dati match non disponibili (insights). Riprova o usa Aggiorna dati.");
+            setLoadingMatchInsights(false);
           }
           return;
         }
 
         const json = (await response.json()) as {
           metrics?: TacticalMetrics[];
-          homeBlueprint?: TeamPerformanceBlueprint;
-          awayBlueprint?: TeamPerformanceBlueprint;
           playerDetailLevel?: "full" | "team_only";
-          diagnostics?: MatchInsightsDiagnostics | null;
-          blueprintDebug?: {
-            home?: TeamBlueprintDebugMeta;
-            away?: TeamBlueprintDebugMeta;
-          };
         };
 
         if (!cancelled) {
-          setHomeBlueprint(json.homeBlueprint ?? null);
-          setAwayBlueprint(json.awayBlueprint ?? null);
-          setDiagnostics(json.diagnostics ?? null);
-          setBlueprintDebug(json.blueprintDebug ?? null);
           setMetrics(Array.isArray(json.metrics) ? json.metrics : []);
           setPlayerDetailLevel(json.playerDetailLevel === "team_only" ? "team_only" : "full");
-          setLoadingTeamStats(false);
+          setLoadingMatchInsights(false);
         }
       } catch {
         if (abort.signal.aborted) return;
         if (!cancelled) {
-          setTeamStatsError("Statistiche squadre non disponibili per questo match.");
-          setLoadingTeamStats(false);
+          setMatchInsightsError("Dati match non disponibili (insights). Riprova o usa Aggiorna dati.");
+          setLoadingMatchInsights(false);
         }
       }
     }
 
-    void loadTeamStats();
+    void loadMatchInsights();
     return () => {
       cancelled = true;
       abort.abort();
     };
-  }, [selectedMatch, showDiagnostics, playerAnalyticsPolicy, testingMatch, presetMatch]);
-
-  useEffect(() => {
-    if (view !== "MATCH_TEAMS") return;
-    if (!selectedMatch) return;
-    const tournamentId = blueprintDebug?.home?.tournamentId ?? blueprintDebug?.away?.tournamentId ?? 0;
-    const seasonId = blueprintDebug?.home?.seasonId ?? blueprintDebug?.away?.seasonId ?? 0;
-    if (!tournamentId || !seasonId) {
-      setStandingsRows([]);
-      setStandingsError(null);
-      setStandingsLoading(false);
-      return;
-    }
-
-    let cancelled = false;
-    const abort = new AbortController();
-    async function loadStandings() {
-      setStandingsLoading(true);
-      setStandingsError(null);
-      try {
-        const res = await fetch(
-          `/api/tactical/standings?tournamentId=${tournamentId}&seasonId=${seasonId}&mode=total`,
-          { cache: "no-store", signal: abort.signal }
-        );
-        if (!res.ok) {
-          if (!cancelled) {
-            setStandingsRows([]);
-            setStandingsError("Classifica non disponibile per questa competizione.");
-            setStandingsLoading(false);
-          }
-          return;
-        }
-        const json = (await res.json()) as { rows?: StandingsRow[] };
-        if (!cancelled) {
-          setStandingsRows(Array.isArray(json.rows) ? json.rows : []);
-          setStandingsError(null);
-          setStandingsLoading(false);
-        }
-      } catch {
-        if (abort.signal.aborted) return;
-        if (!cancelled) {
-          setStandingsRows([]);
-          setStandingsError("Classifica non disponibile per questa competizione.");
-          setStandingsLoading(false);
-        }
-      }
-    }
-
-    void loadStandings();
-    return () => {
-      cancelled = true;
-      abort.abort();
-    };
-  }, [view, selectedMatch, blueprintDebug?.home?.tournamentId, blueprintDebug?.home?.seasonId, blueprintDebug?.away?.tournamentId, blueprintDebug?.away?.seasonId]);
+  }, [
+    selectedMatch,
+    insightsRefreshNonce,
+    playerAnalyticsPolicy,
+    testingMatch,
+    presetMatch
+  ]);
 
   return (
     <section className="space-y-5 rounded-2xl border border-cyan-400/30 bg-slate-900/50 p-3 sm:space-y-6 sm:p-5">
@@ -951,17 +733,6 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
           <p className="text-xs text-slate-400 sm:text-sm">{kioskDescription}</p>
         ) : null}
         <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() => setView("MATCH_TEAMS")}
-            className={`rounded-lg border px-3 py-2 text-xs font-semibold tracking-wide ${
-              view === "MATCH_TEAMS"
-                ? "border-cyan-300 bg-cyan-400/20 text-cyan-200"
-                : "border-slate-700 bg-slate-900 text-slate-300"
-            }`}
-          >
-            Match Teams
-          </button>
           <button
             type="button"
             onClick={() => setView("PLAYER_FRICTION")}
@@ -1058,9 +829,10 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
         </article>
       ) : null}
 
-      {view === "MATCH_TEAMS" ? (
+      <div className="space-y-6">
         <div className="space-y-4">
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap gap-2">
             <button
               type="button"
               onClick={() => setSelectedCompetition("ALL")}
@@ -1086,6 +858,15 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
                 {competitionLabel(slug)}
               </button>
             ))}
+            </div>
+            <button
+              type="button"
+              onClick={() => setInsightsRefreshNonce((n) => n + 1)}
+              disabled={!selectedMatch || loadingMatchInsights}
+              className="shrink-0 rounded-lg border border-emerald-400/40 bg-emerald-500/10 px-3 py-2 text-xs font-semibold text-emerald-200 hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Aggiorna dati
+            </button>
           </div>
 
           <div className="grid gap-2 lg:grid-cols-2">
@@ -1120,7 +901,7 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
             <p className="rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-sm text-amber-100">
               Nessuna partita nel menu: controlla la chiave SportAPI, il budget e le variabili d&apos;ambiente del
               calendario (es. <code className="text-xs">TACTICAL_LOOKAHEAD_DAYS</code>). Senza partite non è possibile
-              caricare le statistiche squadra.
+              caricare le analisi giocatori.
             </p>
           ) : null}
           {!matchesError && matches.length > 0 && upcomingMatches.length === 0 ? (
@@ -1135,307 +916,29 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
 
           {matchesError ? <p className="text-sm text-rose-300">{matchesError}</p> : null}
 
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => setTeamMode("OFFENSE")}
-              className={`rounded-lg border px-3 py-2 text-xs ${
-                teamMode === "OFFENSE"
-                  ? "border-cyan-300 bg-cyan-400/20 text-cyan-200"
-                  : "border-slate-700 text-slate-300"
-              }`}
-            >
-              Attacco
-            </button>
-            <button
-              type="button"
-              onClick={() => setTeamMode("DEFENSE")}
-              className={`rounded-lg border px-3 py-2 text-xs ${
-                teamMode === "DEFENSE"
-                  ? "border-cyan-300 bg-cyan-400/20 text-cyan-200"
-                  : "border-slate-700 text-slate-300"
-              }`}
-            >
-              Difesa
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowDiagnostics((prev) => !prev)}
-              className={`rounded-lg border px-3 py-2 text-xs ${
-                showDiagnostics
-                  ? "border-amber-300 bg-amber-400/20 text-amber-100"
-                  : "border-slate-700 text-slate-300"
-              }`}
-            >
-              Mapping Debug
-            </button>
-          </div>
-
-          {loadingTeamStats && selectedMatch ? (
-            <p className="text-sm text-slate-400">Caricamento statistiche squadre...</p>
+          {loadingMatchInsights && selectedMatch ? (
+            <p className="text-sm text-slate-400">Caricamento analisi giocatori…</p>
           ) : null}
-          {teamStatsError ? <p className="text-sm text-rose-300">{teamStatsError}</p> : null}
+          {matchInsightsError ? <p className="text-sm text-rose-300">{matchInsightsError}</p> : null}
           {playerDetailLevel === "team_only" ? (
             <p className="rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-sm text-amber-100">
-              Per questa competizione sono mostrate solo le <strong>statistiche di squadra</strong> (es.{" "}
-              <strong>Serie B</strong>). Analisi giocatori e heatmap: <strong>Serie A</strong>,{" "}
-              <strong>Champions League</strong> e <strong>Europa League</strong>.
+              Per questa competizione il menu ibrido non carica l&apos;analisi giocatori (es.{" "}
+              <strong>Serie B</strong>). Restano attive <strong>Serie A</strong>,{" "}
+              <strong>Champions League</strong>, <strong>Europa League</strong> e{" "}
+              <strong>Conference League</strong> (con squadre di Serie A) per scontri e heatmap.
             </p>
           ) : null}
-
-          <div className="grid gap-4 lg:grid-cols-2">
-            <TeamStatsPanel
-              title={selectedMatch?.homeTeam.name ?? "Casa"}
-              blueprint={homeBlueprint}
-              mode={teamMode}
-              emptyHint={
-                loadingTeamStats && selectedMatch
-                  ? "Caricamento in corso…"
-                  : teamStatsError
-                    ? "Caricamento non riuscito. Verifica la risposta dell’API o riprova."
-                    : selectedMatch
-                      ? undefined
-                      : "Seleziona prima una partita dall’elenco sopra."
-              }
-            />
-            <TeamStatsPanel
-              title={selectedMatch?.awayTeam.name ?? "Ospiti"}
-              blueprint={awayBlueprint}
-              mode={teamMode}
-              emptyHint={
-                loadingTeamStats && selectedMatch
-                  ? "Caricamento in corso…"
-                  : teamStatsError
-                    ? "Caricamento non riuscito. Verifica la risposta dell’API o riprova."
-                    : selectedMatch
-                      ? undefined
-                      : "Seleziona prima una partita dall’elenco sopra."
-              }
-            />
-          </div>
-
-          {blueprintDebug ? (
-            <div className="rounded-lg border border-cyan-400/20 bg-slate-950/50 p-3 text-xs text-slate-300">
-              <p className="mb-2 uppercase tracking-wide text-cyan-300">Blueprint Source Debug</p>
-              <p>
-                {selectedMatch?.homeTeam.name ?? "Home"}: {blueprintDebug.home?.source ?? "n/a"}
-                {blueprintDebug.home?.seasonId
-                  ? ` | season ${blueprintDebug.home.seasonId}`
-                  : ""}
-                {blueprintDebug.home?.tournamentId
-                  ? ` | tournament ${blueprintDebug.home.tournamentId}`
-                  : ""}
-                {blueprintDebug.home?.cacheLastUpdated
-                  ? ` | cache ${blueprintDebug.home.cacheLastUpdated}`
-                  : ""}
-              </p>
-              <p>
-                {selectedMatch?.awayTeam.name ?? "Away"}: {blueprintDebug.away?.source ?? "n/a"}
-                {blueprintDebug.away?.seasonId
-                  ? ` | season ${blueprintDebug.away.seasonId}`
-                  : ""}
-                {blueprintDebug.away?.tournamentId
-                  ? ` | tournament ${blueprintDebug.away.tournamentId}`
-                  : ""}
-                {blueprintDebug.away?.cacheLastUpdated
-                  ? ` | cache ${blueprintDebug.away.cacheLastUpdated}`
-                  : ""}
-              </p>
-            </div>
-          ) : null}
-
-          {showDiagnostics && diagnostics ? (
-            <article className="rounded-xl border border-amber-400/30 bg-slate-950/70 p-4">
-              <div className="mb-3 flex flex-wrap items-center gap-2">
-                <h3 className="text-sm font-semibold uppercase tracking-wide text-amber-200">
-                  Mapping Diagnostica Provider
-                </h3>
-                <span className="rounded-md border border-slate-700 px-2 py-0.5 text-[10px] uppercase text-slate-300">
-                  Source: {diagnostics.source}
-                </span>
-                {diagnostics.eventId ? (
-                  <span className="rounded-md border border-slate-700 px-2 py-0.5 text-[10px] uppercase text-slate-300">
-                    Event: {diagnostics.eventId}
-                  </span>
-                ) : null}
-              </div>
-
-              {diagnostics.source === "model_fallback" ? (
-                <p className="text-xs text-amber-200">
-                  Statistiche evento non disponibili dal provider per questo match: blueprint mostrato in fallback.
-                </p>
-              ) : null}
-              {diagnostics.source === "event_statistics_recent" ? (
-                <p className="text-xs text-amber-200">
-                  Match selezionato senza statistiche complete: mapping derivato da una partita recente conclusa della stessa squadra/competizione.
-                </p>
-              ) : null}
-
-              <div className="space-y-2">
-                <p className="text-xs uppercase tracking-wide text-slate-400">
-                  Chiavi provider trovate ({diagnostics.availableKeys.length})
-                </p>
-                <p className="rounded-md border border-slate-800 bg-slate-900/70 p-2 text-xs text-slate-300">
-                  {diagnostics.availableKeys.length > 0
-                    ? diagnostics.availableKeys.join(", ")
-                    : "Nessuna chiave disponibile."}
-                </p>
-              </div>
-
-              <div className="mt-4 grid gap-4 lg:grid-cols-2">
-                {[
-                  { title: "Attacco", rows: diagnostics.offensive },
-                  { title: "Difesa", rows: diagnostics.defensive }
-                ].map((group) => (
-                  <div key={group.title} className="rounded-lg border border-slate-800 p-3">
-                    <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-amber-300">
-                      {group.title}
-                    </p>
-                    <div className="space-y-1 text-xs">
-                      {group.rows.map((row) => (
-                        <div
-                          key={`${group.title}-${row.metricId}`}
-                          className="rounded border border-slate-800 bg-slate-900/50 p-2"
-                        >
-                          <p className="font-semibold text-slate-100">{row.label}</p>
-                          <p className="text-slate-400">
-                            match key:{" "}
-                            <span className={row.matchedKey ? "text-emerald-300" : "text-rose-300"}>
-                              {row.matchedKey ?? "NON TROVATA"}
-                            </span>
-                          </p>
-                          <p className="text-slate-400">
-                            tentativi:{" "}
-                            <span className="text-slate-300">
-                              {row.candidates.length ? row.candidates.join(" | ") : "derivato"}
-                            </span>
-                          </p>
-                          <p className="text-slate-400">
-                            {selectedMatch?.homeTeam.name ?? "Home"}:{" "}
-                            <span className="text-cyan-100">{formatStat(row.homeValue)}</span> -{" "}
-                            {selectedMatch?.awayTeam.name ?? "Away"}:{" "}
-                            <span className="text-cyan-100">{formatStat(row.awayValue)}</span>
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              {diagnostics.goalkeeperSaves && diagnostics.goalkeeperSaves.length > 0 ? (
-                <div className="mt-4 rounded-lg border border-slate-800 p-3">
-                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-amber-300">
-                    Diagnostica Portieri - Parate Stagione
-                  </p>
-                  <div className="space-y-1 text-xs">
-                    {diagnostics.goalkeeperSaves.map((row) => (
-                      <div
-                        key={`${row.teamId}-${row.playerName}`}
-                        className="rounded border border-slate-800 bg-slate-900/50 p-2"
-                      >
-                        <p className="font-semibold text-slate-100">
-                          {row.playerName} ({row.teamName})
-                        </p>
-                        <p className="text-slate-400">
-                          media stagione: <span className="text-cyan-100">{formatStat(row.savesSeasonAvg)}</span> -
-                          campioni stagione:{" "}
-                          <span className="text-cyan-100">{row.savesSeasonSampleCount}</span>
-                        </p>
-                        <p className="text-slate-400">
-                          media ultimi 2: <span className="text-cyan-100">{formatStat(row.savesLastTwoAvg)}</span> -
-                          campioni ultimi 2:{" "}
-                          <span className="text-cyan-100">{row.savesLastTwoSampleCount}</span>
-                        </p>
-                        <p className="text-slate-400">
-                          sorgente:{" "}
-                          <span className="text-emerald-300">
-                            {row.source === "season_event_series"
-                              ? "eventi stagione"
-                              : row.source === "aggregate_event_series"
-                                ? "eventi stagione (aggregate mode)"
-                                : "fallback overall"}
-                          </span>
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-            </article>
-          ) : null}
-
-          <article className="rounded-xl border border-emerald-400/20 bg-slate-950/70 p-4">
-            <h3 className="mb-1 text-sm font-semibold uppercase tracking-wide text-emerald-200">
-              Classifica competizione
-            </h3>
-            <p className="mb-3 text-[11px] text-slate-500">Totale (punti, W-D-L, GF/GS). Evidenziate le squadre del match.</p>
-            {standingsLoading ? (
-              <p className="text-sm text-slate-400">Caricamento classifica...</p>
-            ) : standingsError ? (
-              <p className="text-sm text-rose-300">{standingsError}</p>
-            ) : standingsRows.length === 0 ? (
-              <p className="text-sm text-slate-400">Classifica non disponibile.</p>
-            ) : (
-              <div className="overflow-auto rounded-lg border border-slate-800">
-                <table className="w-full min-w-[560px] text-left text-xs">
-                  <thead className="sticky top-0 bg-slate-900/95 text-slate-300">
-                    <tr className="border-b border-slate-700">
-                      <th className="px-2 py-2 font-semibold">#</th>
-                      <th className="px-2 py-2 font-semibold">Squadra</th>
-                      <th className="px-2 py-2 font-semibold">G</th>
-                      <th className="px-2 py-2 font-semibold">V</th>
-                      <th className="px-2 py-2 font-semibold">N</th>
-                      <th className="px-2 py-2 font-semibold">P</th>
-                      <th className="px-2 py-2 font-semibold">GF</th>
-                      <th className="px-2 py-2 font-semibold">GS</th>
-                      <th className="px-2 py-2 font-semibold">PT</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {standingsRows.map((row) => {
-                      const isHome = row.teamId === selectedMatch?.homeTeam.id;
-                      const isAway = row.teamId === selectedMatch?.awayTeam.id;
-                      const highlight = isHome || isAway;
-                      return (
-                        <tr
-                          key={`${row.position}-${row.teamId}`}
-                          className={`border-b border-slate-800/80 ${highlight ? "bg-emerald-500/10" : ""}`}
-                        >
-                          <td className="px-2 py-2 font-semibold text-slate-100">{row.position}</td>
-                          <td className="px-2 py-2 text-slate-100">
-                            {row.teamName}
-                            {isHome ? " (Casa)" : isAway ? " (Ospiti)" : ""}
-                          </td>
-                          <td className="px-2 py-2 text-slate-300">{row.matches}</td>
-                          <td className="px-2 py-2 text-slate-300">{row.wins}</td>
-                          <td className="px-2 py-2 text-slate-300">{row.draws}</td>
-                          <td className="px-2 py-2 text-slate-300">{row.losses}</td>
-                          <td className="px-2 py-2 text-slate-300">{row.goalsFor}</td>
-                          <td className="px-2 py-2 text-slate-300">{row.goalsAgainst}</td>
-                          <td className="px-2 py-2 font-semibold text-emerald-100">{row.points}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </article>
         </div>
-      ) : null}
 
-      {playerAnalyticsView ? (
         <div className="space-y-4">
           {playerDetailLevel === "team_only" ? (
             <div className="rounded-xl border border-slate-600 bg-slate-950/70 p-6 text-center">
               <p className="text-base text-slate-200">
-                Per questa lega il kiosk mostra <strong>solo le statistiche delle squadre</strong> (tab Match Teams).
+                Per questa lega non sono disponibili scontri in campo nè heatmap giocatori nel menu ibrido.
               </p>
               <p className="mt-2 text-sm text-slate-400">
-                Classifiche giocatori, scontri in campo e mappe non sono caricati per le altre competizioni del menu,
-                per limitare le chiamate API (restano attivi per Serie A, Champions ed Europa League; Serie B solo
-                squadra).
+                Le analisi giocatori restano attive per Serie A, Champions League, Europa League e Conference League
+                (con squadre di Serie A), per limitare le chiamate API.
               </p>
             </div>
           ) : (
@@ -1443,8 +946,9 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
               {playerAnalyticsView === "PLAYER_FRICTION" ? (
                 <p className="text-sm text-slate-300">
                   Per la partita selezionata vengono evidenziati i <strong>4 scontri più interessanti</strong> tra
-                  giocatori avversari (priorità a sovrapposizione heatmap e profilo falli), con mappa del campo e medie
-                  campionato.
+                  giocatori avversari (priorità a sovrapposizione heatmap e profilo falli), con mappa del campo. Per
+                  Champions, Europa e Conference le <strong>medie falli</strong> e lo <strong>storico partite</strong>{" "}
+                  usano il <strong>campionato domestico</strong> di ogni squadra (più partite), non solo la fase UEFA.
                 </p>
               ) : playerAnalyticsView === "FOUL_RISK_SUFFERED" ? (
                 <p className="text-sm text-slate-300">
@@ -1458,28 +962,6 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
                   falli a partita: contestazione frequente e rischio di entrare in situazioni da fallo commesso.
                 </p>
               )}
-
-              <div className="grid gap-2 lg:grid-cols-2">
-                {visibleMatches.map((match) => (
-                  <button
-                    key={`player-view-${match.eventId}`}
-                    type="button"
-                    onClick={() => setSelectedMatchId(match.eventId)}
-                    className={`rounded-xl border p-3 text-left ${
-                      selectedMatch?.eventId === match.eventId
-                        ? "border-cyan-300 bg-cyan-400/10"
-                        : "border-slate-700 bg-slate-900/40"
-                    }`}
-                  >
-                    <p className="text-xs uppercase text-slate-400">
-                      {competitionLabel(match.competitionSlug)}
-                    </p>
-                    <p className="text-sm font-semibold text-slate-100">
-                      {match.homeTeam.name} vs {match.awayTeam.name}
-                    </p>
-                  </button>
-                ))}
-              </div>
 
               {!hasMatchFrameHeatmaps ? (
                 <p className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-amber-100">
@@ -1673,7 +1155,7 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
             </>
           )}
         </div>
-      ) : null}
+      </div>
     </section>
   );
 }

@@ -801,6 +801,15 @@ interface SportApiTeamDetailsResponse {
   };
 }
 
+/** Contesto lega domestica della squadra (per stats giocatori in match UEFA). */
+interface TeamDomesticLeagueContext {
+  tournamentId: number;
+  seasonId: number;
+  slug: string;
+}
+
+const teamDomesticLeagueContextCache = new Map<number, TeamDomesticLeagueContext | null>();
+
 interface TeamCandidate {
   id: number;
   name: string;
@@ -1119,6 +1128,81 @@ function isUefaConferenceLeagueEvent(event: SportApiEvent): boolean {
 }
 
 /**
+ * Champions, Europa o Conference: per le analisi giocatori usare il campionato domestico
+ * (più partite), non solo la competizione UEFA del match.
+ */
+export function isUefaClubCompetitionSlug(slug?: string): boolean {
+  const s = normalizeCompetitionSlug(slug ?? "");
+  if (!s) return false;
+  if (UEFA_CONFERENCE_LEAGUE_SLUGS.has(s)) return true;
+  if (UEFA_CHAMPIONS_OR_EUROPA_SLUGS.has(s)) return true;
+  if (s.includes("conference") && s.includes("uefa")) return true;
+  return (
+    (s.includes("champions") && s.includes("uefa")) ||
+    (s.includes("europa") && s.includes("uefa") && s.includes("league"))
+  );
+}
+
+async function getTeamDomesticLeagueContext(
+  teamId: number,
+  bypassCache?: boolean
+): Promise<TeamDomesticLeagueContext | null> {
+  if (!bypassCache && teamDomesticLeagueContextCache.has(teamId)) {
+    return teamDomesticLeagueContextCache.get(teamId) ?? null;
+  }
+
+  const response = await sportApiFetch(`/api/v1/team/${teamId}`, {
+    requestType: "blueprint",
+    teamId,
+    revalidateSeconds: 3600,
+    bypassCache
+  });
+  if (!response.ok) {
+    if (!bypassCache) teamDomesticLeagueContextCache.set(teamId, null);
+    return null;
+  }
+
+  const payload = (await response.json()) as SportApiTeamDetailsResponse;
+  const utId = payload.team?.tournament?.uniqueTournament?.id;
+  const slugRaw = payload.team?.tournament?.uniqueTournament?.slug ?? "";
+  if (!utId || utId <= 0) {
+    if (!bypassCache) teamDomesticLeagueContextCache.set(teamId, null);
+    return null;
+  }
+
+  const maxPages = 6;
+  for (let page = 0; page < maxPages; page += 1) {
+    const eventsResponse = await sportApiFetch(`/api/v1/team/${teamId}/events/last/${page}`, {
+      requestType: "snapshot",
+      teamId,
+      revalidateSeconds: 300,
+      bypassCache
+    });
+    if (!eventsResponse.ok) break;
+    const eventsPayload = (await eventsResponse.json()) as SportApiTeamEventsResponse;
+    const pageEvents = eventsPayload.events ?? [];
+    for (const event of pageEvents) {
+      if (eventStatusType(event) !== "finished") continue;
+      const evUt = event.tournament?.uniqueTournament?.id;
+      if (evUt !== utId) continue;
+      const sid = event.season?.id;
+      if (sid && Number(sid) > 0) {
+        const ctx: TeamDomesticLeagueContext = {
+          tournamentId: utId,
+          seasonId: Number(sid),
+          slug: slugRaw || competitionSlug(event)
+        };
+        if (!bypassCache) teamDomesticLeagueContextCache.set(teamId, ctx);
+        return ctx;
+      }
+    }
+  }
+
+  if (!bypassCache) teamDomesticLeagueContextCache.set(teamId, null);
+  return null;
+}
+
+/**
  * Serie B italiana nel menu kiosk.
  * Non richiediamo token paese: su scheduled-events molti match hanno slug `serie-b` senza `country` popolato;
  * il vincolo Italia era troppo stretto e lasciava poche partite (es. una sola fissata).
@@ -1302,15 +1386,19 @@ async function sportApiFetch(
     teamId?: number;
     competition?: string;
     revalidateSeconds?: number;
+    /** Ignora Data Cache Next (es. refresh manuale kiosk: formazioni e lineups aggiornati). */
+    bypassCache?: boolean;
   }
 ): Promise<Response> {
   /** Il calendario globale supera spesso 2MB: Next.js non può metterlo in Data Cache → errori e risposta instabile. */
   const fetchInit: RequestInit = isBulkScheduledEventsEndpoint(endpoint)
     ? { headers: sportApiHeaders(), cache: "no-store" }
-    : {
-        headers: sportApiHeaders(),
-        next: { revalidate: options?.revalidateSeconds ?? 60 }
-      };
+    : options?.bypassCache
+      ? { headers: sportApiHeaders(), cache: "no-store" }
+      : {
+          headers: sportApiHeaders(),
+          next: { revalidate: options?.revalidateSeconds ?? 60 }
+        };
 
   const response = await fetch(`https://${env.SPORTAPI_RAPIDAPI_HOST}${endpoint}`, fetchInit);
 
@@ -1868,6 +1956,8 @@ export async function fetchSportPerformanceForTeams(params: {
   tournamentId?: number;
   seasonId?: number;
   savesDiagnosticsCollector?: (row: PlayerSavesDiagnosticsRow) => void;
+  /** Salta Data Cache Next (refresh kiosk: formazioni, lineups, storico). */
+  bypassCache?: boolean;
 }): Promise<SportPerformanceInput[]> {
   const normalizedCompetition = normalizeCompetitionSlug(params.competitionSlug);
   const maxSeasonMatches = parsePositiveInt(process.env.TACTICAL_PLAYER_AVG_MATCHES, 60);
@@ -1903,7 +1993,8 @@ export async function fetchSportPerformanceForTeams(params: {
     params.eventId && params.eventId > 0
       ? await sportApiFetch(`/api/v1/event/${params.eventId}/lineups`, {
           requestType: "snapshot",
-          revalidateSeconds: 120
+          revalidateSeconds: 120,
+          bypassCache: params.bypassCache
         })
           .then(async (response) =>
             response.ok ? ((await response.json()) as SportApiLineupsResponse) : null
@@ -1918,12 +2009,58 @@ export async function fetchSportPerformanceForTeams(params: {
       lineupsByTeam.set(teamId, selectedEventLineups.home.players);
     }
   }
-  if (selectedEventLineups?.away?.players?.length) {
+    if (selectedEventLineups?.away?.players?.length) {
     const teamId = selectedEventLineups.away.players[0]?.teamId;
     if (teamId) {
       lineupsByTeam.set(teamId, selectedEventLineups.away.players);
     }
   }
+
+  if (
+    tournamentId == null ||
+    seasonId == null ||
+    !Number.isFinite(Number(tournamentId)) ||
+    Number(tournamentId) <= 0 ||
+    !Number.isFinite(Number(seasonId)) ||
+    Number(seasonId) <= 0
+  ) {
+    return [];
+  }
+
+  const cupTournamentId = Number(tournamentId);
+  const cupSeasonId = Number(seasonId);
+
+  async function resolveTeamPerformanceBinding(teamId: number): Promise<{
+    tournamentId: number;
+    seasonId: number;
+    competitionSlugNorm: string;
+  }> {
+    if (!isUefaClubCompetitionSlug(normalizedCompetition)) {
+      return {
+        tournamentId: cupTournamentId,
+        seasonId: cupSeasonId,
+        competitionSlugNorm: normalizedCompetition
+      };
+    }
+    const domestic = await getTeamDomesticLeagueContext(teamId, params.bypassCache);
+    if (domestic && domestic.tournamentId > 0 && domestic.seasonId > 0) {
+      return {
+        tournamentId: domestic.tournamentId,
+        seasonId: domestic.seasonId,
+        competitionSlugNorm: normalizeCompetitionSlug(domestic.slug)
+      };
+    }
+    return {
+      tournamentId: cupTournamentId,
+      seasonId: cupSeasonId,
+      competitionSlugNorm: normalizedCompetition
+    };
+  }
+
+  const [homeBinding, awayBinding] = await Promise.all([
+    resolveTeamPerformanceBinding(params.homeTeamId),
+    resolveTeamPerformanceBinding(params.awayTeamId)
+  ]);
 
   /** Deduplica lineups+statistics per eventId tra home/away (stesse partite in calendario). */
   const eventLineupsStatsInflight = new Map<
@@ -1948,7 +2085,8 @@ export async function fetchSportPerformanceForTeams(params: {
         const lineupsResp = await sportApiFetch(`/api/v1/event/${eventId}/lineups`, {
           requestType: "snapshot",
           teamId: logTeamId,
-          revalidateSeconds: 600
+          revalidateSeconds: 600,
+          bypassCache: params.bypassCache
         });
         if (!lineupsResp.ok) {
           return null;
@@ -1959,7 +2097,8 @@ export async function fetchSportPerformanceForTeams(params: {
       const statsResp = await sportApiFetch(`/api/v1/event/${eventId}/statistics`, {
         requestType: "snapshot",
         teamId: logTeamId,
-        revalidateSeconds: 600
+        revalidateSeconds: 600,
+        bypassCache: params.bypassCache
       });
       if (!statsResp.ok) {
         return null;
@@ -1972,53 +2111,62 @@ export async function fetchSportPerformanceForTeams(params: {
     return task;
   }
 
-  async function fetchPlayerSeasonOverall(playerId: number): Promise<Record<string, number> | null> {
-    if (!tournamentId || !seasonId) return null;
-    const response = await sportApiFetch(
-      `/api/v1/player/${playerId}/unique-tournament/${tournamentId}/season/${seasonId}/statistics/overall`,
-      {
-        requestType: "snapshot",
-        revalidateSeconds: 600
-      }
-    );
-    if (!response.ok) return null;
-    try {
-      const payload: unknown = await response.json();
-      return parsePlayerSeasonOverallPayload(payload);
-    } catch {
-      return null;
-    }
-  }
+  async function buildTeamRows(
+    team: {
+      teamId: number;
+      teamName: string;
+      clubColor: string;
+    },
+    binding: { tournamentId: number; seasonId: number; competitionSlugNorm: string }
+  ): Promise<SportPerformanceInput[]> {
+    const tournamentId = binding.tournamentId;
+    const seasonId = binding.seasonId;
+    const normalizedCompetition = binding.competitionSlugNorm;
 
-  async function fetchPlayerSeasonHeatmap(
-    playerId: number
-  ): Promise<SportPerformanceInput["heatmapPoints"]> {
-    if (!fetchSeasonHeatmaps || !tournamentId || !seasonId) {
-      return [];
-    }
-    const response = await sportApiFetch(
-      `/api/v1/player/${playerId}/unique-tournament/${tournamentId}/season/${seasonId}/heatmap`,
-      {
-        requestType: "snapshot",
-        revalidateSeconds: heatmapRevalidateSeconds
+    async function fetchPlayerSeasonOverall(playerId: number): Promise<Record<string, number> | null> {
+      if (!tournamentId || !seasonId) return null;
+      const response = await sportApiFetch(
+        `/api/v1/player/${playerId}/unique-tournament/${tournamentId}/season/${seasonId}/statistics/overall`,
+        {
+          requestType: "snapshot",
+          revalidateSeconds: 600,
+          bypassCache: params.bypassCache
+        }
+      );
+      if (!response.ok) return null;
+      try {
+        const payload: unknown = await response.json();
+        return parsePlayerSeasonOverallPayload(payload);
+      } catch {
+        return null;
       }
-    );
-    if (!response.ok) {
-      return [];
     }
-    try {
-      const json: unknown = await response.json();
-      return parsePlayerSeasonHeatmapPoints(json);
-    } catch {
-      return [];
-    }
-  }
 
-  async function buildTeamRows(team: {
-    teamId: number;
-    teamName: string;
-    clubColor: string;
-  }): Promise<SportPerformanceInput[]> {
+    async function fetchPlayerSeasonHeatmap(
+      playerId: number
+    ): Promise<SportPerformanceInput["heatmapPoints"]> {
+      if (!fetchSeasonHeatmaps || !tournamentId || !seasonId) {
+        return [];
+      }
+      const response = await sportApiFetch(
+        `/api/v1/player/${playerId}/unique-tournament/${tournamentId}/season/${seasonId}/heatmap`,
+        {
+          requestType: "snapshot",
+          revalidateSeconds: heatmapRevalidateSeconds,
+          bypassCache: params.bypassCache
+        }
+      );
+      if (!response.ok) {
+        return [];
+      }
+      try {
+        const json: unknown = await response.json();
+        return parsePlayerSeasonHeatmapPoints(json);
+      } catch {
+        return [];
+      }
+    }
+
     const startersFromSelectedMatch = (lineupsByTeam.get(team.teamId) ?? [])
       .filter((player) => player.substitute === false)
       .filter((player) => Boolean(player.player?.id))
@@ -2044,7 +2192,8 @@ export async function fetchSportPerformanceForTeams(params: {
         const eventsResponse = await sportApiFetch(`/api/v1/team/${team.teamId}/events/last/${page}`, {
           requestType: "snapshot",
           teamId: team.teamId,
-          revalidateSeconds: 300
+          revalidateSeconds: 300,
+          bypassCache: params.bypassCache
         });
         if (!eventsResponse.ok) {
           break;
@@ -2263,7 +2412,8 @@ export async function fetchSportPerformanceForTeams(params: {
         const eventsResponse = await sportApiFetch(`/api/v1/team/${team.teamId}/events/last/${page}`, {
           requestType: "snapshot",
           teamId: team.teamId,
-          revalidateSeconds: 300
+          revalidateSeconds: 300,
+          bypassCache: params.bypassCache
         });
         if (!eventsResponse.ok) break;
         const eventsPayload = (await eventsResponse.json()) as SportApiTeamEventsResponse;
@@ -2587,16 +2737,22 @@ export async function fetchSportPerformanceForTeams(params: {
   }
 
   const [homeRows, awayRows] = await Promise.all([
-    buildTeamRows({
-      teamId: params.homeTeamId,
-      teamName: params.homeTeamName,
-      clubColor: "#2D6CDF"
-    }),
-    buildTeamRows({
-      teamId: params.awayTeamId,
-      teamName: params.awayTeamName,
-      clubColor: "#E11D48"
-    })
+    buildTeamRows(
+      {
+        teamId: params.homeTeamId,
+        teamName: params.homeTeamName,
+        clubColor: "#2D6CDF"
+      },
+      homeBinding
+    ),
+    buildTeamRows(
+      {
+        teamId: params.awayTeamId,
+        teamName: params.awayTeamName,
+        clubColor: "#E11D48"
+      },
+      awayBinding
+    )
   ]);
 
   return [...homeRows, ...awayRows];

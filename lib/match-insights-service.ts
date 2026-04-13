@@ -12,10 +12,8 @@ import {
   fetchEventSeasonContextForInsights,
   fetchSportPerformance,
   fetchSportPerformanceForTeams,
-  fetchTeamPerformanceBlueprint,
   isTeamInSerieALeague,
-  type PlayerSavesDiagnosticsRow,
-  type TeamBlueprintDebugMeta
+  type PlayerSavesDiagnosticsRow
 } from "@/services/sportapi";
 
 interface EventStatisticsResponse {
@@ -582,7 +580,7 @@ export function buildMatchInsightsCacheKey(input: {
   playerAnalyticsMode: "full" | "serie_a_players";
 }): string {
   const slug = input.competitionSlug ?? "domestic";
-  return `match_insights:v42:${input.eventId}:${input.scope}:${slug}:diag_${input.includeDiagnostics ? "1" : "0"}:single_${input.singleMatchTest ? "1" : "0"}:refresh_${input.forceBlueprintRefresh ? "1" : "0"}:pa_${input.playerAnalyticsMode}`;
+  return `match_insights:v43:${input.eventId}:${input.scope}:${slug}:diag_${input.includeDiagnostics ? "1" : "0"}:single_${input.singleMatchTest ? "1" : "0"}:refresh_${input.forceBlueprintRefresh ? "1" : "0"}:pa_${input.playerAnalyticsMode}`;
 }
 
 export type MatchInsightsApiPayload = {
@@ -591,10 +589,6 @@ export type MatchInsightsApiPayload = {
   awayBlueprint: TeamPerformanceBlueprint;
   playerDetailLevel: "full" | "team_only";
   diagnostics: MatchInsightsDiagnostics | null;
-  blueprintDebug?: {
-    home?: TeamBlueprintDebugMeta;
-    away?: TeamBlueprintDebugMeta;
-  };
 };
 
 export async function computeMatchInsightsPayload(
@@ -654,6 +648,7 @@ export async function computeMatchInsightsPayload(
           competitionSlug,
           tournamentId: seasonContext?.tournamentId,
           seasonId: seasonContext?.seasonId,
+          bypassCache: forceBlueprintRefresh,
           savesDiagnosticsCollector: includeDiagnostics
             ? (row) => {
                 savesDiagnosticsRows.push(row);
@@ -720,8 +715,6 @@ export async function computeMatchInsightsPayload(
 
     let homeBlueprint = fallbackHomeBlueprint;
     let awayBlueprint = fallbackAwayBlueprint;
-    let homeBlueprintDebug: TeamBlueprintDebugMeta | undefined;
-    let awayBlueprintDebug: TeamBlueprintDebugMeta | undefined;
 
     if (singleMatchTest && eventBundle) {
       homeBlueprint = buildBlueprintFromEventStats({
@@ -743,32 +736,8 @@ export async function computeMatchInsightsPayload(
         awayGoals: eventBundle.awayGoals
       });
     } else if (!singleMatchTest) {
-      const homeBlueprintModel = await fetchTeamPerformanceBlueprint({
-          teamId: leftTeam.id,
-          teamName: leftTeam.name,
-          competitionSlug,
-          tournamentId: seasonContext?.tournamentId,
-          seasonId: seasonContext?.seasonId,
-          scope,
-          forceRefresh: forceBlueprintRefresh,
-          debugCollector: (meta) => {
-            homeBlueprintDebug = meta;
-          }
-        });
-      const awayBlueprintModel = await fetchTeamPerformanceBlueprint({
-          teamId: rightTeam.id,
-          teamName: rightTeam.name,
-          competitionSlug,
-          tournamentId: seasonContext?.tournamentId,
-          seasonId: seasonContext?.seasonId,
-          scope,
-          forceRefresh: forceBlueprintRefresh,
-          debugCollector: (meta) => {
-            awayBlueprintDebug = meta;
-          }
-        });
-      homeBlueprint = homeBlueprintModel;
-      awayBlueprint = awayBlueprintModel;
+      homeBlueprint = emptyBlueprint(leftTeam.id, leftTeam.name, scope);
+      awayBlueprint = emptyBlueprint(rightTeam.id, rightTeam.name, scope);
     }
 
     let diagnostics: MatchInsightsDiagnostics | null = null;
@@ -824,14 +793,7 @@ export async function computeMatchInsightsPayload(
       homeBlueprint,
       awayBlueprint,
       playerDetailLevel: skipPlayerPerformance ? ("team_only" as const) : ("full" as const),
-      diagnostics: includeDiagnostics ? diagnostics : null,
-      blueprintDebug:
-        singleMatchTest
-          ? undefined
-          : {
-              home: homeBlueprintDebug,
-              away: awayBlueprintDebug
-            }
+      diagnostics: includeDiagnostics ? diagnostics : null
     };
 
     return payload;
