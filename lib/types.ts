@@ -162,6 +162,8 @@ export interface SportPerformanceInput {
   teamId: number;
   jerseyNumber: number;
   role: string;
+  /** Codice posizione grezzo dalla formazione (es. DL, MR, AML): per affinità tattica / fasce. */
+  positionCode?: string;
   clubColor: string;
   shotsTotal: number;
   shotsLastTwoAvg: number;

@@ -92,6 +92,163 @@ function foulFrictionScore(athlete: SportPerformanceInput, opponent: SportPerfor
   );
 }
 
+type RoleKind = "gk" | "def" | "mid" | "fwd";
+
+function roleKindFromRole(role: string): RoleKind {
+  const r = role.toLowerCase();
+  if (r.includes("goal")) return "gk";
+  if (r.includes("def")) return "def";
+  if (r.includes("for") || r.includes("att")) return "fwd";
+  return "mid";
+}
+
+/**
+ * Fascia orizzontale da codice posizione in formazione (DL, MR, AML, LW…).
+ * -1 sinistra, +1 destra, 0 centro / non determinabile.
+ */
+function lineupPositionFlank(positionCode: string | undefined): number {
+  if (!positionCode) return 0;
+  const s = positionCode.toUpperCase().trim().replace(/\s+/g, "");
+  if (!s || s === "G" || s.startsWith("GK")) return 0;
+
+  const wingLeft = /^(DL|LWB|LB|ML|AML|LW|LM|WL)(\/|$)/.test(s) || /\bLW\b/.test(s);
+  const wingRight = /^(DR|RWB|RB|MR|AMR|RW|RM|WR)(\/|$)/.test(s) || /\bRW\b/.test(s);
+  if (wingLeft && !wingRight) return -1;
+  if (wingRight && !wingLeft) return 1;
+
+  const last = s[s.length - 1];
+  const first = s[0];
+  if (last === "L" && /^[DAMFW]/.test(first)) return -1;
+  if (last === "R" && /^[DAMFW]/.test(first)) return 1;
+
+  return 0;
+}
+
+function heatmapPointsInHomeFrame(
+  athlete: SportPerformanceInput,
+  homeTeamId?: number
+): SportPerformanceInput["heatmapPoints"] {
+  if (!athlete.heatmapPoints.length) return [];
+  if (homeTeamId !== undefined && homeTeamId > 0) {
+    return normalizeHeatmapToHomeFrame(athlete.heatmapPoints, athlete.teamId, homeTeamId);
+  }
+  return athlete.heatmapPoints;
+}
+
+/** Inclinazione laterale -1…+1 da heatmap (e integrazione con positionCode). */
+function effectiveLateralLean(
+  athlete: SportPerformanceInput,
+  pointsHomeOrRaw: SportPerformanceInput["heatmapPoints"],
+  homeTeamId?: number
+): number {
+  const posFlank = lineupPositionFlank(athlete.positionCode);
+  const posN = posFlank === 0 ? 0 : posFlank * 0.55;
+
+  if (pointsHomeOrRaw.length >= MIN_HEATMAP_POINTS_FOR_SPATIAL) {
+    const cx = heatmapCentroid(pointsHomeOrRaw).x;
+    const h = clamp((cx - 50) / 50, -1, 1);
+    return clamp(h * 0.74 + posN * 0.26, -1, 1);
+  }
+
+  return posN !== 0 ? clamp(posN, -1, 1) : 0;
+}
+
+/**
+ * Stessa logica della distanza spatial: scegli specchiatura avversario se serve (senza frame casa).
+ */
+function lateralLeanPairForMarking(
+  athlete: SportPerformanceInput,
+  opponent: SportPerformanceInput,
+  homeTeamId?: number
+): { la: number; lb: number; ya: number; yb: number } {
+  const useHome = homeTeamId !== undefined && homeTeamId > 0;
+  const ptsA = heatmapPointsInHomeFrame(athlete, homeTeamId);
+  const ptsB = heatmapPointsInHomeFrame(opponent, homeTeamId);
+
+  if (useHome || ptsA.length < MIN_HEATMAP_POINTS_FOR_SPATIAL || ptsB.length < MIN_HEATMAP_POINTS_FOR_SPATIAL) {
+    const la = effectiveLateralLean(athlete, ptsA, homeTeamId);
+    const lb = effectiveLateralLean(opponent, ptsB, homeTeamId);
+    const ca = heatmapCentroid(ptsA);
+    const cb = heatmapCentroid(ptsB);
+    return { la, lb, ya: ca.y, yb: cb.y };
+  }
+
+  const cA = heatmapCentroid(ptsA);
+  const cB = heatmapCentroid(ptsB);
+  const cBm = heatmapCentroid(mirrorHeatmapPointsX(ptsB));
+  const useMirroredB = Math.hypot(cA.x - cB.x, cA.y - cB.y) > Math.hypot(cA.x - cBm.x, cA.y - cBm.y);
+  const cBOpp = useMirroredB ? cBm : cB;
+  const la = clamp((cA.x - 50) / 50, -1, 1);
+  const lbRaw = clamp((cBOpp.x - 50) / 50, -1, 1);
+  const lb =
+    lineupPositionFlank(opponent.positionCode) !== 0
+      ? clamp(lbRaw * 0.62 + lineupPositionFlank(opponent.positionCode) * 0.55 * 0.38, -1, 1)
+      : lbRaw;
+  const laAdj =
+    lineupPositionFlank(athlete.positionCode) !== 0
+      ? clamp(la * 0.62 + lineupPositionFlank(athlete.positionCode) * 0.55 * 0.38, -1, 1)
+      : la;
+  return { la: laAdj, lb, ya: cA.y, yb: cBOpp.y };
+}
+
+/** 0–40: quanto il duello ricorda una marcatura “naturale” (fascia + ruoli). */
+function markingAffinityScore(
+  athlete: SportPerformanceInput,
+  opponent: SportPerformanceInput,
+  homeTeamId?: number
+): number {
+  const rkA = roleKindFromRole(athlete.role);
+  const rkB = roleKindFromRole(opponent.role);
+  if (rkA === "gk" || rkB === "gk") return 0;
+
+  const { la, lb, ya, yb } = lateralLeanPairForMarking(athlete, opponent, homeTeamId);
+  const laneMatch = clamp(1 - Math.min(1, Math.abs(la - lb) / 0.88), 0, 1);
+
+  let score = laneMatch * 15;
+
+  const wideA = Math.abs(la) > 0.24;
+  const wideB = Math.abs(lb) > 0.24;
+  const centralA = Math.abs(la) < 0.22;
+  const centralB = Math.abs(lb) < 0.22;
+
+  const defVsAtt =
+    (rkA === "def" && (rkB === "fwd" || rkB === "mid")) ||
+    (rkB === "def" && (rkA === "fwd" || rkA === "mid"));
+  if (defVsAtt && laneMatch > 0.32) {
+    score += wideA || wideB ? 16 : 9;
+  }
+
+  if (rkA === "mid" && rkB === "mid" && laneMatch > 0.42) {
+    score += 11;
+    if (wideA && wideB) score += 5;
+  }
+
+  if (
+    ((rkA === "fwd" && rkB === "def") || (rkA === "def" && rkB === "fwd")) &&
+    centralA &&
+    centralB &&
+    Math.abs(ya - yb) > 9
+  ) {
+    score += 13;
+  }
+
+  if (rkA === "def" && rkB === "def" && centralA && centralB) {
+    score -= 15;
+  }
+
+  if (rkA === "fwd" && rkB === "fwd" && centralA && centralB) {
+    score -= 9;
+  }
+
+  const pfA = lineupPositionFlank(athlete.positionCode);
+  const pfB = lineupPositionFlank(opponent.positionCode);
+  if (pfA !== 0 && pfB !== 0 && pfA === pfB && laneMatch > 0.4) {
+    score += 6;
+  }
+
+  return clamp(score, 0, 40);
+}
+
 function frictionOverlapScore(
   athlete: SportPerformanceInput,
   opponent: SportPerformanceInput,
@@ -101,6 +258,8 @@ function frictionOverlapScore(
   const bN = opponent.heatmapPoints.length;
   const foulsTrigger =
     athlete.foulsCommitted > 1.0 && opponent.foulsSuffered > 1.5 ? 1.25 : 1;
+
+  const marking = markingAffinityScore(athlete, opponent, homeTeamId);
 
   if (aN >= MIN_HEATMAP_POINTS_FOR_SPATIAL && bN >= MIN_HEATMAP_POINTS_FOR_SPATIAL) {
     let distance: number;
@@ -122,10 +281,16 @@ function frictionOverlapScore(
     }
     const spatial = clamp(100 - distance, 0, 100);
     const foulBlend = foulFrictionScore(athlete, opponent);
-    return (spatial * 0.72 + foulBlend * 0.28) * foulsTrigger;
+    const combined = clamp(
+      spatial * 0.56 + foulBlend * 0.22 + marking * 0.33,
+      0,
+      100
+    );
+    return combined * foulsTrigger;
   }
 
-  return foulFrictionScore(athlete, opponent) * foulsTrigger;
+  const foulOnly = foulFrictionScore(athlete, opponent);
+  return clamp(foulOnly * 0.82 + marking * 0.4, 0, 100) * foulsTrigger;
 }
 
 const HEATMAP_POINTS_RENDER_CAP = 72;
@@ -197,7 +362,8 @@ function buildEstimatedHeatmapPoints(
 function buildFrictionExplanation(
   athlete: SportPerformanceInput,
   opponent: SportPerformanceInput,
-  heatmapOk: boolean
+  heatmapOk: boolean,
+  markingScore: number
 ): string {
   const aName = athlete.athleteName;
   const bName = opponent.athleteName;
@@ -210,16 +376,25 @@ function buildFrictionExplanation(
     `${aName}: in media circa ${fmtSimpleStat(aFc)} falli commessi e ${fmtSimpleStat(aFs)} subiti a partita in campionato. ` +
     `${bName}: circa ${fmtSimpleStat(bFc)} commessi e ${fmtSimpleStat(bFs)} subiti. `;
 
+  const markingBlock =
+    markingScore >= 16
+      ? "Dal profilo tattico (fascia di campo dalle heatmap, ruoli e posizione in formazione) emerge un incrocio compatibile con una marcatura diretta sulle corsie — ad esempio esterno contro terzino, o centrocampista spostato su un lato contro l’ala avversaria. "
+      : markingScore >= 9
+        ? "Ruoli e fasce laterali suggeriscono un duello plausibile sulla stessa metà campo, oltre alla sola vicinanza delle heatmap. "
+        : "";
+
   if (heatmapOk) {
     return (
       foulsBlock +
-      "Le heatmap stagionali indicano zone di campo vicine o sovrapposte: è molto plausibile che in partita si incrocino spesso nello stesso settore e che lo scontro diretto sia tra i più probabili."
+      markingBlock +
+      "Le heatmap stagionali indicano zone di campo vicine o sovrapposte: è plausibile che in partita si incrocino spesso nello stesso settore."
     );
   }
 
   return (
     foulsBlock +
-    "I dati di posizione sul campo sono parziali; il quadro resta guidato soprattutto dalle medie sui falli."
+    (markingBlock ||
+      "I dati di posizione sul campo sono parziali; il quadro resta guidato soprattutto dalle medie sui falli.")
   );
 }
 
@@ -310,9 +485,13 @@ function calculateSparkDetector(
   const heatmapOk =
     aN >= MIN_HEATMAP_POINTS_FOR_SPATIAL && bN >= MIN_HEATMAP_POINTS_FOR_SPATIAL;
 
-  const narrative = `Possibile scontro in campo tra ${athlete.athleteName} e ${opp.athleteName}.`;
+  const markingScore = markingAffinityScore(athlete, opp, homeTeamId);
+  const narrative =
+    markingScore >= 16
+      ? `Possibile scontro in campo tra ${athlete.athleteName} e ${opp.athleteName}, con profilo da duello tattico sulla stessa fascia (marcatura plausibile).`
+      : `Possibile scontro in campo tra ${athlete.athleteName} e ${opp.athleteName}.`;
 
-  const frictionExplanation = buildFrictionExplanation(athlete, opp, heatmapOk);
+  const frictionExplanation = buildFrictionExplanation(athlete, opp, heatmapOk, markingScore);
 
   const oppPointsForDisplay = useHomePitchFrame
     ? opp.heatmapPoints.length > 0
