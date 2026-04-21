@@ -16,6 +16,11 @@ import {
   isTeamInSerieALeague,
   type PlayerSavesDiagnosticsRow
 } from "@/services/sportapi";
+import {
+  fetchFixturePlayerPropLines,
+  ODDS_MARKET_PLAYER_FOULS_COMMITTED_OU,
+  ODDS_MARKET_PLAYER_TO_BE_CARDED_OU
+} from "@/services/oddsapi";
 
 interface EventStatisticsResponse {
   statistics?: Array<{
@@ -581,7 +586,7 @@ export function buildMatchInsightsCacheKey(input: {
   playerAnalyticsMode: "full" | "serie_a_players";
 }): string {
   const slug = input.competitionSlug ?? "domestic";
-  return `match_insights:v43:${input.eventId}:${input.scope}:${slug}:diag_${input.includeDiagnostics ? "1" : "0"}:single_${input.singleMatchTest ? "1" : "0"}:refresh_${input.forceBlueprintRefresh ? "1" : "0"}:pa_${input.playerAnalyticsMode}`;
+  return `match_insights:v44:${input.eventId}:${input.scope}:${slug}:diag_${input.includeDiagnostics ? "1" : "0"}:single_${input.singleMatchTest ? "1" : "0"}:refresh_${input.forceBlueprintRefresh ? "1" : "0"}:pa_${input.playerAnalyticsMode}`;
 }
 
 export type MatchInsightsApiPayload = {
@@ -704,6 +709,47 @@ export async function computeMatchInsightsPayload(
           m.h2hYellowCards = pick.yellowCards;
           m.h2hRedCards = pick.redCards;
           m.h2hHadCard = pick.hadCard;
+        }
+      }
+    }
+
+    // Enrich with OddsPapi player prop lines (optional).
+    if (metrics.length > 0) {
+      const props = await fetchFixturePlayerPropLines({
+        fixtureId: eventId,
+        marketIds: [ODDS_MARKET_PLAYER_FOULS_COMMITTED_OU, ODDS_MARKET_PLAYER_TO_BE_CARDED_OU]
+      }).catch(() => []);
+
+      if (props.length) {
+        const byMarketAndName = new Map<string, (typeof props)[number]>();
+        for (const row of props) {
+          const key = `${row.marketId}|${normalizePlayerNameKey(row.playerName)}`;
+          if (!byMarketAndName.has(key)) byMarketAndName.set(key, row);
+        }
+
+        for (const m of metrics) {
+          const foulsKey = `${ODDS_MARKET_PLAYER_FOULS_COMMITTED_OU}|${normalizePlayerNameKey(
+            m.playerName
+          )}`;
+          const cardsKey = `${ODDS_MARKET_PLAYER_TO_BE_CARDED_OU}|${normalizePlayerNameKey(
+            m.playerName
+          )}`;
+
+          const fouls = byMarketAndName.get(foulsKey);
+          const cards = byMarketAndName.get(cardsKey);
+          const book = fouls?.bookmaker ?? cards?.bookmaker;
+          if (book) m.oddsBookmaker = book;
+
+          if (fouls) {
+            m.oddsFoulsCommittedLine = fouls.line;
+            m.oddsFoulsCommittedOver = fouls.overOdds;
+            m.oddsFoulsCommittedUnder = fouls.underOdds;
+          }
+          if (cards) {
+            m.oddsCardsLine = cards.line;
+            m.oddsCardsOver = cards.overOdds;
+            m.oddsCardsUnder = cards.underOdds;
+          }
         }
       }
     }

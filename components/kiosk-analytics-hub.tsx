@@ -133,6 +133,16 @@ function formatStat(value: unknown): string {
   });
 }
 
+function ouPick(predicted: number, line: number): "Over" | "Under" {
+  // Con linea x.5, >= è equivalente a "Over". Manteniamo >= per stabilità sui casi limite.
+  return predicted >= line ? "Over" : "Under";
+}
+
+function formatOdds(value: number | undefined): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "-";
+  return value.toFixed(2);
+}
+
 const LAST_TWO_MIN_SAMPLES = 2;
 
 function TopPlayersSeasonTable({
@@ -830,6 +840,50 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
                                   <span className="ml-1 text-amber-200/90">
                                     {m.h2hRedCards ? "🟥" : "🟨"}
                                   </span>
+                                ) : null}
+                              </span>
+                            ) : null}
+                            {title.includes("Falli commessi") && typeof m.oddsFoulsCommittedLine === "number" ? (
+                              <span className="ml-2 text-[10px] text-slate-500">
+                                Linea:{" "}
+                                <span className="font-mono text-slate-300">
+                                  {ouPick(m.foulsCommittedLastFiveAvg, m.oddsFoulsCommittedLine)}{" "}
+                                  {m.oddsFoulsCommittedLine.toFixed(1)}
+                                </span>
+                                <span className="ml-1 font-mono text-slate-500">
+                                  ({formatOdds(
+                                    ouPick(m.foulsCommittedLastFiveAvg, m.oddsFoulsCommittedLine) === "Over"
+                                      ? m.oddsFoulsCommittedOver
+                                      : m.oddsFoulsCommittedUnder
+                                  )})
+                                </span>
+                                {m.oddsBookmaker ? (
+                                  <span className="ml-1 text-[10px] text-slate-600">{m.oddsBookmaker}</span>
+                                ) : null}
+                              </span>
+                            ) : null}
+                            {title.includes("Falli subiti") && typeof m.oddsCardsLine === "number" ? (
+                              <span className="ml-2 text-[10px] text-slate-500">
+                                Cartellino:{" "}
+                                <span className="font-mono text-slate-300">
+                                  {(() => {
+                                    const predCards = m.foulsCommittedLastFiveAvg * 0.18 + (m.h2hHadCard ? 0.12 : 0);
+                                    return `${ouPick(predCards, m.oddsCardsLine)} ${m.oddsCardsLine.toFixed(1)}`;
+                                  })()}
+                                </span>
+                                <span className="ml-1 font-mono text-slate-500">
+                                  ({(() => {
+                                    const predCards = m.foulsCommittedLastFiveAvg * 0.18 + (m.h2hHadCard ? 0.12 : 0);
+                                    return formatOdds(
+                                      ouPick(predCards, m.oddsCardsLine) === "Over"
+                                        ? m.oddsCardsOver
+                                        : m.oddsCardsUnder
+                                    );
+                                  })()}
+                                  )
+                                </span>
+                                {m.oddsBookmaker ? (
+                                  <span className="ml-1 text-[10px] text-slate-600">{m.oddsBookmaker}</span>
                                 ) : null}
                               </span>
                             ) : null}

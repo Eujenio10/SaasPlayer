@@ -108,6 +108,18 @@ export interface TacticalMetrics {
   h2hYellowCards?: number;
   h2hRedCards?: number;
   h2hHadCard?: boolean;
+
+  /**
+   * Linee player props (OddsPapi) per il match selezionato.
+   * Popolate solo se configurata `ODDSAPI_RAPIDAPI_KEY` e se il provider ritorna quel mercato per la fixture.
+   */
+  oddsFoulsCommittedLine?: number;
+  oddsFoulsCommittedOver?: number;
+  oddsFoulsCommittedUnder?: number;
+  oddsCardsLine?: number;
+  oddsCardsOver?: number;
+  oddsCardsUnder?: number;
+  oddsBookmaker?: string;
 }
 
 export interface TacticalSnapshotRow {

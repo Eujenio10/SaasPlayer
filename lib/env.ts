@@ -46,5 +46,15 @@ export const env = {
       throw new Error("Missing required environment variable: SPORTAPI_RAPIDAPI_HOST");
     }
     return value;
+  },
+  /**
+   * OddsPapi (RapidAPI) — opzionale: se assente, le linee player props non vengono caricate.
+   * Host tipico RapidAPI: `odds-api.p.rapidapi.com`
+   */
+  get ODDSAPI_RAPIDAPI_KEY() {
+    return process.env.ODDSAPI_RAPIDAPI_KEY ?? "";
+  },
+  get ODDSAPI_RAPIDAPI_HOST() {
+    return process.env.ODDSAPI_RAPIDAPI_HOST ?? "odds-api.p.rapidapi.com";
   }
 };
