@@ -504,6 +504,20 @@ const SAVES_STAT_KEYS = [
   "goalkeeper_save"
 ] as const;
 
+const YELLOW_CARDS_STAT_KEYS = [
+  "yellowCards",
+  "yellow",
+  "yellow_cards",
+  "yellowCard"
+] as const;
+
+const RED_CARDS_STAT_KEYS = [
+  "redCards",
+  "red",
+  "red_cards",
+  "redCard"
+] as const;
+
 function savesFromLineupStats(
   stats: SportApiLineupPlayer["statistics"] | undefined
 ): number {
@@ -511,6 +525,16 @@ function savesFromLineupStats(
   const s = stats as Record<string, unknown>;
   const n = readNumericMaxByAliases(s, SAVES_STAT_KEYS);
   return n ?? 0;
+}
+
+function cardsFromLineupStats(
+  stats: SportApiLineupPlayer["statistics"] | undefined
+): { yellow: number; red: number } {
+  if (!stats) return { yellow: 0, red: 0 };
+  const s = stats as Record<string, unknown>;
+  const yellow = readNumericMaxByAliases(s, YELLOW_CARDS_STAT_KEYS) ?? 0;
+  const red = readNumericMaxByAliases(s, RED_CARDS_STAT_KEYS) ?? 0;
+  return { yellow, red };
 }
 
 function foulsCommittedFromLineupStats(
@@ -3585,4 +3609,106 @@ export async function fetchTeamPerformanceBlueprint(params: {
   });
 
   return blueprint;
+}
+
+export interface HeadToHeadPlayerDisciplineRow {
+  playerId?: number;
+  playerName: string;
+  teamId: number;
+  teamName: string;
+  foulsCommitted: number;
+  foulsSuffered: number;
+  yellowCards: number;
+  redCards: number;
+  hadCard: boolean;
+}
+
+/**
+ * Recupera l’ultimo scontro diretto (H2H) tra due squadre e le statistiche player-level dai lineups.
+ * Nota: usa solo eventi "finished" e filtra panchinari mai entrati.
+ */
+export async function fetchLastHeadToHeadPlayerDiscipline(params: {
+  teamAId: number;
+  teamBId: number;
+  competitionSlug?: string;
+  maxPages?: number;
+}): Promise<{ eventId: number; players: HeadToHeadPlayerDisciplineRow[] } | null> {
+  const aId = Number(params.teamAId);
+  const bId = Number(params.teamBId);
+  if (!Number.isFinite(aId) || !Number.isFinite(bId) || aId <= 0 || bId <= 0) return null;
+  if (aId === bId) return null;
+
+  const targetComp = normalizeCompetitionSlug(params.competitionSlug);
+  const maxPages = Math.max(1, Math.min(12, params.maxPages ?? 6));
+
+  const candidates: SportApiEvent[] = [];
+  for (let page = 0; page < maxPages; page += 1) {
+    const resp = await sportApiFetch(`/api/v1/team/${aId}/events/last/${page}`, {
+      requestType: "snapshot",
+      teamId: aId,
+      revalidateSeconds: 1200
+    });
+    if (!resp.ok) break;
+    const payload = (await resp.json()) as SportApiTeamEventsResponse;
+    for (const event of payload.events ?? []) {
+      if (!event?.id) continue;
+      if (eventStatusType(event) !== "finished") continue;
+      if (event.homeTeam?.national || event.awayTeam?.national) continue;
+      const homeId = event.homeTeam?.id ?? 0;
+      const awayId = event.awayTeam?.id ?? 0;
+      const isH2H = (homeId === aId && awayId === bId) || (homeId === bId && awayId === aId);
+      if (!isH2H) continue;
+      if (targetComp && normalizeCompetitionSlug(competitionSlug(event)) !== targetComp) continue;
+      candidates.push(event);
+    }
+    if (candidates.length >= 3) break;
+  }
+
+  if (!candidates.length) return null;
+  candidates.sort((x, y) => (y.startTimestamp ?? 0) - (x.startTimestamp ?? 0));
+  const chosen = candidates[0];
+  const eventId = chosen.id as number;
+
+  const lineupsResp = await sportApiFetch(`/api/v1/event/${eventId}/lineups`, {
+    requestType: "snapshot",
+    teamId: aId,
+    revalidateSeconds: 1200
+  });
+  if (!lineupsResp.ok) return null;
+  const lineups = (await lineupsResp.json()) as SportApiLineupsResponse;
+
+  const homePlayers = lineups.home?.players ?? [];
+  const awayPlayers = lineups.away?.players ?? [];
+  const all = [...homePlayers, ...awayPlayers];
+
+  const homeTeamId = chosen.homeTeam?.id ?? homePlayers[0]?.teamId ?? 0;
+  const awayTeamId = chosen.awayTeam?.id ?? awayPlayers[0]?.teamId ?? 0;
+  const homeTeamName = chosen.homeTeam?.name ?? "HOME";
+  const awayTeamName = chosen.awayTeam?.name ?? "AWAY";
+
+  const out: HeadToHeadPlayerDisciplineRow[] = [];
+  for (const p of all) {
+    const playerId = p.player?.id;
+    const teamId = p.teamId ?? 0;
+    if (!teamId || !lineupPlayerHasPlayed(p)) continue;
+    const playerName = p.player?.name ?? p.player?.shortName ?? `PLAYER_${playerId ?? "UNK"}`;
+    const foulsCommitted = foulsCommittedFromLineupStats(p.statistics);
+    const foulsSuffered = foulsSufferedFromLineupStats(p.statistics);
+    const cards = cardsFromLineupStats(p.statistics);
+    const teamName =
+      teamId === homeTeamId ? homeTeamName : teamId === awayTeamId ? awayTeamName : teamId === aId ? homeTeamName : awayTeamName;
+    out.push({
+      playerId,
+      playerName,
+      teamId,
+      teamName,
+      foulsCommitted,
+      foulsSuffered,
+      yellowCards: cards.yellow,
+      redCards: cards.red,
+      hadCard: cards.yellow > 0 || cards.red > 0
+    });
+  }
+
+  return { eventId, players: out };
 }

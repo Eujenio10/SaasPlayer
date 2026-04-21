@@ -97,6 +97,17 @@ export interface TacticalMetrics {
    * Presente quando `match-insights` costruisce le metriche con `homeTeamId`.
    */
   heatmapPointsMatchFrame?: Array<{ x: number; y: number; intensity?: number }>;
+
+  /**
+   * Ultimo scontro diretto (H2H) vs avversaria del match selezionato.
+   * Valori opzionali: presenti solo quando `match-insights` riesce a risalire all’ultimo H2H e ai lineups.
+   */
+  h2hEventId?: number;
+  h2hFoulsCommitted?: number;
+  h2hFoulsSuffered?: number;
+  h2hYellowCards?: number;
+  h2hRedCards?: number;
+  h2hHadCard?: boolean;
 }
 
 export interface TacticalSnapshotRow {

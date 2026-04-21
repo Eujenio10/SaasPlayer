@@ -595,8 +595,16 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
      */
     const saves = takeUnique((m) => m.roleIcon === "🧤", (m) => m.savesLastFiveAvg);
     const shots = takeUnique((m) => m.roleIcon !== "🧤", (m) => m.shotsLastFiveAvg);
-    const foulsCommitted = takeUnique(() => true, (m) => m.foulsCommittedLastFiveAvg);
-    const foulsSuffered = takeUnique(() => true, (m) => m.foulsSufferedLastFiveAvg);
+    const foulsCommitted = takeUnique(() => true, (m) => {
+      const h2h = (m.h2hFoulsCommitted ?? 0) * 0.6;
+      const card = m.h2hHadCard ? 0.35 + (m.h2hRedCards ?? 0) * 0.35 : 0;
+      return m.foulsCommittedLastFiveAvg + h2h + card;
+    });
+    const foulsSuffered = takeUnique(() => true, (m) => {
+      const h2h = (m.h2hFoulsSuffered ?? 0) * 0.6;
+      const card = m.h2hHadCard ? 0.25 : 0;
+      return m.foulsSufferedLastFiveAvg + h2h + card;
+    });
 
     return { foulsCommitted, foulsSuffered, shots, saves };
   }, [showSerieAFormFromFriction, selectedMatchMetrics, serieARoundFormRows]);
@@ -810,6 +818,21 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
                           <span className="text-slate-300">
                             <span className="font-semibold text-amber-100/90">{idx + 1}.</span> {m.playerName}{" "}
                             <span className="text-slate-500">({m.team})</span>
+                            {title.startsWith("Falli ") && m.h2hEventId ? (
+                              <span className="ml-2 text-[10px] text-slate-500">
+                                H2H:{" "}
+                                <span className="font-mono text-slate-400">
+                                  {title.includes("commessi")
+                                    ? formatStat(m.h2hFoulsCommitted ?? 0)
+                                    : formatStat(m.h2hFoulsSuffered ?? 0)}
+                                </span>
+                                {m.h2hHadCard ? (
+                                  <span className="ml-1 text-amber-200/90">
+                                    {m.h2hRedCards ? "🟥" : "🟨"}
+                                  </span>
+                                ) : null}
+                              </span>
+                            ) : null}
                           </span>
                           <span className="shrink-0 font-mono text-slate-200">
                             {formatStat(val(m))}

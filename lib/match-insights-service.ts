@@ -10,6 +10,7 @@ import type {
 } from "@/lib/types";
 import {
   fetchEventSeasonContextForInsights,
+  fetchLastHeadToHeadPlayerDiscipline,
   fetchSportPerformance,
   fetchSportPerformanceForTeams,
   isTeamInSerieALeague,
@@ -591,6 +592,10 @@ export type MatchInsightsApiPayload = {
   diagnostics: MatchInsightsDiagnostics | null;
 };
 
+function normalizePlayerNameKey(name: string): string {
+  return name.replace(/\s+/g, " ").trim().toUpperCase();
+}
+
 export async function computeMatchInsightsPayload(
   input: MatchInsightsComputeInput
 ): Promise<MatchInsightsApiPayload> {
@@ -670,6 +675,38 @@ export async function computeMatchInsightsPayload(
           buildTacticalMetrics(athlete, performance, { homeTeamId: homeTeamIdForHeatmap })
         )
       : [];
+
+    // Enrich with last head-to-head foul/card context vs upcoming opponent (when available).
+    if (homeTeamId && awayTeamId && metrics.length > 0) {
+      const h2h = await fetchLastHeadToHeadPlayerDiscipline({
+        teamAId: homeTeamId,
+        teamBId: awayTeamId,
+        competitionSlug
+      }).catch(() => null);
+
+      if (h2h?.players?.length) {
+        const byId = new Map<number, (typeof h2h.players)[number]>();
+        const byRoster = new Map<string, (typeof h2h.players)[number]>();
+        for (const row of h2h.players) {
+          if (row.playerId) byId.set(row.playerId, row);
+          byRoster.set(`${row.teamId}|${normalizePlayerNameKey(row.playerName)}`, row);
+        }
+
+        for (const m of metrics) {
+          const fromId =
+            typeof m.playerId === "number" && m.playerId > 0 ? byId.get(m.playerId) : undefined;
+          const fromName = byRoster.get(`${m.teamId}|${normalizePlayerNameKey(m.playerName)}`);
+          const pick = fromId ?? fromName;
+          if (!pick) continue;
+          m.h2hEventId = h2h.eventId;
+          m.h2hFoulsCommitted = pick.foulsCommitted;
+          m.h2hFoulsSuffered = pick.foulsSuffered;
+          m.h2hYellowCards = pick.yellowCards;
+          m.h2hRedCards = pick.redCards;
+          m.h2hHadCard = pick.hadCard;
+        }
+      }
+    }
 
     const inferredTeams = performance.length
       ? Array.from(new Map(performance.map((row) => [row.teamId, row.team])).entries()).map(

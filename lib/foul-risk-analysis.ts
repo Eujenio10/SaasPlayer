@@ -61,17 +61,15 @@ function rasterizeHeatmap(
 /** Sovrapposizione normalizzata 0–100: ignora celle con densità combinata trascurabile (“zone morte”). */
 function collisionPercent(a: Float64Array, b: Float64Array): number {
   let overlap = 0;
-  let sa = 0;
-  let sb = 0;
+  let union = 0;
   for (let i = 0; i < a.length; i += 1) {
     const va = a[i];
     const vb = b[i];
     if (va + vb < DEAD_CELL_SUM) continue;
     overlap += Math.min(va, vb);
-    sa += va;
-    sb += vb;
+    union += Math.max(va, vb);
   }
-  const den = Math.max(sa, sb, 1e-9);
+  const den = Math.max(union, 1e-9);
   return clamp((overlap / den) * 100, 0, 100);
 }
 
@@ -182,7 +180,12 @@ export function analyzeFoulRisk(params: {
         ? Math.max(...topHits.map((h) => h.opp.foulsCommittedSeasonAvg - FOUL_TRIGGER), 0)
         : Math.max(...topHits.map((h) => h.opp.foulsSufferedSeasonAvg - FOUL_TRIGGER), 0);
 
-    const riskScore = maxC * (1 + 0.12 * foulExcess);
+    const baseScore = maxC * (1 + 0.12 * foulExcess);
+    const h2hFouls =
+      kind === "suffered" ? (p1.h2hFoulsSuffered ?? 0) : (p1.h2hFoulsCommitted ?? 0);
+    const h2hBoost = clamp(h2hFouls * 0.05, 0, 0.25);
+    const cardBoost = p1.h2hHadCard ? 0.12 : 0;
+    const riskScore = baseScore * (1 + h2hBoost + cardBoost);
 
     const aggressors: FoulRiskAggressorBrief[] = topHits.map((h) => ({
       playerName: h.opp.playerName,
