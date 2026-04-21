@@ -143,6 +143,11 @@ function formatOdds(value: number | undefined): string {
   return value.toFixed(2);
 }
 
+function predictedCardsFromMetric(m: TacticalMetrics): number {
+  // Proxy semplice e stabile: più falli => più rischio cartellino; piccolo boost se H2H ha già avuto cartellino.
+  return m.foulsCommittedLastFiveAvg * 0.18 + (m.h2hHadCard ? 0.12 : 0);
+}
+
 const LAST_TWO_MIN_SAMPLES = 2;
 
 function TopPlayersSeasonTable({
@@ -371,6 +376,29 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
     const allowed = new Set([selectedMatch.homeTeam.id, selectedMatch.awayTeam.id]);
     return metrics.filter((item) => allowed.has(item.teamId));
   }, [metrics, selectedMatch]);
+
+  const selectedMetricsByRosterKey = useMemo(() => {
+    const map = new Map<string, TacticalMetrics>();
+    for (const m of selectedMatchMetrics) {
+      const key = `${m.teamId}|${normalizePlayerName(m.playerName)}`;
+      const prev = map.get(key);
+      // Preferisci la riga che ha linee odds (quando presenti) o playerId.
+      if (!prev) {
+        map.set(key, m);
+        continue;
+      }
+      const prevHasOdds = Boolean(prev.oddsFoulsCommittedLine || prev.oddsCardsLine);
+      const nextHasOdds = Boolean(m.oddsFoulsCommittedLine || m.oddsCardsLine);
+      if (nextHasOdds && !prevHasOdds) {
+        map.set(key, m);
+        continue;
+      }
+      const prevHasId = typeof prev.playerId === "number" && prev.playerId > 0;
+      const nextHasId = typeof m.playerId === "number" && m.playerId > 0;
+      if (nextHasId && !prevHasId) map.set(key, m);
+    }
+    return map;
+  }, [selectedMatchMetrics]);
 
   const matchFrictionPairs = useMemo(() => {
     if (!selectedMatch) return [];
@@ -1106,6 +1134,56 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
                       key={`foul-suffered-${entry.playerId ?? entry.playerName}-${idx}`}
                       className="space-y-3 rounded-xl border border-rose-500/20 bg-slate-950/70 p-4"
                     >
+                      {(() => {
+                        const rosterKey = `${entry.teamId}|${normalizePlayerName(entry.playerName)}`;
+                        const m = selectedMetricsByRosterKey.get(rosterKey);
+                        if (!m) return null;
+
+                        const foulOu =
+                          typeof m.oddsFoulsCommittedLine === "number"
+                            ? ouPick(m.foulsCommittedLastFiveAvg, m.oddsFoulsCommittedLine)
+                            : null;
+                        const cardOu =
+                          typeof m.oddsCardsLine === "number"
+                            ? ouPick(predictedCardsFromMetric(m), m.oddsCardsLine)
+                            : null;
+
+                        if (!foulOu && !cardOu) return null;
+
+                        return (
+                          <p className="text-[11px] text-slate-400">
+                            {foulOu ? (
+                              <span className="mr-3">
+                                Linea falli:{" "}
+                                <span className="font-mono text-slate-200">
+                                  {foulOu} {m.oddsFoulsCommittedLine?.toFixed(1)}
+                                </span>{" "}
+                                <span className="font-mono text-slate-500">
+                                  (
+                                  {formatOdds(
+                                    foulOu === "Over" ? m.oddsFoulsCommittedOver : m.oddsFoulsCommittedUnder
+                                  )}
+                                  )
+                                </span>
+                              </span>
+                            ) : null}
+                            {cardOu ? (
+                              <span className="mr-3">
+                                Linea cartellino:{" "}
+                                <span className="font-mono text-slate-200">
+                                  {cardOu} {m.oddsCardsLine?.toFixed(1)}
+                                </span>{" "}
+                                <span className="font-mono text-slate-500">
+                                  ({formatOdds(cardOu === "Over" ? m.oddsCardsOver : m.oddsCardsUnder)})
+                                </span>
+                              </span>
+                            ) : null}
+                            {m.oddsBookmaker ? (
+                              <span className="text-slate-600">{m.oddsBookmaker}</span>
+                            ) : null}
+                          </p>
+                        );
+                      })()}
                       <p className="text-xs uppercase tracking-wide text-rose-200">
                         Rischio subiti — {idx + 1} · {entry.playerName}
                       </p>
@@ -1145,6 +1223,50 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
                     key={`foul-committed-${entry.playerId ?? entry.playerName}-${idx}`}
                     className="space-y-3 rounded-xl border border-violet-500/20 bg-slate-950/70 p-4"
                   >
+                    {(() => {
+                      const rosterKey = `${entry.teamId}|${normalizePlayerName(entry.playerName)}`;
+                      const m = selectedMetricsByRosterKey.get(rosterKey);
+                      if (!m) return null;
+
+                      const foulOu =
+                        typeof m.oddsFoulsCommittedLine === "number"
+                          ? ouPick(m.foulsCommittedLastFiveAvg, m.oddsFoulsCommittedLine)
+                          : null;
+                      const cardOu =
+                        typeof m.oddsCardsLine === "number"
+                          ? ouPick(predictedCardsFromMetric(m), m.oddsCardsLine)
+                          : null;
+
+                      if (!foulOu && !cardOu) return null;
+
+                      return (
+                        <p className="text-[11px] text-slate-400">
+                          {foulOu ? (
+                            <span className="mr-3">
+                              Linea falli:{" "}
+                              <span className="font-mono text-slate-200">
+                                {foulOu} {m.oddsFoulsCommittedLine?.toFixed(1)}
+                              </span>{" "}
+                              <span className="font-mono text-slate-500">
+                                ({formatOdds(foulOu === "Over" ? m.oddsFoulsCommittedOver : m.oddsFoulsCommittedUnder)})
+                              </span>
+                            </span>
+                          ) : null}
+                          {cardOu ? (
+                            <span className="mr-3">
+                              Linea cartellino:{" "}
+                              <span className="font-mono text-slate-200">
+                                {cardOu} {m.oddsCardsLine?.toFixed(1)}
+                              </span>{" "}
+                              <span className="font-mono text-slate-500">
+                                ({formatOdds(cardOu === "Over" ? m.oddsCardsOver : m.oddsCardsUnder)})
+                              </span>
+                            </span>
+                          ) : null}
+                          {m.oddsBookmaker ? <span className="text-slate-600">{m.oddsBookmaker}</span> : null}
+                        </p>
+                      );
+                    })()}
                     <p className="text-xs uppercase tracking-wide text-violet-200">
                       Rischio commessi — {idx + 1} · {entry.playerName}
                     </p>
