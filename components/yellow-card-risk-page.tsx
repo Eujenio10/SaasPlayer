@@ -1,9 +1,22 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { filterMatchesKickoffInFuture } from "@/lib/tactical-matches-filters";
-import { KIOSK_ADMIN_INSIGHTS_REFRESH_EVENT, readAdminInsightsSnap, YELLOW_CARD_SNAPSHOT_UPDATED_EVENT } from "@/lib/kiosk-persisted-insights";
+import {
+  collectKioskInsightEventIdsAlignedToAdminSnap,
+  findKioskCachedMatchByEventId,
+  KIOSK_ADMIN_INSIGHTS_REFRESH_EVENT,
+  readAdminInsightsSnap,
+  readKioskInsightsLocal,
+  YELLOW_CARD_SNAPSHOT_UPDATED_EVENT
+} from "@/lib/kiosk-persisted-insights";
+import {
+  dedupeMatchesByEventIdSorted,
+  isYellowCardStoredSnapshotFresh,
+  narrowToEachTeamsNextScheduledMatch,
+  yellowCardSnapshotFutureMatches
+} from "@/lib/yellow-card-schedule-utils";
 import {
   committedFoulSignalForRisk,
   foulsCommittedPerMatchForDisplay,
@@ -12,17 +25,9 @@ import {
 } from "@/lib/tactical-fouls-signals";
 import type { UserAccessSummary } from "@/lib/auth/user-access";
 import type { CompetitionScope, TacticalMetrics } from "@/lib/types";
+import type { UpcomingMatchItem } from "@/services/sportapi";
 
 type RiskLevel = "low" | "medium" | "high";
-
-interface UpcomingMatchItem {
-  eventId: number;
-  competitionSlug: string;
-  competitionName: string;
-  startTimestamp: number;
-  homeTeam: { id: number; name: string };
-  awayTeam: { id: number; name: string };
-}
 
 export interface YellowCardRiskPlayer {
   id: string;
@@ -50,220 +55,6 @@ export interface YellowCardRiskPlayer {
   matchupWeight?: number;
 }
 
-export const yellowCardRiskPlayers: YellowCardRiskPlayer[] = [
-  {
-    id: "mock-1",
-    eventId: 900001,
-    rank: 1,
-    playerName: "Gianluca Mancini",
-    playerInitials: "GM",
-    role: "D",
-    teamName: "AS Roma",
-    teamCode: "ROM",
-    opponentName: "Gabriel Strefezza",
-    opponentTeamName: "Parma",
-    opponentTeamCode: "PAR",
-    match: "Parma vs AS Roma",
-    defenderFoulsCommittedAvg: 2.18,
-    opponentFoulsReceivedAvg: 2.08,
-    opponentSuccessfulDribblesAvg: 1.56,
-    recentYellowCards: 3,
-    riskScore: 18.2,
-    riskLevel: "high",
-    reason:
-      "Il rischio aumenta perché il difensore dovrà contenere un avversario che tende a subire molti falli e completare diversi dribbling. La combinazione tra falli commessi, pressione del matchup e storico disciplinare genera un indice elevato."
-  },
-  {
-    id: "mock-2",
-    eventId: 900002,
-    rank: 2,
-    playerName: "Marin Pongracic",
-    playerInitials: "MP",
-    role: "D",
-    teamName: "Fiorentina",
-    teamCode: "FIO",
-    opponentName: "Vitinha",
-    opponentTeamName: "Genoa",
-    opponentTeamCode: "GEN",
-    match: "Fiorentina vs Genoa",
-    defenderFoulsCommittedAvg: 1.81,
-    opponentFoulsReceivedAvg: 2.14,
-    opponentSuccessfulDribblesAvg: 1.52,
-    recentYellowCards: 2,
-    riskScore: 17.2,
-    riskLevel: "high",
-    reason:
-      "Profilo alto per incrocio tra aggressività difensiva, avversario che attira contatti e volume di dribbling."
-  },
-  {
-    id: "mock-3",
-    eventId: 900003,
-    rank: 3,
-    playerName: "Victor Nelsson",
-    playerInitials: "VN",
-    role: "D",
-    teamName: "Hellas Verona",
-    teamCode: "VER",
-    opponentName: "Assane Diao",
-    opponentTeamName: "Como",
-    opponentTeamCode: "COM",
-    match: "Hellas Verona vs Como",
-    defenderFoulsCommittedAvg: 1.17,
-    opponentFoulsReceivedAvg: 1.93,
-    opponentSuccessfulDribblesAvg: 1.88,
-    recentYellowCards: 2,
-    riskScore: 15.6,
-    riskLevel: "high",
-    reason: "Avversario diretto molto mobile e propenso a ricevere contatti nel settore di competenza."
-  },
-  {
-    id: "mock-4",
-    eventId: 900004,
-    rank: 4,
-    playerName: "Giuseppe Pezzella",
-    playerInitials: "GP",
-    role: "D",
-    teamName: "Cremonese",
-    teamCode: "CRE",
-    opponentName: "Isak Vural",
-    opponentTeamName: "Pisa",
-    opponentTeamCode: "PIS",
-    match: "Cremonese vs Pisa",
-    defenderFoulsCommittedAvg: 1.57,
-    opponentFoulsReceivedAvg: 2.18,
-    opponentSuccessfulDribblesAvg: 0.76,
-    recentYellowCards: 2,
-    riskScore: 14.9,
-    riskLevel: "high",
-    reason: "Matchup laterale con avversario che riceve diversi falli e può generare interventi in ritardo."
-  },
-  {
-    id: "mock-5",
-    eventId: 900005,
-    rank: 5,
-    playerName: "Abdoulaye Ndiaye",
-    playerInitials: "AN",
-    role: "D",
-    teamName: "Parma",
-    teamCode: "PAR",
-    opponentName: "Wesley",
-    opponentTeamName: "AS Roma",
-    opponentTeamCode: "ROM",
-    match: "Parma vs AS Roma",
-    defenderFoulsCommittedAvg: 1.43,
-    opponentFoulsReceivedAvg: 2,
-    opponentSuccessfulDribblesAvg: 0.87,
-    recentYellowCards: 1,
-    riskScore: 14,
-    riskLevel: "medium",
-    reason: "Pressione di marcatura discreta su avversario che combina conduzione palla e contatti subiti."
-  },
-  {
-    id: "mock-6",
-    eventId: 900006,
-    rank: 6,
-    playerName: "Antonio Caracciolo",
-    playerInitials: "AC",
-    role: "D",
-    teamName: "Pisa",
-    teamCode: "PIS",
-    opponentName: "Federico Bonazzoli",
-    opponentTeamName: "Cremonese",
-    opponentTeamCode: "CRE",
-    match: "Cremonese vs Pisa",
-    defenderFoulsCommittedAvg: 1.04,
-    opponentFoulsReceivedAvg: 2.21,
-    opponentSuccessfulDribblesAvg: 0.62,
-    recentYellowCards: 1,
-    riskScore: 13.1,
-    riskLevel: "medium",
-    reason: "Il dato falli subiti dell'avversario mantiene il profilo in fascia media."
-  },
-  {
-    id: "mock-7",
-    eventId: 900007,
-    rank: 7,
-    playerName: "Diego Carlos",
-    playerInitials: "DC",
-    role: "D",
-    teamName: "Como",
-    teamCode: "COM",
-    opponentName: "Kieron Bowie",
-    opponentTeamName: "Hellas Verona",
-    opponentTeamCode: "VER",
-    match: "Hellas Verona vs Como",
-    defenderFoulsCommittedAvg: 1.48,
-    opponentFoulsReceivedAvg: 1.55,
-    opponentSuccessfulDribblesAvg: 0.49,
-    recentYellowCards: 1,
-    riskScore: 12.6,
-    riskLevel: "medium",
-    reason: "Rischio medio per volume falli del difensore e matchup centrale."
-  },
-  {
-    id: "mock-8",
-    eventId: 900008,
-    rank: 8,
-    playerName: "Johan Vasquez",
-    playerInitials: "JV",
-    role: "D",
-    teamName: "Genoa",
-    teamCode: "GEN",
-    opponentName: "Dodo",
-    opponentTeamName: "Fiorentina",
-    opponentTeamCode: "FIO",
-    match: "Fiorentina vs Genoa",
-    defenderFoulsCommittedAvg: 0.6,
-    opponentFoulsReceivedAvg: 1.46,
-    opponentSuccessfulDribblesAvg: 1.41,
-    recentYellowCards: 1,
-    riskScore: 12,
-    riskLevel: "medium",
-    reason: "Avversario con buon volume di dribbling, ma falli del difensore non estremi."
-  },
-  {
-    id: "mock-9",
-    eventId: 900009,
-    rank: 9,
-    playerName: "Patrick Dorgu",
-    playerInitials: "PD",
-    role: "D",
-    teamName: "Lecce",
-    teamCode: "LEC",
-    opponentName: "Napoli winger",
-    opponentTeamName: "Napoli",
-    opponentTeamCode: "NAP",
-    match: "Lecce vs Napoli",
-    defenderFoulsCommittedAvg: 1.2,
-    opponentFoulsReceivedAvg: 1.38,
-    opponentSuccessfulDribblesAvg: 1.12,
-    recentYellowCards: 1,
-    riskScore: 11.2,
-    riskLevel: "medium",
-    reason: "Fascia media per avversario dinamico, ma indice complessivo sotto la soglia alta."
-  },
-  {
-    id: "mock-10",
-    eventId: 900010,
-    rank: 10,
-    playerName: "Ismael Bennacer",
-    playerInitials: "IB",
-    role: "M",
-    teamName: "AC Milan",
-    teamCode: "MIL",
-    opponentName: "Udinese midfielder",
-    opponentTeamName: "Udinese",
-    opponentTeamCode: "UDI",
-    match: "AC Milan vs Udinese",
-    defenderFoulsCommittedAvg: 1.1,
-    opponentFoulsReceivedAvg: 1.29,
-    opponentSuccessfulDribblesAvg: 1.05,
-    recentYellowCards: 1,
-    riskScore: 10.3,
-    riskLevel: "medium",
-    reason: "Rischio medio-basso, utile come confronto di scala."
-  }
-];
 
 const TOP_LEAGUES = new Set(["serie-a", "premier-league", "laliga", "bundesliga", "ligue-1"]);
 const REQUEST_TIMEOUT_MS = 12_000;
@@ -686,18 +477,22 @@ function pickTopTenUniqueMatches(rows: YellowCardRiskPlayer[]): YellowCardRiskPl
   return out.map((row, index) => ({ ...row, rank: index + 1 }));
 }
 
-function dedupeMatchesByEventId(matches: UpcomingMatchItem[]): UpcomingMatchItem[] {
-  const map = new Map<number, UpcomingMatchItem>();
-  for (const match of matches) {
-    if (!map.has(match.eventId)) {
-      map.set(match.eventId, match);
-    }
+function readValidatedCachedSnapshot(): YellowCardRiskSnapshot | null {
+  const raw = readCachedSnapshot();
+  if (!raw) return null;
+  if (!isYellowCardStoredSnapshotFresh(raw)) {
+    clearYellowCardSnapshotCache();
+    return null;
   }
-  return Array.from(map.values()).sort((a, b) => a.startTimestamp - b.startTimestamp);
+  return {
+    ...raw,
+    matches: yellowCardSnapshotFutureMatches(raw.matches ?? [])
+  };
 }
-/** Tutte le partite future nei cinque campionati indicati (nessun limite artificiale). */
+
+/** Pool: partite future nei top 5 (prima della riduzione a una sola prossima partita per ogni squadra). */
 function allTopFiveLeagueUpcomingMatches(raw: UpcomingMatchItem[]): UpcomingMatchItem[] {
-  return filterMatchesKickoffInFuture(dedupeMatchesByEventId(raw))
+  return filterMatchesKickoffInFuture(dedupeMatchesByEventIdSorted(raw))
     .filter((row) => isTopLeague(row.competitionSlug))
     .sort((a, b) => a.startTimestamp - b.startTimestamp);
 }
@@ -745,6 +540,87 @@ function readCachedMetrics(eventId: number): TacticalMetrics[] {
   }
 }
 
+/** Messaggio salvato dall’Allarme in cache metriche locale (fallback metadati). */
+function readYellowCardMetricsStoredMatch(eventId: number): UpcomingMatchItem | null {
+  if (!canUseStorage()) return null;
+  try {
+    const raw = window.localStorage.getItem(cachedMetricsKey(eventId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { match?: UpcomingMatchItem };
+    return parsed.match?.eventId === eventId ? parsed.match : null;
+  } catch {
+    return null;
+  }
+}
+
+function syntheticMatchFromKioskMetrics(eventId: number, metrics: TacticalMetrics[]): UpcomingMatchItem | null {
+  const teams = new Map<number, string>();
+  for (const row of metrics) {
+    if (!teams.has(row.teamId)) teams.set(row.teamId, row.team);
+  }
+  const ids = Array.from(teams.keys()).sort((a, b) => a - b);
+  if (ids.length < 2) return null;
+  const homeId = ids[0]!;
+  const awayId = ids[1]!;
+  const nowSec = Math.floor(Date.now() / 1000);
+  return {
+    eventId,
+    competitionSlug: "",
+    competitionName: "",
+    startTimestamp: nowSec + 120,
+    homeTeam: { id: homeId, name: teams.get(homeId)! },
+    awayTeam: { id: awayId, name: teams.get(awayId)! }
+  };
+}
+
+function resolveMatchMetaForPersistedKiosk(eventId: number, metrics: TacticalMetrics[]): UpcomingMatchItem | null {
+  return (
+    findKioskCachedMatchByEventId(eventId) ??
+    readYellowCardMetricsStoredMatch(eventId) ??
+    syntheticMatchFromKioskMetrics(eventId, metrics)
+  );
+}
+
+async function rebuildYellowCardFromPersistedKioskInsights(
+  onProgress?: (completed: number, total: number) => void
+): Promise<{ matches: UpcomingMatchItem[]; rows: YellowCardRiskPlayer[] }> {
+  const snap = readAdminInsightsSnap();
+  const eventIds = collectKioskInsightEventIdsAlignedToAdminSnap(snap);
+  const seen = new Set<number>();
+  const topMatches: UpcomingMatchItem[] = [];
+  const collected: YellowCardRiskPlayer[] = [];
+  const total = Math.max(eventIds.length, 1);
+  onProgress?.(0, total);
+
+  for (let i = 0; i < eventIds.length; i++) {
+    const eventId = eventIds[i]!;
+    const rec = readKioskInsightsLocal(eventId);
+    if (!rec?.metrics.length) continue;
+    const match = resolveMatchMetaForPersistedKiosk(eventId, rec.metrics);
+    if (!match) continue;
+
+    if (!seen.has(match.eventId)) {
+      seen.add(match.eventId);
+      topMatches.push(match);
+    }
+    collected.push(...buildRowsFromMatch(match, rec.metrics));
+
+    onProgress?.(Math.min(i + 1, eventIds.length), eventIds.length);
+  }
+
+  topMatches.sort((a, b) => a.startTimestamp - b.startTimestamp);
+
+  const ranked = pickTopTenUniqueMatches(collected);
+
+  if (ranked.length > 0) {
+    writeCachedSnapshot({ matches: topMatches, rows: ranked, insightsSnap: snap });
+  } else if (eventIds.length > 0) {
+    clearYellowCardSnapshotCache();
+  }
+
+  return { matches: topMatches, rows: ranked };
+}
+
 function writeCachedMetrics(match: UpcomingMatchItem, metrics: TacticalMetrics[]): void {
   if (!canUseStorage() || metrics.length === 0) return;
   try {
@@ -770,6 +646,16 @@ function readCachedSnapshot(): YellowCardRiskSnapshot | null {
     return Array.isArray(parsed.rows) && Array.isArray(parsed.matches) ? parsed : null;
   } catch {
     return null;
+  }
+}
+
+function clearYellowCardSnapshotCache(): void {
+  if (!canUseStorage()) return;
+  try {
+    window.localStorage.removeItem(SNAPSHOT_CACHE_KEY);
+    window.dispatchEvent(new CustomEvent(YELLOW_CARD_SNAPSHOT_UPDATED_EVENT));
+  } catch {
+    // best-effort
   }
 }
 
@@ -824,17 +710,24 @@ async function fetchMetrics(
 
 async function loadYellowCardRiskData(options?: {
   forceRefresh?: boolean;
+  /** Solo dall’hub kiosk già caricato (nessuna fetch HTTP dal browser). */
+  usePersistedKioskInsightsOnly?: boolean;
   onProgress?: (completed: number, total: number) => void;
 }): Promise<{
   matches: UpcomingMatchItem[];
   rows: YellowCardRiskPlayer[];
 }> {
   const forceRefresh = options?.forceRefresh ?? false;
+  const usePersistedKioskInsightsOnly = options?.usePersistedKioskInsightsOnly ?? false;
   const onProgress = options?.onProgress;
 
-  /* Nessuna rete: snapshot locale già calcolato (l'aggiornamento parte solo da pulsante admin o refresh globale kiosk). */
-  if (!forceRefresh) {
-    const cachedOnly = readCachedSnapshot();
+  if (usePersistedKioskInsightsOnly) {
+    yellowCardRiskLoadPromise = null;
+  }
+
+  /* Nessuna rete: snapshot locale già calcolato e ancora allineato al calendario futuro. */
+  if (!forceRefresh && !usePersistedKioskInsightsOnly) {
+    const cachedOnly = readValidatedCachedSnapshot();
     if (cachedOnly?.rows?.length) {
       const n = cachedOnly.matches?.length ?? 0;
       onProgress?.(n, Math.max(n, 1));
@@ -846,27 +739,35 @@ async function loadYellowCardRiskData(options?: {
     }
   }
 
-  if (yellowCardRiskLoadPromise && !forceRefresh && !onProgress) {
-    return yellowCardRiskLoadPromise;
+  if (yellowCardRiskLoadPromise && !forceRefresh && !usePersistedKioskInsightsOnly) {
+    return await yellowCardRiskLoadPromise;
   }
 
   const run = async (): Promise<{ matches: UpcomingMatchItem[]; rows: YellowCardRiskPlayer[] }> => {
+    if (usePersistedKioskInsightsOnly) {
+      return rebuildYellowCardFromPersistedKioskInsights(onProgress);
+    }
+
     const ac = new AbortController();
-    const cachedSnapshot = readCachedSnapshot();
     let topMatches: UpcomingMatchItem[] = [];
+    let matchesFromApi = false;
 
     try {
       const matchRes = await fetch("/api/tactical/matches", { cache: "no-store", signal: ac.signal });
       if (!matchRes.ok) throw new Error("matches_unavailable");
       const matchJson = (await matchRes.json()) as { matches?: UpcomingMatchItem[] };
-      topMatches = allTopFiveLeagueUpcomingMatches(matchJson.matches ?? []);
+      topMatches = narrowToEachTeamsNextScheduledMatch(allTopFiveLeagueUpcomingMatches(matchJson.matches ?? []));
+      matchesFromApi = true;
     } catch {
-      topMatches = allTopFiveLeagueUpcomingMatches(cachedSnapshot?.matches ?? []);
+      topMatches = narrowToEachTeamsNextScheduledMatch(
+        allTopFiveLeagueUpcomingMatches(readValidatedCachedSnapshot()?.matches ?? [])
+      );
     }
 
-    if (topMatches.length === 0 && cachedSnapshot) {
+    if (topMatches.length === 0) {
       onProgress?.(0, 0);
-      return { matches: cachedSnapshot.matches, rows: cachedSnapshot.rows };
+      if (matchesFromApi) clearYellowCardSnapshotCache();
+      return { matches: [], rows: [] };
     }
 
     const total = topMatches.length;
@@ -891,32 +792,25 @@ async function loadYellowCardRiskData(options?: {
 
     if (ranked.length > 0) {
       writeCachedSnapshot({ matches: topMatches, rows: ranked, insightsSnap: readAdminInsightsSnap() });
-      return { matches: topMatches, rows: ranked };
-    }
-
-    if (cachedSnapshot) {
-      return {
-        matches: topMatches.length > 0 ? topMatches : cachedSnapshot.matches,
-        rows: cachedSnapshot.rows
-      };
+    } else if (forceRefresh || topMatches.length > 0) {
+      clearYellowCardSnapshotCache();
     }
 
     return { matches: topMatches, rows: ranked };
   };
 
-  if (!onProgress) {
-    yellowCardRiskLoadPromise = run();
-    try {
-      return await yellowCardRiskLoadPromise;
-    } catch (error) {
+  const p = run();
+  yellowCardRiskLoadPromise = p;
+  try {
+    const out = await p;
+    if (!out.rows.length) {
       yellowCardRiskLoadPromise = null;
-      throw error;
     }
+    return out;
+  } catch (error) {
+    yellowCardRiskLoadPromise = null;
+    throw error;
   }
-
-  const result = await run();
-  yellowCardRiskLoadPromise = Promise.resolve(result);
-  return result;
 }
 
 function GenericAvatar({ initials: value }: { initials: string }) {
@@ -1091,6 +985,13 @@ function LockedRiskMobileCard({ rank }: { rank: number }) {
 }
 
 function RiskTable({ rows, visibleRankSet }: { rows: YellowCardRiskPlayer[]; visibleRankSet?: Set<number> }) {
+  if (rows.length === 0) {
+    return (
+      <div className="rounded-2xl border border-slate-800 bg-[#07111F]/60 px-4 py-12 text-center text-sm text-slate-500">
+        Nessuna riga da mostrare: attendi il caricamento o verifica più tardi dopo un aggiornamento dei dati.
+      </div>
+    );
+  }
   return (
     <div>
       <div className="hidden overflow-x-auto rounded-2xl border border-slate-800 bg-[#07111F]/80 lg:block">
@@ -1201,18 +1102,9 @@ export function YellowCardRiskPage({ userAccess }: { userAccess: UserAccessSumma
     };
   }, []);
 
-  useLayoutEffect(() => {
-    const snap = readCachedSnapshot();
-    if (snap?.rows?.length) {
-      setRows(snap.rows);
-      setMatches(snap.matches ?? []);
-      setLoading(false);
-    }
-  }, []);
-
   useEffect(() => {
     const handler = () => {
-      const snap = readCachedSnapshot();
+      const snap = readValidatedCachedSnapshot();
       if (snap?.rows?.length && mountedRef.current) {
         setRows(snap.rows);
         setMatches(snap.matches ?? []);
@@ -1251,6 +1143,37 @@ export function YellowCardRiskPage({ userAccess }: { userAccess: UserAccessSumma
     }
   }, []);
 
+  const refreshFromPersistedKiosk = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    yellowCardRiskLoadPromise = null;
+    const kioskAlignedCount =
+      typeof window !== "undefined" ? collectKioskInsightEventIdsAlignedToAdminSnap().length : 0;
+    try {
+      const data = await loadYellowCardRiskData({ usePersistedKioskInsightsOnly: true });
+      if (mountedRef.current) {
+        setMatches(data.matches);
+        setRows(data.rows);
+      }
+      if (
+        mountedRef.current &&
+        data.matches.length === 0 &&
+        data.rows.length === 0 &&
+        kioskAlignedCount === 0
+      ) {
+        setError(
+          "Nessun insight «Scontri in campo» disponibile allo snapshot aggiorna dati attuale. Apri il kiosk da admin, aggiorna e carica prima le metriche delle partite, poi riprova questo pulsante senza nuove richieste al server."
+        );
+      }
+    } catch {
+      if (mountedRef.current) {
+        setError("Lettura dati kiosk non riuscita: verifica il browser storage e riprova.");
+      }
+    } finally {
+      if (mountedRef.current) setLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     const onAdminInsights = () => {
       void refreshAllData(true);
@@ -1259,17 +1182,24 @@ export function YellowCardRiskPage({ userAccess }: { userAccess: UserAccessSumma
     return () => window.removeEventListener(KIOSK_ADMIN_INSIGHTS_REFRESH_EVENT, onAdminInsights);
   }, [refreshAllData]);
 
+  /** Cache validata (solo futuro): altrimenti un solo fetch lazy senza più preview fittizia. */
+  useEffect(() => {
+    const snap = readValidatedCachedSnapshot();
+    if (snap?.rows?.length) {
+      setRows(snap.rows);
+      setMatches(snap.matches ?? []);
+      return;
+    }
+    void refreshAllData(false);
+  }, [refreshAllData]);
+
   const headerMatch = matches[0];
   const headerLabel = useMemo(() => {
     if (!headerMatch) return "Top 5 campionati";
     return `${competitionLabel(headerMatch.competitionSlug)} - Prossima giornata`;
   }, [headerMatch]);
-  /** Con dati reali: deduplica anche in UI (cache vecchie / stesso match con più eventId). Preview mock: elenco fisso 10. */
-  const visibleRows = useMemo(() => {
-    if (rows.length === 0) return yellowCardRiskPlayers;
-    return pickTopTenUniqueMatches(rows);
-  }, [rows]);
-  const isPreview = rows.length === 0;
+  const visibleRows = useMemo(() => pickTopTenUniqueMatches(rows), [rows]);
+  const showEmptyStateBanner = rows.length === 0;
   const visibleRankSet = useMemo(() => {
     if (!userAccess.isMember) return undefined;
     const indexes = Array.from({ length: Math.min(visibleRows.length, 10) }, (_, index) => index);
@@ -1324,8 +1254,9 @@ export function YellowCardRiskPage({ userAccess }: { userAccess: UserAccessSumma
               <div>
                 <h2 className="text-2xl font-black tracking-tight text-yellow-300">ALLARME AMMONIZIONI</h2>
                 <p className="mt-2 max-w-4xl text-sm leading-relaxed text-slate-300">
-                  Top 10 dei migliori scontri a rischio ammonizione, con una sola riga per partita (il duello
-                  marcatore–avversario più critico): calcolo su tutte le partite future dei top 5 campionati europei.
+                  Top 10 dei migliori scontri a rischio ammonizione, con una sola riga per partita (il duello più critico tra
+                  marcatore e avversario diretto): calcolo sugli insight della prossima partita calendarizzata di ogni squadra
+                  nei cinque principali campionati europei, senza proseguire con turni successivi della stessa formazione.
                 </p>
               </div>
             </div>
@@ -1344,23 +1275,37 @@ export function YellowCardRiskPage({ userAccess }: { userAccess: UserAccessSumma
                     : "Account Pro: puoi consultare tutta la Top 10 disponibile."}
               </p>
               {userAccess.canRefreshData ? (
-                <button
-                  type="button"
-                  onClick={() => void refreshAllData(true)}
-                  disabled={loading}
-                  className="rounded-full border border-sky-300/45 bg-sky-500 px-5 py-2 text-sm font-black text-white shadow-[0_12px_30px_rgba(14,165,233,0.18)] transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {loading ? "Aggiornamento..." : "Aggiorna Allarme Ammonizioni"}
-                </button>
+                <div className="flex w-full max-w-[min(100%,18rem)] flex-col items-end gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => void refreshAllData(true)}
+                    disabled={loading}
+                    className="w-full rounded-full border border-sky-300/45 bg-sky-500 px-5 py-2 text-sm font-black text-white shadow-[0_12px_30px_rgba(14,165,233,0.18)] transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {loading ? "Aggiornamento..." : "Aggiorna Allarme Ammonizioni"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void refreshFromPersistedKiosk()}
+                    disabled={loading}
+                    className="w-full rounded-full border border-emerald-300/35 bg-emerald-500/90 px-5 py-2 text-sm font-bold text-emerald-50 shadow-[0_8px_24px_rgba(16,185,129,0.12)] transition hover:bg-emerald-400/90 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Aggiorna con dati già salvati
+                  </button>
+                  <p className="max-w-[16rem] text-right text-[11px] leading-snug text-slate-500">
+                    Usa solo le metriche cache dal kiosk «Scontri in campo», allineate all’ultimo aggiorna dati admin —
+                    senza altre richieste di rete.
+                  </p>
+                </div>
               ) : null}
             </div>
-            {isPreview ? (
+            {showEmptyStateBanner ? (
               <div className="mb-4 rounded-2xl border border-yellow-300/20 bg-yellow-300/10 px-4 py-3 text-sm text-yellow-100">
                 {loading
-                  ? "Anteprima grafica con dati dimostrativi: sto caricando la Top 10 reale dai prossimi match."
+                  ? "Caricamento delle prossime partite e degli insight tattici: nessuna riga mostrata finché il calcolo non è completo."
                   : error
-                    ? `${error} Mostro una preview grafica dimostrativa della schermata.`
-                    : "Nessun profilo reale sopra soglia trovato ora: mostro una preview grafica dimostrativa della schermata."}
+                    ? error
+                    : "Nessun duello sopra soglia sulle partite considerate (o dati insufficienti dopo l’analisi): la tabella resta vuota fino a nuovi aggiornamenti."}
               </div>
             ) : null}
             <RiskTable rows={visibleRows} visibleRankSet={visibleRankSet} />
@@ -1380,12 +1325,12 @@ export function YellowCardRiskPage({ userAccess }: { userAccess: UserAccessSumma
                       <strong className="text-white">{loadProgress.total}</strong>
                     </>
                   ) : (
-                    <span>Recupero elenco partite dai top 5 campionati…</span>
+                    <span>Raccolta degli incontri: una sola prossima giornata per squadra nei top 5 campionati…</span>
                   )}
                 </p>
                 <p className="mt-1 text-center text-xs text-slate-500">
                   {loadProgress.total === 0
-                    ? "Attendi: sto preparando tutte le partite da analizzare."
+                    ? "Attendi: determino quante partite uniche servono dall’insieme degli impegni più prossimi."
                     : loadProgress.total > 0 && loadProgress.total - loadProgress.current > 0
                       ? `Mancano ancora ${loadProgress.total - loadProgress.current} partit${
                           loadProgress.total - loadProgress.current === 1 ? "a" : "e"

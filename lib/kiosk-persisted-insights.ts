@@ -1,7 +1,14 @@
 import type { TacticalMetrics } from "@/lib/types";
+import type { UpcomingMatchItem } from "@/services/sportapi";
 
 /** Stesso prefisso già usato in precedenza nel kiosk (compatibile con chiavi già salvate). */
 export const KIOSK_INSIGHTS_LOCAL_STORAGE_PREFIX = "kiosk:match-insights:v1:";
+
+/** Elenco match del kiosk salvato dopo fetch calendario (per fixtureId delle route kiosk). */
+export const KIOSK_MATCHES_CACHE_PREFIX = "kiosk:matches:v1:";
+
+const KIOSK_MATCHES_CACHE_LOOKUP_FIXTURE_IDS = ["kiosk", "kiosk-hybrid", "kiosk-testing"] as const;
+
 export const KIOSK_ADMIN_INSIGHTS_SNAP_KEY = "kiosk:admin-insights-snap:v1";
 
 /** Broadcast cross-tab / cross-route dopo un aggiornamento admin dal kiosk. */
@@ -108,4 +115,59 @@ export function kioskInsightsAlignedWithSnap(
 ): boolean {
   if (!cached || !cached.metrics.length) return false;
   return cached.insightsSnap === snap;
+}
+
+export function readKioskMatchesCache(fixtureId: string): UpcomingMatchItem[] {
+  if (!canUseStorage()) return [];
+  try {
+    const raw = window.localStorage.getItem(`${KIOSK_MATCHES_CACHE_PREFIX}${fixtureId}`);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as { matches?: UpcomingMatchItem[] };
+    return Array.isArray(parsed.matches) ? parsed.matches : [];
+  } catch {
+    return [];
+  }
+}
+
+export function writeKioskMatchesCache(fixtureId: string, matches: UpcomingMatchItem[]): void {
+  if (!canUseStorage()) return;
+  try {
+    window.localStorage.setItem(
+      `${KIOSK_MATCHES_CACHE_PREFIX}${fixtureId}`,
+      JSON.stringify({ savedAt: new Date().toISOString(), matches })
+    );
+  } catch {
+    // best-effort
+  }
+}
+
+/** Risolve metadati partita cercando nell’ultima lista match salvata dalle dashboard kiosk note. */
+export function findKioskCachedMatchByEventId(eventId: number): UpcomingMatchItem | null {
+  for (const fixtureId of KIOSK_MATCHES_CACHE_LOOKUP_FIXTURE_IDS) {
+    const hit = readKioskMatchesCache(fixtureId).find((m) => m.eventId === eventId) ?? null;
+    if (hit) return hit;
+  }
+  return null;
+}
+
+/**
+ * Tutti gli `eventId` con cache match-insights locale (“scontri in campo”) allineata allo snapshot admin corrente.
+ */
+export function collectKioskInsightEventIdsAlignedToAdminSnap(adminSnap?: number): number[] {
+  const snap = typeof adminSnap === "number" && Number.isFinite(adminSnap) ? adminSnap : readAdminInsightsSnap();
+  const ids: number[] = [];
+  if (!canUseStorage()) return ids;
+  for (let i = 0; i < window.localStorage.length; i++) {
+    const key = window.localStorage.key(i);
+    if (!key?.startsWith(KIOSK_INSIGHTS_LOCAL_STORAGE_PREFIX)) continue;
+    const suffix = key.slice(KIOSK_INSIGHTS_LOCAL_STORAGE_PREFIX.length);
+    const ev = Number.parseInt(suffix, 10);
+    if (!Number.isFinite(ev)) continue;
+    const rec = readKioskInsightsLocal(ev);
+    if (!kioskInsightsAlignedWithSnap(rec, snap)) continue;
+    if (!rec!.metrics.length) continue;
+    ids.push(ev);
+  }
+  ids.sort((a, b) => a - b);
+  return ids;
 }

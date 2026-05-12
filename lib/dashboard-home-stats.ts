@@ -7,6 +7,11 @@ import {
   readKioskInsightsLocal,
   type KioskInsightsLocalRecord
 } from "@/lib/kiosk-persisted-insights";
+import {
+  countYellowCardHighRiskRows,
+  isYellowCardStoredSnapshotFresh,
+  type YellowCardStoredSnapshot
+} from "@/lib/yellow-card-schedule-utils";
 
 /** Allineato a `yellow-card-risk-page.tsx`. */
 export const YELLOW_CARD_SNAPSHOT_STORAGE_KEY = "yellow-card-risk:snapshot:v2";
@@ -136,12 +141,7 @@ export function aggregateKioskInsightsUniquePlayers(insightsSnap: number): {
   return { count: keys.size, lastSavedIso };
 }
 
-interface YellowSnapshotParsed {
-  savedAt?: string;
-  rows?: Array<{ riskScore?: number }>;
-}
-
-/** Numero profili ad alto rischio nell’ultima Top ammonizioni salvata. */
+/** Numero profili ad alto rischio nello snapshot allarme ammonizioni, solo se allineato a partite future. */
 export function countYellowCardAlertsFromStorage(threshold = 14): {
   count: number;
   savedAtIso: string | null;
@@ -150,9 +150,11 @@ export function countYellowCardAlertsFromStorage(threshold = 14): {
   try {
     const raw = window.localStorage.getItem(YELLOW_CARD_SNAPSHOT_STORAGE_KEY);
     if (!raw) return { count: 0, savedAtIso: null };
-    const parsed = JSON.parse(raw) as YellowSnapshotParsed;
-    const rows = Array.isArray(parsed.rows) ? parsed.rows : [];
-    const count = rows.filter((r) => typeof r.riskScore === "number" && r.riskScore >= threshold).length;
+    const parsed = JSON.parse(raw) as YellowCardStoredSnapshot;
+    if (!isYellowCardStoredSnapshotFresh(parsed)) {
+      return { count: 0, savedAtIso: null };
+    }
+    const count = countYellowCardHighRiskRows(parsed, threshold);
     return {
       count,
       savedAtIso: typeof parsed.savedAt === "string" ? parsed.savedAt : null

@@ -14,8 +14,11 @@ import {
   KIOSK_ADMIN_INSIGHTS_REFRESH_EVENT,
   readAdminInsightsSnap,
   readKioskInsightsLocal,
-  writeKioskInsightsLocal
+  readKioskMatchesCache,
+  writeKioskInsightsLocal,
+  writeKioskMatchesCache
 } from "@/lib/kiosk-persisted-insights";
+import type { UpcomingMatchItem } from "@/services/sportapi";
 import {
   committedFoulSignalForRisk,
   foulsSufferedPerMatchForDisplay,
@@ -23,15 +26,6 @@ import {
 } from "@/lib/tactical-fouls-signals";
 
 type KioskView = "PLAYER_FRICTION" | "FOUL_RISK_SUFFERED" | "FOUL_RISK_COMMITTED";
-
-interface UpcomingMatchItem {
-  eventId: number;
-  competitionSlug: string;
-  competitionName: string;
-  startTimestamp: number;
-  homeTeam: { id: number; name: string };
-  awayTeam: { id: number; name: string };
-}
 
 interface RoundFoulLeaderEntry {
   entry: FoulRiskEntry;
@@ -307,7 +301,6 @@ const BOOKING_ALARM_BATCH_SIZE = 4;
 const BOOKING_ALARM_REQUEST_TIMEOUT_MS = 12_000;
 const BOOKING_ALARM_MIN_TARGET_FOULS = 1.4;
 const BOOKING_ALARM_MIN_TARGET_DRIBBLES = 0.45;
-const KIOSK_MATCHES_CACHE_PREFIX = "kiosk:matches:v1:";
 const softPanelClass =
   "rounded-[1.5rem] border border-white/10 bg-gradient-to-br from-white/[0.075] via-white/[0.045] to-cyan-300/[0.035] p-4 shadow-[0_16px_45px_rgba(8,13,28,0.26)] ring-1 ring-white/5 backdrop-blur";
 const subtleCardClass =
@@ -316,34 +309,6 @@ const infoBoxClass =
   "rounded-2xl border border-cyan-200/20 bg-gradient-to-r from-cyan-300/10 to-fuchsia-300/10 px-4 py-3 text-sm text-slate-200";
 const primaryButtonClass =
   "rounded-full border border-cyan-200/50 bg-gradient-to-r from-cyan-400 to-blue-500 px-6 py-3 text-sm font-bold text-white shadow-lg shadow-cyan-950/25 transition hover:scale-[1.02] hover:shadow-cyan-500/20 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100";
-
-function canUseKioskStorage(): boolean {
-  return typeof window !== "undefined" && typeof window.localStorage !== "undefined";
-}
-
-function readKioskMatchesCache(fixtureId: string): UpcomingMatchItem[] {
-  if (!canUseKioskStorage()) return [];
-  try {
-    const raw = window.localStorage.getItem(`${KIOSK_MATCHES_CACHE_PREFIX}${fixtureId}`);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as { matches?: UpcomingMatchItem[] };
-    return Array.isArray(parsed.matches) ? parsed.matches : [];
-  } catch {
-    return [];
-  }
-}
-
-function writeKioskMatchesCache(fixtureId: string, matches: UpcomingMatchItem[]): void {
-  if (!canUseKioskStorage()) return;
-  try {
-    window.localStorage.setItem(
-      `${KIOSK_MATCHES_CACHE_PREFIX}${fixtureId}`,
-      JSON.stringify({ savedAt: new Date().toISOString(), matches })
-    );
-  } catch {
-    // Cache best-effort.
-  }
-}
 
 export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
   const {
