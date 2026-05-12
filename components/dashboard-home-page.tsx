@@ -498,10 +498,10 @@ function HomePage({ email }: DashboardHomePageProps) {
     };
   }, []);
 
-  const liveStats = useMemo(
-    () => buildDashboardLiveStats(matches, { includeBrowserCache: browserCacheReady }),
-    [matches, statsRevision, browserCacheReady]
-  );
+  const liveStats = useMemo(() => {
+    void statsRevision;
+    return buildDashboardLiveStats(matches, { includeBrowserCache: browserCacheReady });
+  }, [matches, statsRevision, browserCacheReady]);
 
   return (
     <div className="min-h-screen overflow-hidden bg-[#040B14] text-slate-100">

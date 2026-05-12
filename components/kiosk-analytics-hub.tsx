@@ -11,7 +11,6 @@ import type { UserAccessSummary } from "@/lib/auth/user-access";
 import type { CompetitionScope, TacticalMetrics } from "@/lib/types";
 import {
   bumpAdminInsightsSnap,
-  kioskInsightsAlignedWithSnap,
   KIOSK_ADMIN_INSIGHTS_REFRESH_EVENT,
   readAdminInsightsSnap,
   readKioskInsightsLocal,
@@ -160,11 +159,6 @@ function formatStat(value: unknown): string {
   });
 }
 
-function ouPick(predicted: number, line: number): "Over" | "Under" {
-  // Con linea x.5, >= è equivalente a "Over". Manteniamo >= per stabilità sui casi limite.
-  return predicted >= line ? "Over" : "Under";
-}
-
 function starString(value: number): string {
   const full = Math.max(1, Math.min(5, Math.round(value)));
   return "★".repeat(full) + "☆".repeat(5 - full);
@@ -175,11 +169,6 @@ function simpleLevelFromScore(score: number): string {
   if (score >= 66) return "Alta";
   if (score >= 50) return "Media";
   return "Bassa";
-}
-
-function predictedCardsFromMetric(m: TacticalMetrics): number {
-  // Proxy semplice e stabile: più falli => più rischio cartellino; piccolo boost se H2H ha già avuto cartellino.
-  return m.foulsCommittedLastFiveAvg * 0.18 + (m.h2hHadCard ? 0.12 : 0);
 }
 
 function dribbleSignal(m: TacticalMetrics): number {
