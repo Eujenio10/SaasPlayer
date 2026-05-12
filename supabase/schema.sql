@@ -35,9 +35,18 @@ create table if not exists public.organization_users (
   id uuid primary key default uuid_generate_v4(),
   organization_id uuid not null references public.organizations(id) on delete cascade,
   user_id uuid not null references auth.users(id) on delete cascade,
-  role text not null check (role in ('admin', 'viewer')),
+  role text not null check (role in ('admin', 'pro', 'member', 'viewer')),
   created_at timestamptz not null default now(),
   unique (organization_id, user_id)
+);
+
+create table if not exists public.member_match_usage (
+  id uuid primary key default uuid_generate_v4(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  event_id bigint not null,
+  week_starts_at timestamptz not null,
+  created_at timestamptz not null default now(),
+  unique (user_id, event_id, week_starts_at)
 );
 
 create table if not exists public.access_audit_logs (
@@ -206,6 +215,9 @@ create index if not exists organization_users_user_idx
 create index if not exists organization_users_org_idx
   on public.organization_users (organization_id);
 
+create index if not exists member_match_usage_user_week_idx
+  on public.member_match_usage (user_id, week_starts_at);
+
 create index if not exists access_audit_logs_created_idx
   on public.access_audit_logs (created_at desc);
 
@@ -255,6 +267,7 @@ alter table public.organizations enable row level security;
 alter table public.player_stats enable row level security;
 alter table public.subscriptions enable row level security;
 alter table public.organization_users enable row level security;
+alter table public.member_match_usage enable row level security;
 alter table public.access_audit_logs enable row level security;
 alter table public.tactical_snapshots enable row level security;
 alter table public.team_blueprint_cache enable row level security;

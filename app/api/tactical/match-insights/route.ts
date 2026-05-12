@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getOrganizationContextForUser } from "@/lib/auth/organization";
-import { getSubscriptionContextForOrganization } from "@/lib/auth/subscription";
+import { appliesWeeklyMatchQuota, ensureMemberCanAnalyzeMatch } from "@/lib/auth/user-access";
 import {
   getOrComputeMatchInsightsPayload,
   normalizeCompetitionSlugForInsights
@@ -32,11 +32,6 @@ export async function GET(request: Request) {
   const organization = await getOrganizationContextForUser(user.id);
   if (!organization) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
-  }
-
-  const subscription = await getSubscriptionContextForOrganization(organization.organizationId);
-  if (organization.role !== "admin" && !subscription?.isOperational) {
-    return NextResponse.json({ error: "subscription_inactive" }, { status: 402 });
   }
 
   const url = new URL(request.url);
@@ -73,13 +68,17 @@ export async function GET(request: Request) {
   } = parsed.data;
   const includeDiagnostics = url.searchParams.get("diagnostics") === "1";
   const singleMatchTest = url.searchParams.get("singleMatchTest") === "1";
-  const forceBlueprintRefresh = forceRefresh === "1";
+  const forceBlueprintRefresh = organization.role === "admin" && forceRefresh === "1";
   const playerAnalyticsMode: "full" | "serie_a_players" =
     url.searchParams.get("playerAnalytics") === "serie_a_players" ? "serie_a_players" : "full";
 
   const cacheTtlHours = Number(process.env.TACTICAL_MATCH_INSIGHTS_CACHE_HOURS ?? "120");
 
   try {
+    if (appliesWeeklyMatchQuota(organization.role)) {
+      await ensureMemberCanAnalyzeMatch(user.id, eventId);
+    }
+
     const payload = await getOrComputeMatchInsightsPayload(
       {
         eventId,
@@ -101,7 +100,11 @@ export async function GET(request: Request) {
     return NextResponse.json(payload);
   } catch (error) {
     const message = error instanceof Error ? error.message : "match_insights_unavailable";
-    const status = message.includes("quota_exceeded") || message.includes("429") ? 429 : 503;
+    const status = message.includes("member_weekly_match_limit_reached")
+      ? 403
+      : message.includes("quota_exceeded") || message.includes("429")
+        ? 429
+        : 503;
     return NextResponse.json({ error: message }, { status });
   }
 }

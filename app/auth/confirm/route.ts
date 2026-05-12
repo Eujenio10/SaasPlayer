@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import type { NextRequest } from "next/server";
+import { createSupabaseResponseClient } from "@/lib/supabase/server";
 
 function safeRedirectTarget(next: string | null): string {
   const raw = (next ?? "").trim();
@@ -9,26 +10,29 @@ function safeRedirectTarget(next: string | null): string {
   return raw;
 }
 
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
   const url = new URL(request.url);
   const code = url.searchParams.get("code");
   const tokenHash = url.searchParams.get("token_hash") ?? url.searchParams.get("token");
   const type = url.searchParams.get("type");
   const next = safeRedirectTarget(url.searchParams.get("next"));
 
-  const supabase = createSupabaseServerClient();
-
-  // Newer Supabase links (PKCE) provide `code`
+  // PKCE: i cookie di sessione devono finire sulla stessa Response del redirect.
   if (code) {
+    const destination = new URL(next, url);
+    const response = NextResponse.redirect(destination);
+    const supabase = createSupabaseResponseClient(response, request);
     const { error } = await supabase.auth.exchangeCodeForSession(code);
     if (error) {
       return NextResponse.redirect(new URL(`/login?error=1&next=${encodeURIComponent(next)}`, url));
     }
-    return NextResponse.redirect(new URL(next, url));
+    return response;
   }
 
-  // Older verify links provide token_hash + type (invite / recovery / magiclink etc.)
   if (tokenHash && type) {
+    const destination = new URL(next, url);
+    const response = NextResponse.redirect(destination);
+    const supabase = createSupabaseResponseClient(response, request);
     const { error } = await supabase.auth.verifyOtp({
       type: type as "signup" | "invite" | "magiclink" | "recovery" | "email_change",
       token_hash: tokenHash
@@ -36,9 +40,8 @@ export async function GET(request: Request) {
     if (error) {
       return NextResponse.redirect(new URL(`/login?error=1&next=${encodeURIComponent(next)}`, url));
     }
-    return NextResponse.redirect(new URL(next, url));
+    return response;
   }
 
   return NextResponse.redirect(new URL(`/login?error=1&next=${encodeURIComponent(next)}`, url));
 }
-

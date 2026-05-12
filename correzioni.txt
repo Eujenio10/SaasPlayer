@@ -35,7 +35,7 @@ Implementare retention policy dati + registro trattamenti (GDPR lato operativo).
 Step 8 — Watermark anti-manomissione piu robusto
 Oltre overlay CSS, aggiungere controlli anti-tampering lato runtime (integrity checks, heartbeat).
 In kiosk mode, lock browser full-screen e disabilitazioni contestuali (policy dispositivo).
-Inserire identificativo sessione/agenzia nel watermark (non solo nome).
+Inserire identificativo sessione/account nel watermark (non solo nome).
 Step 9 — No mobile enforcement reale
 Bloccare user-agent mobile su /display e /kiosk con pagina “desktop only”.
 Aggiungere controllo viewport minimo e fallback.

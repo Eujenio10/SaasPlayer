@@ -6,7 +6,7 @@ import type { SubscriptionContext } from "@/lib/auth/subscription";
 
 type ProtectedSessionContext = SessionContext & {
   organization: OrganizationContext;
-  subscription: SubscriptionContext;
+  subscription: SubscriptionContext | null;
 };
 
 type OrganizationSessionContext = SessionContext & {
@@ -39,10 +39,6 @@ export async function requireAdminSession(): Promise<OrganizationSessionContext>
 
 export async function requireProtectedSession(): Promise<ProtectedSessionContext> {
   const session = await requireOrganizationSession();
-
-  if (session.organization.role !== "admin" && !session.subscription?.isOperational) {
-    redirect("/suspended");
-  }
 
   return session as ProtectedSessionContext;
 }

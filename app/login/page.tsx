@@ -9,7 +9,7 @@ export default function LoginPage({
 }: {
   searchParams: { next?: string; error?: string };
 }) {
-  const nextPath = searchParams.next ?? "/display";
+  const nextPath = searchParams.next ?? "/";
   const error = searchParams.error;
 
   return (

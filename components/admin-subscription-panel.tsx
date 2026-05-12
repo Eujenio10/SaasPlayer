@@ -29,12 +29,10 @@ export function AdminSubscriptionPanel({
       : "mensile"
   );
   const [suspendReason, setSuspendReason] = useState("");
-  const [newAgencyName, setNewAgencyName] = useState("");
-  const [newAgencyAllowedIp, setNewAgencyAllowedIp] = useState("127.0.0.1");
-  const [newAgencyAllowedRanges, setNewAgencyAllowedRanges] = useState("127.0.0.1/32");
-  const [newAgencyPlan, setNewAgencyPlan] =
+  const [newAccountName, setNewAccountName] = useState("");
+  const [newAccountPlan, setNewAccountPlan] =
     useState<(typeof SUBSCRIPTION_PLANS)[number]["value"]>("prova");
-  const [newAgencyAdminEmail, setNewAgencyAdminEmail] = useState("");
+  const [newAccountAdminEmail, setNewAccountAdminEmail] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
@@ -53,31 +51,26 @@ export function AdminSubscriptionPanel({
     setMessage("Operazione completata. Ricarica la pagina per stato aggiornato.");
   }
 
-  async function createAgency() {
-    const ranges = newAgencyAllowedRanges
-      .split(",")
-      .map((item) => item.trim())
-      .filter(Boolean);
-
+  async function createAccountGroup() {
     const response = await fetch("/api/admin/organizations", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        name: newAgencyName,
-        allowedIp: newAgencyAllowedIp,
-        allowedIpRanges: ranges,
-        initialPlan: newAgencyPlan,
-        additionalAdminEmail: newAgencyAdminEmail || undefined
+        name: newAccountName,
+        allowedIp: "127.0.0.1",
+        allowedIpRanges: ["127.0.0.1/32"],
+        initialPlan: newAccountPlan,
+        additionalAdminEmail: newAccountAdminEmail || undefined
       })
     });
 
     if (!response.ok) {
-      setMessage("Creazione agenzia non riuscita. Verifica i dati inseriti.");
+      setMessage("Creazione account non riuscita. Verifica i dati inseriti.");
       return;
     }
 
     const json = (await response.json()) as { organizationId: string };
-    setMessage("Nuova agenzia creata con successo.");
+    setMessage("Nuovo account creato con successo.");
     const next = new URLSearchParams(searchParams.toString());
     next.set("organizationId", json.organizationId);
     router.push(`${pathname}?${next.toString()}`);
@@ -87,41 +80,23 @@ export function AdminSubscriptionPanel({
   return (
     <section className="space-y-6 rounded-2xl border border-cyan-300/30 bg-graphite/80 p-6">
       <div className="space-y-3 rounded-xl border border-cyan-400/20 bg-darkGray/50 p-4">
-        <h2 className="text-2xl font-bold text-cyan-300">Registra Nuova Agenzia</h2>
+        <h2 className="text-2xl font-bold text-cyan-300">Registra Nuovo Account</h2>
         <div className="grid gap-3 md:grid-cols-2">
           <label className="space-y-1">
-            <span className="text-sm text-slate-300">Nome agenzia</span>
+            <span className="text-sm text-slate-300">Nome account / gruppo</span>
             <input
               type="text"
-              value={newAgencyName}
-              onChange={(event) => setNewAgencyName(event.target.value)}
-              className="w-full rounded-xl border border-cyan-400/40 bg-darkGray px-3 py-2"
-            />
-          </label>
-          <label className="space-y-1">
-            <span className="text-sm text-slate-300">IP primario consentito</span>
-            <input
-              type="text"
-              value={newAgencyAllowedIp}
-              onChange={(event) => setNewAgencyAllowedIp(event.target.value)}
-              className="w-full rounded-xl border border-cyan-400/40 bg-darkGray px-3 py-2"
-            />
-          </label>
-          <label className="space-y-1">
-            <span className="text-sm text-slate-300">Range IP (CSV)</span>
-            <input
-              type="text"
-              value={newAgencyAllowedRanges}
-              onChange={(event) => setNewAgencyAllowedRanges(event.target.value)}
+              value={newAccountName}
+              onChange={(event) => setNewAccountName(event.target.value)}
               className="w-full rounded-xl border border-cyan-400/40 bg-darkGray px-3 py-2"
             />
           </label>
           <label className="space-y-1">
             <span className="text-sm text-slate-300">Piano iniziale</span>
             <select
-              value={newAgencyPlan}
+              value={newAccountPlan}
               onChange={(event) =>
-                setNewAgencyPlan(
+                setNewAccountPlan(
                   event.target.value as (typeof SUBSCRIPTION_PLANS)[number]["value"]
                 )
               }
@@ -139,29 +114,29 @@ export function AdminSubscriptionPanel({
           <span className="text-sm text-slate-300">Email admin aggiuntivo (opzionale)</span>
           <input
             type="email"
-            value={newAgencyAdminEmail}
-            onChange={(event) => setNewAgencyAdminEmail(event.target.value)}
+            value={newAccountAdminEmail}
+            onChange={(event) => setNewAccountAdminEmail(event.target.value)}
             className="w-full rounded-xl border border-cyan-400/40 bg-darkGray px-3 py-2"
           />
         </label>
         <button
           type="button"
-          disabled={isPending || !newAgencyName}
+          disabled={isPending || !newAccountName}
           onClick={() =>
             startTransition(() => {
-              void createAgency();
+              void createAccountGroup();
             })
           }
           className="rounded-xl bg-techBlue px-4 py-2 font-semibold text-darkGray"
         >
-          Crea Agenzia
+          Crea Account
         </button>
       </div>
 
       <div className="space-y-1">
         <h2 className="text-2xl font-bold text-cyan-300">Gestione Abbonamento</h2>
         <label className="mt-3 block space-y-2">
-          <span className="text-sm text-slate-300">Centro selezionato</span>
+          <span className="text-sm text-slate-300">Account selezionato</span>
           <select
             value={selectedOrganizationId}
             onChange={(event) => {

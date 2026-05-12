@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getOrganizationContextForUser } from "@/lib/auth/organization";
-import { getSubscriptionContextForOrganization } from "@/lib/auth/subscription";
 import { getSerieADisplayProgram } from "@/lib/serie-a-display-program";
 
 export async function GET(request: Request) {
@@ -22,13 +21,8 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
-  const subscription = await getSubscriptionContextForOrganization(organization.organizationId);
-  if (organization.role !== "admin" && !subscription?.isOperational) {
-    return NextResponse.json({ error: "subscription_inactive" }, { status: 402 });
-  }
-
   try {
-    const program = await getSerieADisplayProgram(forceRefresh);
+    const program = await getSerieADisplayProgram(organization.role === "admin" && forceRefresh);
     return NextResponse.json(program);
   } catch {
     return NextResponse.json(

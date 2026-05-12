@@ -1,11 +1,17 @@
-import type { SparkFrictionHeatmapPayload, TacticalMetrics } from "@/lib/types";
+import type { TacticalMetrics } from "@/lib/types";
+import {
+  committedFoulSignalForRisk as committedSignal,
+  sufferedFoulSignalForRisk as sufferedSignal
+} from "@/lib/tactical-fouls-signals";
 
 export type FoulRiskAnalysisKind = "suffered" | "committed";
 
 export interface FoulRiskAggressorBrief {
   playerName: string;
   team: string;
-  collisionPercent: number;
+  positionCode?: string;
+  markingScore: number;
+  riskContribution: number;
   foulsCommittedSeasonAvg: number;
   foulsSufferedSeasonAvg: number;
 }
@@ -18,118 +24,147 @@ export interface FoulRiskEntry {
   clubColor: string;
   kind: FoulRiskAnalysisKind;
   riskScore: number;
-  maxCollisionPercent: number;
+  starRating: number;
+  markerPositionCode?: string;
+  matchupScore: number;
   aggressors: FoulRiskAggressorBrief[];
-  heatmap: SparkFrictionHeatmapPayload;
   justification: string;
 }
-
-const GRID = 20;
-const GAUSS_SIGMA = 1.15;
-const DEAD_CELL_SUM = 0.02;
-const MIN_HEATMAP_POINTS = 3;
-const MIN_COLLISION_PERCENT = 10;
-const FOUL_TRIGGER = 1.0;
 
 function clamp(n: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, n));
 }
 
-function rasterizeHeatmap(
-  points: Array<{ x: number; y: number; intensity?: number }>
-): Float64Array {
-  const g = new Float64Array(GRID * GRID);
-  for (const p of points) {
-    const w = p.intensity ?? 1;
-    const cx = (clamp(p.x, 0, 100) / 100) * GRID;
-    const cy = (clamp(p.y, 0, 100) / 100) * GRID;
-    for (let dy = -3; dy <= 3; dy += 1) {
-      for (let dx = -3; dx <= 3; dx += 1) {
-        const dist = Math.hypot(dx, dy);
-        if (dist > 3.1) continue;
-        const ix = Math.floor(cx + dx);
-        const iy = Math.floor(cy + dy);
-        if (ix < 0 || iy < 0 || ix >= GRID || iy >= GRID) continue;
-        const contrib = w * Math.exp(-(dist * dist) / (2 * GAUSS_SIGMA * GAUSS_SIGMA));
-        g[iy * GRID + ix] += contrib;
-      }
-    }
-  }
-  return g;
+type RoleBand = "gk" | "def" | "mid" | "att";
+type Lane = -1 | 0 | 1;
+
+function roleBand(m: TacticalMetrics): RoleBand {
+  if (m.roleIcon === "🧤") return "gk";
+  if (m.roleIcon === "🛡️") return "def";
+  if (m.roleIcon === "🎯") return "att";
+  return "mid";
 }
 
-/** Sovrapposizione normalizzata 0–100: ignora celle con densità combinata trascurabile (“zone morte”). */
-function collisionPercent(a: Float64Array, b: Float64Array): number {
-  let overlap = 0;
-  let union = 0;
-  for (let i = 0; i < a.length; i += 1) {
-    const va = a[i];
-    const vb = b[i];
-    if (va + vb < DEAD_CELL_SUM) continue;
-    overlap += Math.min(va, vb);
-    union += Math.max(va, vb);
-  }
-  const den = Math.max(union, 1e-9);
-  return clamp((overlap / den) * 100, 0, 100);
+function positionLane(positionCode?: string): Lane {
+  const s = (positionCode ?? "").toUpperCase().trim().replace(/\s+/g, "");
+  if (!s || s === "G" || s.startsWith("GK")) return 0;
+  if (/^(DL|LWB|LB|ML|AML|LW|LM|WL)(\/|$)/.test(s)) return -1;
+  if (/^(DR|RWB|RB|MR|AMR|RW|RM|WR)(\/|$)/.test(s)) return 1;
+  const last = s[s.length - 1];
+  const first = s[0];
+  if (last === "L" && /^[DAMFW]/.test(first)) return -1;
+  if (last === "R" && /^[DAMFW]/.test(first)) return 1;
+  return 0;
 }
 
-function mergeAggressorPoints(
-  aggressors: TacticalMetrics[],
-  maxPointsTotal: number
-): Array<{ x: number; y: number; intensity?: number }> {
-  const out: Array<{ x: number; y: number; intensity?: number }> = [];
-  for (const ag of aggressors) {
-    const pts = ag.heatmapPointsMatchFrame ?? [];
-    for (const p of pts) {
-      if (out.length >= maxPointsTotal) return out;
-      out.push({
-        x: p.x,
-        y: p.y,
-        intensity: (p.intensity ?? 1) * 0.92
-      });
-    }
-  }
-  return out;
+function positionLabel(positionCode?: string): string {
+  return positionCode?.trim() ? positionCode.trim().toUpperCase() : "zona centrale";
 }
 
-function buildJustification(
-  target: TacticalMetrics,
-  kind: FoulRiskAnalysisKind,
-  collisionPct: number,
-  aggressors: FoulRiskAggressorBrief[]
-): string {
-  if (aggressors.length === 0) return "";
-  const names = aggressors.map((a) => a.playerName.trim()).filter(Boolean);
-  const list =
-    names.length === 1
-      ? names[0]
-      : names.length === 2
-        ? `${names[0]} e ${names[1]}`
-        : `${names.slice(0, -1).join(", ")} e ${names[names.length - 1]}`;
-  const pct = collisionPct.toFixed(0);
+/**
+ * 0-100: probabilità di marcatura/incrocio in base alla posizione prevista, non alla heatmap.
+ * La logica considera i codici in prospettiva della propria squadra: un terzino destro (+1)
+ * incrocia spesso l'ala sinistra avversaria (-1), come da richiesta.
+ */
+function markingMatchScore(target: TacticalMetrics, opponent: TacticalMetrics): number {
+  const aRole = roleBand(target);
+  const bRole = roleBand(opponent);
+  if (aRole === "gk" || bRole === "gk") return 0;
 
+  const aLane = positionLane(target.positionCode);
+  const bLane = positionLane(opponent.positionCode);
+  const oppositeWide = aLane !== 0 && bLane !== 0 && aLane === -bLane;
+  const bothCentral = aLane === 0 && bLane === 0;
+  const oneWideOneUnknown = (aLane !== 0 && bLane === 0) || (aLane === 0 && bLane !== 0);
+
+  let score = 0;
+  if (oppositeWide) score += 58;
+  if (bothCentral) score += 42;
+  if (oneWideOneUnknown) score += 22;
+
+  const defAtt =
+    (aRole === "def" && (bRole === "att" || bRole === "mid")) ||
+    (bRole === "def" && (aRole === "att" || aRole === "mid"));
+  if (defAtt) score += oppositeWide ? 28 : bothCentral ? 18 : 10;
+
+  if (aRole === "mid" && bRole === "mid") score += bothCentral ? 24 : oppositeWide ? 14 : 6;
+  if (aRole === "att" && bRole === "att") score -= 22;
+  if (aRole === "def" && bRole === "def") score -= oppositeWide ? 8 : 20;
+
+  return clamp(score, 0, 100);
+}
+
+function starsFromScore(params: {
+  score: number;
+  primaryMarking: number;
+  primaryFoulSignal: number;
+  targetFoulSignal: number;
+  contactCount: number;
+  h2hFouls: number;
+  hadCard: boolean;
+}): number {
+  const { score, primaryMarking, primaryFoulSignal, targetFoulSignal, contactCount, h2hFouls, hadCard } = params;
+
+  const markingQuality = clamp((primaryMarking - 45) / 38, 0, 1.25);
+  const primaryFoulQuality = clamp((primaryFoulSignal - 1.05) / 1.15, 0, 1.35);
+  const targetFoulQuality = clamp((targetFoulSignal - 0.85) / 1.35, 0, 0.95);
+  const multiContactQuality = contactCount >= 3 ? 0.45 : contactCount === 2 ? 0.25 : 0;
+  const h2hQuality = clamp(h2hFouls / 3, 0, 0.35) + (hadCard ? 0.12 : 0);
+  const starScore =
+    1.25 +
+    markingQuality +
+    primaryFoulQuality +
+    targetFoulQuality +
+    multiContactQuality +
+    h2hQuality +
+    clamp((score - 2.2) / 3, 0, 0.45);
+
+  // Rating più progressivo: 4 e 5 sono raggiungibili, ma solo con più segnali forti insieme.
+  if (starScore >= 4.65 && primaryMarking >= 76 && primaryFoulSignal >= 1.55) return 5;
+  if (starScore >= 3.85 && primaryMarking >= 64 && primaryFoulSignal >= 1.3) return 4;
+  if (starScore >= 3.0 && primaryMarking >= 52 && primaryFoulSignal >= 1.12) return 3;
+  if (starScore >= 2.2) return 2;
+  return 1;
+}
+
+function playerStableKey(m: TacticalMetrics): string {
+  const name = m.playerName.replace(/\s+/g, " ").trim().toUpperCase();
+  return `${m.teamId}|${name}`;
+}
+
+function buildJustification(params: {
+  target: TacticalMetrics;
+  markers: FoulRiskAggressorBrief[];
+  kind: FoulRiskAnalysisKind;
+  stars: number;
+}): string {
+  const { target, markers, kind, stars } = params;
+  const marker = markers[0];
+  if (!marker) return "";
+  const targetPos = positionLabel(target.positionCode);
+  const markerPos = positionLabel(marker.positionCode);
+  const extra =
+    markers.length > 1
+      ? ` Oltre al marcatore principale, ci sono altri ${markers.length - 1} possibili contatti nello stesso settore.`
+      : "";
   if (kind === "suffered") {
-    const avgc = aggressors
-      .reduce((s, a) => s + a.foulsCommittedSeasonAvg, 0)
-      / Math.max(1, aggressors.length);
     return (
-      `${target.playerName} risulta esposto a contatti ravvicinati: la sua zona di azione stagionale si sovrappone per circa il ${pct}% ` +
-      `con l’area di pressione di ${list}, con media falli commessi in campionato intorno a ${avgc.toFixed(1)} a partita ` +
-      `(soglia attivazione > ${FOUL_TRIGGER.toFixed(2)}).`
+      `${target.playerName} (${targetPos}) può essere marcato da ${marker.playerName} (${markerPos}). ` +
+      `La marcatura principale pesa ${marker.markingScore}/100 e l'avversario commette circa ` +
+      `${marker.foulsCommittedSeasonAvg.toFixed(2)} falli a partita.${extra} Rating finale: ${stars}/5 stelle.`
     );
   }
 
-  const avgs = aggressors.reduce((s, a) => s + a.foulsSufferedSeasonAvg, 0) / Math.max(1, aggressors.length);
   return (
-    `${target.playerName} può entrare spesso in duello fisico: la heatmap stagionale coincide per circa il ${pct}% ` +
-    `con zone occupate da ${list}, avversari che subiscono in media circa ${avgs.toFixed(1)} falli a partita ` +
-    `(soglia > ${FOUL_TRIGGER.toFixed(2)}), segnale di contestazione frequente.`
+    `${target.playerName} (${targetPos}) può dover marcare ${marker.playerName} (${markerPos}). ` +
+    `La marcatura principale pesa ${marker.markingScore}/100 e l'avversario subisce circa ` +
+    `${marker.foulsSufferedSeasonAvg.toFixed(2)} falli a partita.${extra} Rating finale: ${stars}/5 stelle.`
   );
 }
 
 /**
- * Analisi predittiva “giocatori a rischio falli” usando solo `heatmapPointsMatchFrame` già normalizzate al frame casa
- * (nessuna nuova chiamata API).
+ * Analisi predittiva “rischio falli” basata su posizione prevista e probabili marcature.
+ * Non usa la heatmap: il driver è "chi marcherà chi" + medie falli commessi/subiti.
  */
 export function analyzeFoulRisk(params: {
   metrics: TacticalMetrics[];
@@ -139,76 +174,100 @@ export function analyzeFoulRisk(params: {
 }): FoulRiskEntry[] {
   const { metrics, homeTeamId, awayTeamId, kind } = params;
   const teamIds = new Set([homeTeamId, awayTeamId]);
-  const players = metrics.filter(
-    (m) => teamIds.has(m.teamId) && m.roleIcon !== "🧤" && (m.heatmapPointsMatchFrame?.length ?? 0) >= MIN_HEATMAP_POINTS
-  );
+  const players = metrics.filter((m) => teamIds.has(m.teamId) && m.roleIcon !== "🧤");
 
   const results: FoulRiskEntry[] = [];
 
   for (const p1 of players) {
     const opponents = players.filter((m) => m.teamId !== p1.teamId);
-    const grid1 = rasterizeHeatmap(p1.heatmapPointsMatchFrame ?? []);
-
     const hits: Array<{
       opp: TacticalMetrics;
-      c: number;
+      marking: number;
+      score: number;
+      foulSignal: number;
+      key: string;
     }> = [];
 
     for (const p2 of opponents) {
-      const pts = p2.heatmapPointsMatchFrame ?? [];
-      if (pts.length < MIN_HEATMAP_POINTS) continue;
-      const c = collisionPercent(grid1, rasterizeHeatmap(pts));
-      if (c < MIN_COLLISION_PERCENT) continue;
-
+      const marking = markingMatchScore(p1, p2);
+      if (marking < 45) continue;
+      const markingFactor = marking / 100;
       if (kind === "suffered") {
-        if (p2.foulsCommittedSeasonAvg > FOUL_TRIGGER) {
-          hits.push({ opp: p2, c });
+        const opponentCommitted = committedSignal(p2);
+        const targetSuffered = sufferedSignal(p1);
+        if (opponentCommitted >= 1.1 && targetSuffered >= 0.9) {
+          hits.push({
+            opp: p2,
+            marking,
+            foulSignal: opponentCommitted,
+            key: playerStableKey(p2),
+            score:
+              markingFactor * 1.35 +
+              Math.max(0, opponentCommitted - 0.75) * 1.05 +
+              Math.max(0, targetSuffered - 0.65) * 0.45
+          });
         }
-      } else if (p2.foulsSufferedSeasonAvg > FOUL_TRIGGER) {
-        hits.push({ opp: p2, c });
+      } else {
+        const targetCommitted = committedSignal(p1);
+        const opponentSuffered = sufferedSignal(p2);
+        if (targetCommitted >= 1.0 && opponentSuffered >= 1.1) {
+          hits.push({
+            opp: p2,
+            marking,
+            foulSignal: opponentSuffered,
+            key: playerStableKey(p2),
+            score:
+              markingFactor * 1.35 +
+              Math.max(0, targetCommitted - 0.7) * 0.95 +
+              Math.max(0, opponentSuffered - 0.75) * 0.7
+          });
+        }
       }
     }
 
     if (hits.length === 0) continue;
 
-    hits.sort((a, b) => b.c - a.c);
-    const topHits = hits.slice(0, 4);
-    const maxC = topHits[0]?.c ?? 0;
-
-    const foulExcess =
-      kind === "suffered"
-        ? Math.max(...topHits.map((h) => h.opp.foulsCommittedSeasonAvg - FOUL_TRIGGER), 0)
-        : Math.max(...topHits.map((h) => h.opp.foulsSufferedSeasonAvg - FOUL_TRIGGER), 0);
-
-    const baseScore = maxC * (1 + 0.12 * foulExcess);
+    hits.sort((a, b) => b.score - a.score);
+    const uniqueHits: typeof hits = [];
+    const usedOpponentKeys = new Set<string>();
+    for (const hit of hits) {
+      if (usedOpponentKeys.has(hit.key)) continue;
+      usedOpponentKeys.add(hit.key);
+      uniqueHits.push(hit);
+      if (uniqueHits.length >= 3) break;
+    }
+    const topHits = uniqueHits;
+    const topHit = topHits[0];
+    const targetFoulSignal = kind === "suffered" ? sufferedSignal(p1) : committedSignal(p1);
+    const secondaryPressure = Math.min(
+      0.9,
+      topHits.slice(1).reduce((sum, hit, index) => sum + hit.score * (index === 0 ? 0.26 : 0.16), 0)
+    );
+    const multiContactBonus = topHits.length >= 3 ? 0.28 : topHits.length === 2 ? 0.16 : 0;
+    const baseScore = topHit.score + secondaryPressure + multiContactBonus;
     const h2hFouls =
       kind === "suffered" ? (p1.h2hFoulsSuffered ?? 0) : (p1.h2hFoulsCommitted ?? 0);
-    const h2hBoost = clamp(h2hFouls * 0.05, 0, 0.25);
-    const cardBoost = p1.h2hHadCard ? 0.12 : 0;
-    const riskScore = baseScore * (1 + h2hBoost + cardBoost);
+    const riskScore = baseScore + clamp(h2hFouls * 0.12, 0, 0.35) + (p1.h2hHadCard ? 0.12 : 0);
+    const starRating = starsFromScore({
+      score: riskScore,
+      primaryMarking: topHit.marking,
+      primaryFoulSignal: topHit.foulSignal,
+      targetFoulSignal,
+      contactCount: topHits.length,
+      h2hFouls,
+      hadCard: Boolean(p1.h2hHadCard)
+    });
+    if (starRating < 3) continue;
 
-    const aggressors: FoulRiskAggressorBrief[] = topHits.map((h) => ({
-      playerName: h.opp.playerName,
-      team: h.opp.team,
-      collisionPercent: Math.round(h.c * 10) / 10,
-      foulsCommittedSeasonAvg: h.opp.foulsCommittedSeasonAvg,
-      foulsSufferedSeasonAvg: h.opp.foulsSufferedSeasonAvg
+    const markers: FoulRiskAggressorBrief[] = topHits.map((hit) => ({
+      playerName: hit.opp.playerName,
+      team: hit.opp.team,
+      positionCode: hit.opp.positionCode,
+      markingScore: Math.round(hit.marking),
+      riskContribution: Math.round(hit.score * 100) / 100,
+      foulsCommittedSeasonAvg: hit.opp.foulsCommittedSeasonAvg,
+      foulsSufferedSeasonAvg: hit.opp.foulsSufferedSeasonAvg
     }));
-
-    const oppModels = topHits.map((h) => h.opp);
-    const pointsB = mergeAggressorPoints(oppModels, 72);
-
-    const heatmap: SparkFrictionHeatmapPayload = {
-      labelA: p1.playerName,
-      labelB:
-        oppModels.length === 1
-          ? oppModels[0].playerName
-          : `${oppModels.length} avversari — pressione`,
-      clubColorA: p1.clubColor || "#38bdf8",
-      clubColorB: oppModels[0]?.clubColor || "#c084fc",
-      pointsA: p1.heatmapPointsMatchFrame ?? [],
-      pointsB: pointsB.length > 0 ? pointsB : (oppModels[0]?.heatmapPointsMatchFrame ?? [])
-    };
 
     results.push({
       playerId: p1.playerId,
@@ -218,13 +277,29 @@ export function analyzeFoulRisk(params: {
       clubColor: p1.clubColor,
       kind,
       riskScore,
-      maxCollisionPercent: Math.round(maxC * 10) / 10,
-      aggressors,
-      heatmap,
-      justification: buildJustification(p1, kind, maxC, aggressors)
+      starRating,
+      markerPositionCode: topHit.opp.positionCode,
+      matchupScore: Math.round(topHit.marking),
+      aggressors: markers,
+      justification: buildJustification({
+        target: p1,
+        markers,
+        kind,
+        stars: starRating
+      })
     });
   }
 
-  results.sort((a, b) => b.riskScore - a.riskScore);
-  return results;
+  const bestByPlayer = new Map<string, FoulRiskEntry>();
+  for (const row of results) {
+    const key = `${row.teamId}|${row.playerName.replace(/\s+/g, " ").trim().toUpperCase()}`;
+    const prev = bestByPlayer.get(key);
+    if (!prev || row.riskScore > prev.riskScore) {
+      bestByPlayer.set(key, row);
+    }
+  }
+
+  return Array.from(bestByPlayer.values())
+    .sort((a, b) => b.riskScore - a.riskScore)
+    .slice(0, 8);
 }

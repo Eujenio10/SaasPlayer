@@ -1,10 +1,15 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getClientIp } from "@/lib/ip";
-import { isIpAllowed } from "@/lib/ip-policy";
-import { isSubscriptionOperational } from "@/lib/subscription-policy";
 import { createSupabaseMiddlewareClient } from "@/lib/supabase/middleware";
 
-const protectedPrefixes = ["/display", "/kiosk", "/kiosk-testing", "/admin", "/api/admin"];
+const protectedPrefixes = [
+  "/display",
+  "/kiosk",
+  "/kiosk-testing",
+  "/profilo",
+  "/admin",
+  "/api/admin"
+];
 
 function isProtectedPath(pathname: string): boolean {
   return protectedPrefixes.some((prefix) => pathname.startsWith(prefix));
@@ -16,12 +21,6 @@ function isAdminOnlyPath(pathname: string): boolean {
     pathname.startsWith("/api/admin") ||
     pathname.startsWith("/kiosk-testing")
   );
-}
-
-function isViewerAllowedPath(pathname: string): boolean {
-  if (pathname.startsWith("/display")) return true;
-  if (pathname === "/kiosk/hybrid" || pathname.startsWith("/kiosk/hybrid/")) return true;
-  return false;
 }
 
 function buildApiUrl(path: string): string | null {
@@ -42,15 +41,10 @@ function serviceHeaders(): HeadersInit | null {
 
 interface MembershipRow {
   organization_id: string;
-  role: "admin" | "viewer";
+  role: "admin" | "pro" | "member" | "viewer";
   organizations:
     | { name: string; allowed_ip: string; allowed_ip_ranges: string[] | null }
     | Array<{ name: string; allowed_ip: string; allowed_ip_ranges: string[] | null }>;
-}
-
-interface SubscriptionRow {
-  status: string;
-  current_period_end: string | null;
 }
 
 async function getMembership(userId: string): Promise<MembershipRow | null> {
@@ -69,25 +63,6 @@ async function getMembership(userId: string): Promise<MembershipRow | null> {
   if (!response.ok) return null;
 
   const rows = (await response.json()) as MembershipRow[];
-  if (!rows.length) return null;
-  return rows[0];
-}
-
-async function getLatestSubscription(
-  organizationId: string
-): Promise<SubscriptionRow | null> {
-  const headers = serviceHeaders();
-  const url = buildApiUrl(
-    `/rest/v1/subscriptions?organization_id=eq.${encodeURIComponent(
-      organizationId
-    )}&select=status,current_period_end&order=created_at.desc&limit=1`
-  );
-
-  if (!headers || !url) return null;
-  const response = await fetch(url, { headers, cache: "no-store" });
-  if (!response.ok) return null;
-
-  const rows = (await response.json()) as SubscriptionRow[];
   if (!rows.length) return null;
   return rows[0];
 }
@@ -121,6 +96,11 @@ async function writeAuditLog(params: {
     }),
     cache: "no-store"
   });
+}
+
+function normalizeAccessRole(role: MembershipRow["role"]): "admin" | "pro" | "member" {
+  if (role === "admin" || role === "pro" || role === "member") return role;
+  return "member";
 }
 
 export async function middleware(request: NextRequest) {
@@ -162,8 +142,9 @@ export async function middleware(request: NextRequest) {
     ? organization[0]
     : organization;
   const organizationId = membership?.organization_id ?? null;
+  const role = membership ? normalizeAccessRole(membership.role) : null;
 
-  if (!membership || !clientIp || !organizationData?.allowed_ip) {
+  if (!membership || !organizationData?.name) {
     await writeAuditLog({
       userId: user.id,
       organizationId,
@@ -171,48 +152,13 @@ export async function middleware(request: NextRequest) {
       xForwardedFor: forwardedFor,
       userAgent,
       path: request.nextUrl.pathname,
-      reason: "missing_membership_or_ip",
+      reason: "missing_membership",
       result: "forbidden"
     });
     return NextResponse.redirect(new URL("/forbidden", request.url));
   }
 
-  const allowed = isIpAllowed({
-    clientIp,
-    legacyAllowedIp: organizationData.allowed_ip,
-    allowedRanges: organizationData.allowed_ip_ranges
-  });
-  if (!allowed) {
-    await writeAuditLog({
-      userId: user.id,
-      organizationId,
-      ip: clientIp,
-      xForwardedFor: forwardedFor,
-      userAgent,
-      path: request.nextUrl.pathname,
-      reason: "ip_not_allowed",
-      result: "forbidden"
-    });
-    return NextResponse.redirect(new URL("/forbidden", request.url));
-  }
-
-  // Viewer: solo /display e /kiosk/hybrid — /kiosk base reindirizza al kiosk ibrido
-  if (membership.role === "viewer") {
-    const p = request.nextUrl.pathname;
-    if (p === "/kiosk") {
-      return NextResponse.redirect(new URL("/kiosk/hybrid", request.url));
-    }
-  }
-
-  const subscription = await getLatestSubscription(membership.organization_id);
-  const isSubscriptionActive =
-    subscription &&
-    isSubscriptionOperational({
-      status: subscription.status,
-      currentPeriodEnd: subscription.current_period_end
-    });
-
-  if (membership.role === "viewer" && !isViewerAllowedPath(request.nextUrl.pathname)) {
+  if (isAdminOnlyPath(request.nextUrl.pathname) && role !== "admin") {
     await writeAuditLog({
       userId: user.id,
       organizationId,
@@ -224,37 +170,6 @@ export async function middleware(request: NextRequest) {
       result: "forbidden"
     });
     return NextResponse.redirect(new URL("/forbidden", request.url));
-  }
-
-  if (isAdminOnlyPath(request.nextUrl.pathname) && membership.role !== "admin") {
-    await writeAuditLog({
-      userId: user.id,
-      organizationId,
-      ip: clientIp,
-      xForwardedFor: forwardedFor,
-      userAgent,
-      path: request.nextUrl.pathname,
-      reason: "role_not_allowed",
-      result: "forbidden"
-    });
-    return NextResponse.redirect(new URL("/forbidden", request.url));
-  }
-
-  // I viewer usano solo display / kiosk hybrid: non li blocchiamo per subscription org (evita suspended ingiusti)
-  const viewerProductAccess =
-    membership.role === "viewer" && isViewerAllowedPath(request.nextUrl.pathname);
-  if (!isSubscriptionActive && membership.role !== "admin" && !viewerProductAccess) {
-    await writeAuditLog({
-      userId: user.id,
-      organizationId,
-      ip: clientIp,
-      xForwardedFor: forwardedFor,
-      userAgent,
-      path: request.nextUrl.pathname,
-      reason: "subscription_inactive",
-      result: "forbidden"
-    });
-    return NextResponse.redirect(new URL("/suspended", request.url));
   }
 
   response.cookies.set("org_id", membership.organization_id, {
@@ -269,6 +184,12 @@ export async function middleware(request: NextRequest) {
     secure: process.env.NODE_ENV === "production",
     path: "/"
   });
+  response.cookies.set("access_role", role ?? "member", {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    path: "/"
+  });
 
   await writeAuditLog({
     userId: user.id,
@@ -277,10 +198,7 @@ export async function middleware(request: NextRequest) {
     xForwardedFor: forwardedFor,
     userAgent,
     path: request.nextUrl.pathname,
-    reason:
-      !isSubscriptionActive && membership.role === "admin"
-        ? "access_granted_admin_subscription_bypass"
-        : "access_granted",
+    reason: "access_granted",
     result: "allowed"
   });
 
@@ -292,6 +210,7 @@ export const config = {
     "/display/:path*",
     "/kiosk/:path*",
     "/kiosk-testing/:path*",
+    "/profilo/:path*",
     "/admin/:path*",
     "/api/admin/:path*"
   ]

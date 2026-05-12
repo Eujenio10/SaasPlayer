@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getOrganizationContextForUser } from "@/lib/auth/organization";
-import { getSubscriptionContextForOrganization } from "@/lib/auth/subscription";
 import type { CompetitionScope } from "@/lib/types";
 import { fetchTeamPerformanceBlueprint } from "@/services/sportapi";
 
@@ -27,13 +26,6 @@ export async function GET(request: Request) {
   const organization = await getOrganizationContextForUser(user.id);
   if (!organization) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
-  }
-
-  const subscription = await getSubscriptionContextForOrganization(
-    organization.organizationId
-  );
-  if (organization.role !== "admin" && !subscription?.isOperational) {
-    return NextResponse.json({ error: "subscription_inactive" }, { status: 402 });
   }
 
   const url = new URL(request.url);
@@ -68,7 +60,7 @@ export async function GET(request: Request) {
       teamId,
       teamName,
       competitionSlug,
-      forceRefresh: force === "1",
+      forceRefresh: organization.role === "admin" && force === "1",
       scope
     });
 

@@ -1,16 +1,26 @@
 import { createSupabaseServiceClient } from "@/lib/supabase/server";
 
+export type UserAccessRole = "admin" | "pro" | "member";
+type DatabaseAccessRole = UserAccessRole | "viewer";
+
 export interface OrganizationContext {
   organizationId: string;
   organizationName: string;
-  allowedIp: string;
+  allowedIp: string | null;
   allowedIpRanges: string[];
-  role: "admin" | "viewer";
+  role: UserAccessRole;
 }
 
 export interface AdminOrganizationOption {
   organizationId: string;
   organizationName: string;
+}
+
+function normalizeAccessRole(role: string | null | undefined): UserAccessRole {
+  if (role === "admin" || role === "pro" || role === "member") return role;
+  // Compatibilita con il vecchio ruolo viewer: equivale ai membri del canale.
+  if (role === "viewer") return "member";
+  return "member";
 }
 
 export async function getOrganizationContextForUser(
@@ -22,6 +32,7 @@ export async function getOrganizationContextForUser(
     .from("organization_users")
     .select("organization_id, role, organizations(name, allowed_ip, allowed_ip_ranges)")
     .eq("user_id", userId)
+    .order("created_at", { ascending: true })
     .limit(1)
     .maybeSingle();
 
@@ -31,16 +42,16 @@ export async function getOrganizationContextForUser(
     ? data.organizations[0]
     : data.organizations;
 
-  if (!organization?.name || !organization?.allowed_ip) {
+  if (!organization?.name) {
     return null;
   }
 
   return {
     organizationId: data.organization_id,
     organizationName: organization.name,
-    allowedIp: organization.allowed_ip,
+    allowedIp: organization.allowed_ip ?? null,
     allowedIpRanges: organization.allowed_ip_ranges ?? [],
-    role: data.role
+    role: normalizeAccessRole(data.role as DatabaseAccessRole)
   };
 }
 

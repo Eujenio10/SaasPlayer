@@ -9,33 +9,16 @@
 html,
 body {
   min-height: 100%;
-  background: #111827;
+  background:
+    radial-gradient(circle at 10% 0%, rgba(34, 211, 238, 0.28), transparent 34rem),
+    radial-gradient(circle at 88% 10%, rgba(244, 114, 182, 0.2), transparent 34rem),
+    radial-gradient(circle at 50% 35%, rgba(168, 85, 247, 0.16), transparent 38rem),
+    linear-gradient(180deg, #07111f 0%, #10172a 44%, #111827 100%);
   color: #e5e7eb;
 }
 
 body {
   font-family: Inter, Segoe UI, Arial, sans-serif;
-}
-
-.watermark-layer {
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  user-select: none;
-  z-index: 9999;
-}
-
-.watermark-text {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  font-size: clamp(1.4rem, 3.8vw, 4.2rem);
-  font-weight: 700;
-  color: rgba(103, 232, 249, 0.14);
-  text-transform: uppercase;
-  letter-spacing: 0.2em;
-  transform: rotate(-18deg);
 }
 
 .legal-footer {

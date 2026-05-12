@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getOrganizationContextForUser } from "@/lib/auth/organization";
-import { getSubscriptionContextForOrganization } from "@/lib/auth/subscription";
 import { getApiCache, setApiCache } from "@/lib/api-cache";
 import { filterMatchesKickoffInFuture } from "@/lib/tactical-matches-filters";
 import { getOrRefreshTacticalMatchesMenuFull } from "@/lib/tactical-matches-menu-cache";
@@ -20,13 +19,6 @@ export async function GET(request: Request) {
   const organization = await getOrganizationContextForUser(user.id);
   if (!organization) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
-  }
-
-  const subscription = await getSubscriptionContextForOrganization(
-    organization.organizationId
-  );
-  if (organization.role !== "admin" && !subscription?.isOperational) {
-    return NextResponse.json({ error: "subscription_inactive" }, { status: 402 });
   }
 
   try {

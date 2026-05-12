@@ -1,10 +1,27 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { FrictionPitchHeatmap } from "@/components/friction-pitch-heatmap";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { buildMatchupDetailModel, MatchupDetailPage } from "@/components/matchup-detail";
+import { FoulCommittedRiskPanel } from "@/components/foul-committed-risk/foul-committed-risk-panel";
+import { FoulSufferedRiskPanel } from "@/components/foul-suffered-risk/foul-suffered-risk-panel";
 import { analyzeFoulRisk } from "@/lib/foul-risk-analysis";
-import { filterMatchesKickoffInFuture } from "@/lib/tactical-matches-filters";
+import { filterMatchesKickoffInFuture, dedupeMatchesByEventId } from "@/lib/tactical-matches-filters";
+import type { FoulRiskAggressorBrief, FoulRiskEntry } from "@/lib/foul-risk-analysis";
+import type { UserAccessSummary } from "@/lib/auth/user-access";
 import type { CompetitionScope, TacticalMetrics } from "@/lib/types";
+import {
+  bumpAdminInsightsSnap,
+  kioskInsightsAlignedWithSnap,
+  KIOSK_ADMIN_INSIGHTS_REFRESH_EVENT,
+  readAdminInsightsSnap,
+  readKioskInsightsLocal,
+  writeKioskInsightsLocal
+} from "@/lib/kiosk-persisted-insights";
+import {
+  committedFoulSignalForRisk,
+  foulsSufferedPerMatchForDisplay,
+  sufferedFoulSignalForRisk
+} from "@/lib/tactical-fouls-signals";
 
 type KioskView = "PLAYER_FRICTION" | "FOUL_RISK_SUFFERED" | "FOUL_RISK_COMMITTED";
 
@@ -17,12 +34,26 @@ interface UpcomingMatchItem {
   awayTeam: { id: number; name: string };
 }
 
+interface RoundFoulLeaderEntry {
+  entry: FoulRiskEntry;
+  match: UpcomingMatchItem;
+}
+
+interface BookingAlarmEntry {
+  player: TacticalMetrics;
+  match: UpcomingMatchItem;
+  marker: FoulRiskAggressorBrief;
+  starRating: number;
+  score: number;
+}
+
 export type PlayerAnalyticsPolicy = "full" | "serie_a_players";
 
 interface KioskAnalyticsHubProps {
   initialMetrics: TacticalMetrics[];
   organizationId: string;
   fixtureId: string;
+  userAccess: UserAccessSummary;
   /** `full`: sempre stats giocatori + heatmap. `serie_a_players`: pieno per Serie A, Champions, Europa e Conference (con Serie A); nessuna analisi giocatori per Serie B e altre leghe del menu. */
   playerAnalyticsPolicy?: PlayerAnalyticsPolicy;
   kioskTitle?: string;
@@ -84,14 +115,10 @@ function competitionLabel(slug: string): string {
   return labels[key] ?? slug;
 }
 
-function dedupeMatchesByEventId(matches: UpcomingMatchItem[]): UpcomingMatchItem[] {
-  const map = new Map<number, UpcomingMatchItem>();
-  for (const m of matches) {
-    if (!map.has(m.eventId)) {
-      map.set(m.eventId, m);
-    }
-  }
-  return Array.from(map.values()).sort((a, b) => a.startTimestamp - b.startTimestamp);
+function isTopFiveLeagueSlug(slug: string): boolean {
+  return new Set(["serie-a", "premier-league", "laliga", "bundesliga", "ligue-1"]).has(
+    normalizeKioskCompetitionSlug(slug)
+  );
 }
 
 function formatKickoff(ts: number): string {
@@ -138,9 +165,16 @@ function ouPick(predicted: number, line: number): "Over" | "Under" {
   return predicted >= line ? "Over" : "Under";
 }
 
-function formatOdds(value: number | undefined): string {
-  if (typeof value !== "number" || !Number.isFinite(value)) return "-";
-  return value.toFixed(2);
+function starString(value: number): string {
+  const full = Math.max(1, Math.min(5, Math.round(value)));
+  return "★".repeat(full) + "☆".repeat(5 - full);
+}
+
+function simpleLevelFromScore(score: number): string {
+  if (score >= 82) return "Molto alta";
+  if (score >= 66) return "Alta";
+  if (score >= 50) return "Media";
+  return "Bassa";
 }
 
 function predictedCardsFromMetric(m: TacticalMetrics): number {
@@ -148,148 +182,178 @@ function predictedCardsFromMetric(m: TacticalMetrics): number {
   return m.foulsCommittedLastFiveAvg * 0.18 + (m.h2hHadCard ? 0.12 : 0);
 }
 
-const LAST_TWO_MIN_SAMPLES = 2;
+function dribbleSignal(m: TacticalMetrics): number {
+  return numeric(m.dribblesSeasonAvg);
+}
 
-function TopPlayersSeasonTable({
-  title,
-  rows,
-  valueSelector,
-  onTopPlayersComputed
-}: {
-  title: string;
-  rows: TacticalMetrics[];
-  valueSelector: (item: TacticalMetrics) => number;
-  onTopPlayersComputed?: (top: TacticalMetrics[]) => void;
-}) {
-  const uniqueRows = useMemo(() => {
-    const map = new Map<string, TacticalMetrics>();
-    for (const item of rows) {
-      const key = playerStableKey(item);
-      const current = map.get(key);
-      if (!current || valueSelector(item) > valueSelector(current)) {
-        map.set(key, item);
-      }
-    }
-    return Array.from(map.values());
-  }, [rows, valueSelector]);
+function bookingAlarmTargetFouls(player: TacticalMetrics): number {
+  return foulsSufferedPerMatchForDisplay(player);
+}
 
-  const topRows = useMemo(
-    () => [...uniqueRows].sort((a, b) => valueSelector(b) - valueSelector(a)).slice(0, 5),
-    [uniqueRows, valueSelector]
-  );
-
-  useEffect(() => {
-    onTopPlayersComputed?.(topRows);
-  }, [onTopPlayersComputed, topRows]);
-
+function bookingAlarmScore(target: TacticalMetrics, marker: FoulRiskAggressorBrief): number {
   return (
-    <article className="rounded-xl border border-cyan-400/20 bg-slate-950/70 p-4">
-      <h3 className="mb-1 text-sm font-semibold uppercase tracking-wide text-cyan-200">{title}</h3>
-      <p className="mb-3 text-[11px] text-slate-500">Ordinamento: media stagionale (API overall / campionato).</p>
-      {topRows.length === 0 ? (
-        <p className="text-sm text-slate-400">Nessun dato giocatore disponibile.</p>
-      ) : (
-        <div className="overflow-auto rounded-lg border border-slate-800">
-          <table className="w-full min-w-[360px] text-left text-xs">
-            <thead className="sticky top-0 bg-slate-900/95 text-slate-300">
-              <tr className="border-b border-slate-700">
-                <th className="px-2 py-2 font-semibold">Giocatore</th>
-                <th className="px-2 py-2 font-semibold">Squadra</th>
-                <th className="px-2 py-2 font-semibold">Stagione</th>
-              </tr>
-            </thead>
-            <tbody>
-              {topRows.map((player) => (
-                <tr key={playerStableKey(player)} className="border-b border-slate-800/80">
-                  <td className="px-2 py-2 text-slate-100">{player.playerName}</td>
-                  <td className="px-2 py-2 text-slate-300">{player.team}</td>
-                  <td className="px-2 py-2 font-semibold text-cyan-100">{formatStat(valueSelector(player))}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </article>
+    marker.foulsCommittedSeasonAvg * 2.9 +
+    bookingAlarmTargetFouls(target) * 2.25 +
+    dribbleSignal(target) * 2.05 +
+    marker.markingScore * 0.045
   );
 }
 
-function TopPlayersLastTwoTable({
-  title,
-  rows,
-  valueSelector,
-  sampleCountSelector,
-  excludePlayers
-}: {
-  title: string;
-  rows: TacticalMetrics[];
-  valueSelector: (item: TacticalMetrics) => number;
-  sampleCountSelector: (item: TacticalMetrics) => number | undefined;
-  excludePlayers?: Set<string>;
-}) {
-  const eligible = useMemo(
-    () =>
-      rows.filter((item) => (sampleCountSelector(item) ?? LAST_TWO_MIN_SAMPLES) >= LAST_TWO_MIN_SAMPLES),
-    [rows, sampleCountSelector]
-  );
+function bookingAlarmStars(score: number, target: TacticalMetrics, marker: FoulRiskAggressorBrief): number {
+  const strongTarget = bookingAlarmTargetFouls(target) >= 1.8 && dribbleSignal(target) >= 1.15;
+  const strongMarker = marker.foulsCommittedSeasonAvg >= 1.15 && marker.markingScore >= 70;
+  if (score >= 12 && strongTarget && strongMarker) return 5;
+  if (score >= 9.5 && bookingAlarmTargetFouls(target) >= 1.55 && dribbleSignal(target) >= 0.95) return 4;
+  if (score >= 7.4) return 3;
+  return 2;
+}
 
-  const filtered = useMemo(() => {
-    if (!excludePlayers?.size) return eligible;
-    return eligible.filter((item) => !excludePlayers.has(playerStableKey(item)));
-  }, [eligible, excludePlayers]);
+type AlarmRoleBand = "gk" | "def" | "mid" | "att";
+type AlarmLane = -1 | 0 | 1;
 
-  const uniqueRows = useMemo(() => {
-    const map = new Map<string, TacticalMetrics>();
-    for (const item of filtered) {
-      const key = playerStableKey(item);
-      const current = map.get(key);
-      if (!current || valueSelector(item) > valueSelector(current)) {
-        map.set(key, item);
-      }
-    }
-    return Array.from(map.values());
-  }, [filtered, valueSelector]);
+function alarmRoleBand(m: TacticalMetrics): AlarmRoleBand {
+  if (m.roleIcon === "🧤") return "gk";
+  if (m.roleIcon === "🛡️") return "def";
+  if (m.roleIcon === "🎯") return "att";
+  return "mid";
+}
 
-  const topRows = useMemo(
-    () => [...uniqueRows].sort((a, b) => valueSelector(b) - valueSelector(a)).slice(0, 5),
-    [uniqueRows, valueSelector]
-  );
+function alarmPositionLane(positionCode?: string): AlarmLane {
+  const s = (positionCode ?? "").toUpperCase().trim().replace(/\s+/g, "");
+  if (!s || s === "G" || s.startsWith("GK")) return 0;
+  if (/^(DL|LWB|LB|ML|AML|LW|LM|WL)(\/|$)/.test(s)) return -1;
+  if (/^(DR|RWB|RB|MR|AMR|RW|RM|WR)(\/|$)/.test(s)) return 1;
+  const last = s[s.length - 1];
+  const first = s[0];
+  if (last === "L" && /^[DAMFW]/.test(first)) return -1;
+  if (last === "R" && /^[DAMFW]/.test(first)) return 1;
+  return 0;
+}
 
+function findBookingAlarmMarker(
+  player: TacticalMetrics,
+  metrics: TacticalMetrics[]
+): FoulRiskAggressorBrief | null {
+  const playerLane = alarmPositionLane(player.positionCode);
+  const candidates = metrics
+    .filter((opponent) => opponent.teamId !== player.teamId)
+    .filter((opponent) => {
+      const role = alarmRoleBand(opponent);
+      return role === "def" || role === "mid";
+    })
+    .map((opponent) => {
+      const role = alarmRoleBand(opponent);
+      const markerLane = alarmPositionLane(opponent.positionCode);
+      const mirroredWide = playerLane !== 0 && markerLane !== 0 && playerLane === -markerLane;
+      const sameProviderWide = playerLane !== 0 && markerLane !== 0 && playerLane === markerLane;
+      const bothCentral = playerLane === 0 && markerLane === 0;
+      const oneWideOneUnknown = (playerLane !== 0 && markerLane === 0) || (playerLane === 0 && markerLane !== 0);
+      const roleScore = role === "def" ? 28 : 14;
+      const laneScore = mirroredWide ? 64 : sameProviderWide ? 44 : bothCentral ? 34 : oneWideOneUnknown ? 18 : 0;
+      const aggressionScore = Math.min(28, committedFoulSignalForRisk(opponent) * 12);
+      return {
+        opponent,
+        score: laneScore + roleScore + aggressionScore
+      };
+    })
+    .filter((candidate) => candidate.score >= 48)
+    .sort((a, b) => b.score - a.score);
+
+  const best = candidates[0];
+  if (!best) return null;
+  return {
+    playerName: best.opponent.playerName,
+    team: best.opponent.team,
+    positionCode: best.opponent.positionCode,
+    markingScore: Math.round(Math.min(100, best.score)),
+    riskContribution: Math.round(best.score) / 100,
+    foulsCommittedSeasonAvg: best.opponent.foulsCommittedSeasonAvg,
+    foulsSufferedSeasonAvg: best.opponent.foulsSufferedSeasonAvg
+  };
+}
+
+function isDirectionalFoulMatchup(likelyOffender: TacticalMetrics, likelyVictim: TacticalMetrics): boolean {
+  const committed = committedFoulSignalForRisk(likelyOffender);
+  const suffered = sufferedFoulSignalForRisk(likelyVictim);
   return (
-    <article className="rounded-xl border border-violet-400/20 bg-slate-950/70 p-4">
-      <h3 className="mb-1 text-sm font-semibold uppercase tracking-wide text-violet-200">{title}</h3>
-      <p className="mb-3 text-[11px] text-slate-500">
-        Ordinamento: ultime {LAST_TWO_MIN_SAMPLES} partite di campionato con presenza in formazione; esclusi i
-        giocatori senza abbastanza campioni.
-      </p>
-      {topRows.length === 0 ? (
-        <p className="text-sm text-slate-400">
-          Nessun giocatore con almeno {LAST_TWO_MIN_SAMPLES} partite campionate per questa metrica.
-        </p>
-      ) : (
-        <div className="overflow-auto rounded-lg border border-slate-800">
-          <table className="w-full min-w-[360px] text-left text-xs">
-            <thead className="sticky top-0 bg-slate-900/95 text-slate-300">
-              <tr className="border-b border-slate-700">
-                <th className="px-2 py-2 font-semibold">Giocatore</th>
-                <th className="px-2 py-2 font-semibold">Squadra</th>
-                <th className="px-2 py-2 font-semibold">Ultimi 2</th>
-              </tr>
-            </thead>
-            <tbody>
-              {topRows.map((player) => (
-                <tr key={playerStableKey(player)} className="border-b border-slate-800/80">
-                  <td className="px-2 py-2 text-slate-100">{player.playerName}</td>
-                  <td className="px-2 py-2 text-slate-300">{player.team}</td>
-                  <td className="px-2 py-2 font-semibold text-violet-100">{formatStat(valueSelector(player))}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </article>
+    (committed >= 1.1 && suffered >= 1.25) ||
+    (committed >= 1.35 && suffered >= 1.05)
   );
+}
+
+async function fetchMatchMetricsForBookingAlarm(params: {
+  match: UpcomingMatchItem;
+  playerAnalyticsParam: string;
+  parentSignal: AbortSignal;
+}): Promise<TacticalMetrics[]> {
+  const { match, playerAnalyticsParam, parentSignal } = params;
+  const ac = new AbortController();
+  const timeoutId = window.setTimeout(() => ac.abort(), BOOKING_ALARM_REQUEST_TIMEOUT_MS);
+  const abortFromParent = () => ac.abort();
+  parentSignal.addEventListener("abort", abortFromParent, { once: true });
+
+  try {
+    const scope = scopeFromCompetitionSlug(match.competitionSlug);
+    const res = await fetch(
+      `/api/tactical/match-insights?eventId=${match.eventId}&homeTeamId=${match.homeTeam.id}&awayTeamId=${match.awayTeam.id}&homeTeamName=${encodeURIComponent(
+        match.homeTeam.name
+      )}&awayTeamName=${encodeURIComponent(
+        match.awayTeam.name
+      )}&competitionSlug=${encodeURIComponent(match.competitionSlug)}&scope=${scope}${playerAnalyticsParam}`,
+      { cache: "no-store", signal: ac.signal }
+    );
+    if (!res.ok) return [];
+    const json = (await res.json()) as { metrics?: TacticalMetrics[] };
+    return Array.isArray(json.metrics) ? json.metrics : [];
+  } catch {
+    return [];
+  } finally {
+    window.clearTimeout(timeoutId);
+    parentSignal.removeEventListener("abort", abortFromParent);
+  }
+}
+
+const BOOKING_ALARM_MAX_MATCHES = 12;
+const BOOKING_ALARM_BATCH_SIZE = 4;
+const BOOKING_ALARM_REQUEST_TIMEOUT_MS = 12_000;
+const BOOKING_ALARM_MIN_TARGET_FOULS = 1.4;
+const BOOKING_ALARM_MIN_TARGET_DRIBBLES = 0.45;
+const KIOSK_MATCHES_CACHE_PREFIX = "kiosk:matches:v1:";
+const softPanelClass =
+  "rounded-[1.5rem] border border-white/10 bg-gradient-to-br from-white/[0.075] via-white/[0.045] to-cyan-300/[0.035] p-4 shadow-[0_16px_45px_rgba(8,13,28,0.26)] ring-1 ring-white/5 backdrop-blur";
+const subtleCardClass =
+  "rounded-2xl border border-white/10 bg-gradient-to-br from-white/[0.07] via-white/[0.04] to-fuchsia-300/[0.035] p-4";
+const infoBoxClass =
+  "rounded-2xl border border-cyan-200/20 bg-gradient-to-r from-cyan-300/10 to-fuchsia-300/10 px-4 py-3 text-sm text-slate-200";
+const primaryButtonClass =
+  "rounded-full border border-cyan-200/50 bg-gradient-to-r from-cyan-400 to-blue-500 px-6 py-3 text-sm font-bold text-white shadow-lg shadow-cyan-950/25 transition hover:scale-[1.02] hover:shadow-cyan-500/20 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100";
+
+function canUseKioskStorage(): boolean {
+  return typeof window !== "undefined" && typeof window.localStorage !== "undefined";
+}
+
+function readKioskMatchesCache(fixtureId: string): UpcomingMatchItem[] {
+  if (!canUseKioskStorage()) return [];
+  try {
+    const raw = window.localStorage.getItem(`${KIOSK_MATCHES_CACHE_PREFIX}${fixtureId}`);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as { matches?: UpcomingMatchItem[] };
+    return Array.isArray(parsed.matches) ? parsed.matches : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeKioskMatchesCache(fixtureId: string, matches: UpcomingMatchItem[]): void {
+  if (!canUseKioskStorage()) return;
+  try {
+    window.localStorage.setItem(
+      `${KIOSK_MATCHES_CACHE_PREFIX}${fixtureId}`,
+      JSON.stringify({ savedAt: new Date().toISOString(), matches })
+    );
+  } catch {
+    // Cache best-effort.
+  }
 }
 
 export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
@@ -300,7 +364,8 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
     kioskTitle = "Kiosk Tactical Menu",
     kioskDescription,
     testingMatch,
-    presetMatch
+    presetMatch,
+    userAccess
   } = props;
   const [view, setView] = useState<KioskView>("PLAYER_FRICTION");
   const [metrics, setMetrics] = useState<TacticalMetrics[]>(initialMetrics);
@@ -310,20 +375,115 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
   const [matchesError, setMatchesError] = useState<string | null>(null);
   /** Aggiornato ogni minuto: ricalcola il filtro “solo future” senza nuove richieste API. */
   const [matchListTimeTick, setMatchListTimeTick] = useState(0);
-  const [selectedCompetition, setSelectedCompetition] = useState<string>("ALL");
+  // Nessun campionato selezionato al primo caricamento: l’utente deve scegliere.
+  const [selectedCompetition, setSelectedCompetition] = useState<string>("");
   const [selectedMatchId, setSelectedMatchId] = useState<number>(0);
   const [loadingMatchInsights, setLoadingMatchInsights] = useState(false);
   const [matchInsightsError, setMatchInsightsError] = useState<string | null>(null);
-  /** Incrementato dal pulsante “Aggiorna”: la prossima richiesta match-insights usa forceRefresh e bypass cache SportAPI. */
-  const [insightsRefreshNonce, setInsightsRefreshNonce] = useState(0);
-  const [seasonShooterKeys, setSeasonShooterKeys] = useState<Set<string>>(new Set());
-  const [seasonFoulsCommittedKeys, setSeasonFoulsCommittedKeys] = useState<Set<string>>(new Set());
-  const [seasonFoulsSufferedKeys, setSeasonFoulsSufferedKeys] = useState<Set<string>>(new Set());
+  /** Ondata di refresh admin persistente su localStorage (`readAdminInsightsSnap`). */
+  const [adminInsightsSnap, setAdminInsightsSnap] = useState(0);
+  /** Durante prefetch di massa tutte le viste leggono dalla cache locale appena disponibile senza rifetch paralleli. */
+  const [adminBulkRefreshing, setAdminBulkRefreshing] = useState(false);
+  /** Progress overlay durante “Aggiorna dati admin” (solo top 5 campionati). */
+  const [adminBulkProgress, setAdminBulkProgress] = useState<{ current: number; total: number } | null>(null);
+  const mountedRef = useRef(true);
+  /** Indice scontro aperto quando ci sono più duello; `null` = elenco. */
+  const [frictionDetailIndex, setFrictionDetailIndex] = useState<number | null>(null);
 
-  /** `undefined` = caricamento in corso o non avviato; array = risposta API (anche vuota). */
-  const [serieARoundFormRows, setSerieARoundFormRows] = useState<TacticalMetrics[] | undefined>(undefined);
-  const [serieARoundFormLoading, setSerieARoundFormLoading] = useState(false);
-  const [serieARoundFormUsedFallback, setSerieARoundFormUsedFallback] = useState(false);
+  /** Top giornata calcolata sui matchup dei match visibili del campionato selezionato. */
+  const [roundMatchupLeaders, setRoundMatchupLeaders] = useState<
+    { suffered: RoundFoulLeaderEntry[]; committed: RoundFoulLeaderEntry[] } | undefined
+  >(undefined);
+  const [roundMatchupLoading, setRoundMatchupLoading] = useState(false);
+  const [roundMatchupUsedFallback, setRoundMatchupUsedFallback] = useState(false);
+  const [bookingAlarmLeaders, setBookingAlarmLeaders] = useState<BookingAlarmEntry[] | undefined>(undefined);
+  const [bookingAlarmLoading, setBookingAlarmLoading] = useState(false);
+  const [accessSummary, setAccessSummary] = useState<UserAccessSummary>(userAccess);
+  const canRefreshData = accessSummary.canRefreshData;
+
+  async function reloadAccessSummary(): Promise<void> {
+    try {
+      const response = await fetch("/api/user/access", {
+        cache: "no-store",
+        credentials: "include"
+      });
+      if (!response.ok) return;
+      const data = (await response.json()) as UserAccessSummary | { error?: string };
+      if (data && typeof data === "object" && "error" in data && data.error) return;
+      if (!("matchUsage" in data)) return;
+      setAccessSummary(data as UserAccessSummary);
+    } catch {
+      // Il counter non deve bloccare la consultazione dei dati gia caricati.
+    }
+  }
+
+  useEffect(() => {
+    if (userAccess.matchUsage.limit != null) {
+      void reloadAccessSummary();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- allineamento contatore da server al mount
+  }, []);
+
+  useLayoutEffect(() => {
+    setAdminInsightsSnap(readAdminInsightsSnap());
+  }, []);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  async function prefetchAllMenuInsights(
+    targets: UpcomingMatchItem[],
+    snap: number,
+    onProgress?: (completed: number, total: number) => void
+  ): Promise<void> {
+    const deduped = dedupeMatchesByEventId(targets);
+    const total = deduped.length;
+    if (total === 0) {
+      onProgress?.(0, 0);
+      return;
+    }
+
+    const playerAnalyticsParam =
+      playerAnalyticsPolicy === "serie_a_players" ? "&playerAnalytics=serie_a_players" : "";
+    const concurrency = 3;
+
+    onProgress?.(0, total);
+
+    async function fetchOne(match: UpcomingMatchItem): Promise<void> {
+      const scope = scopeFromCompetitionSlug(match.competitionSlug);
+      const query = `/api/tactical/match-insights?eventId=${match.eventId}&homeTeamId=${match.homeTeam.id}&awayTeamId=${match.awayTeam.id}&homeTeamName=${encodeURIComponent(
+        match.homeTeam.name
+      )}&awayTeamName=${encodeURIComponent(
+        match.awayTeam.name
+      )}&competitionSlug=${encodeURIComponent(match.competitionSlug)}&scope=${scope}&forceRefresh=1${playerAnalyticsParam}`;
+      try {
+        const response = await fetch(query, { cache: "no-store" });
+        if (!response.ok) return;
+        const json = (await response.json()) as {
+          metrics?: TacticalMetrics[];
+          playerDetailLevel?: "full" | "team_only";
+        };
+        writeKioskInsightsLocal(match.eventId, {
+          metrics: Array.isArray(json.metrics) ? json.metrics : [],
+          playerDetailLevel: json.playerDetailLevel === "team_only" ? "team_only" : "full",
+          insightsSnap: snap
+        });
+      } catch {
+        // Prefetch massivo best-effort: errori isolati non bloccano gli altri eventId.
+      }
+    }
+
+    for (let i = 0; i < deduped.length; i += concurrency) {
+      const slice = deduped.slice(i, i + concurrency);
+      await Promise.all(slice.map((m) => fetchOne(m)));
+      const completed = Math.min(i + slice.length, deduped.length);
+      onProgress?.(completed, total);
+    }
+  }
 
   useEffect(() => {
     const id = window.setInterval(() => {
@@ -340,9 +500,13 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
     },
     [matches, matchListTimeTick]
   );
+  const upcomingMatchesRef = useRef<UpcomingMatchItem[]>(upcomingMatches);
+  useEffect(() => {
+    upcomingMatchesRef.current = upcomingMatches;
+  }, [upcomingMatches]);
 
   const visibleMatches = useMemo(() => {
-    if (selectedCompetition === "ALL") return upcomingMatches;
+    if (!selectedCompetition) return [];
     const want = normalizeKioskCompetitionSlug(selectedCompetition);
     return upcomingMatches.filter(
       (item) => normalizeKioskCompetitionSlug(item.competitionSlug) === want
@@ -357,6 +521,10 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
     }
     return Array.from(set).sort();
   }, [upcomingMatches]);
+  const bookingAlarmMatchKey = useMemo(
+    () => upcomingMatches.map((m) => `${m.eventId}:${m.startTimestamp}`).join("|"),
+    [upcomingMatches]
+  );
 
   useEffect(() => {
     setSelectedMatchId((prev) => {
@@ -431,19 +599,27 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
       const teams = new Set([item.teamId, candidate.teamId]);
       if (!teams.has(selectedMatch.homeTeam.id) || !teams.has(selectedMatch.awayTeam.id)) continue;
 
-      const directScore =
-        item.foulsCommittedSeasonAvg +
-        candidate.foulsSufferedSeasonAvg +
-        item.foulsCommittedLastTwoAvg * 0.5 +
-        candidate.foulsSufferedLastTwoAvg * 0.5;
-      const reverseScore =
-        candidate.foulsCommittedSeasonAvg +
-        item.foulsSufferedSeasonAvg +
-        candidate.foulsCommittedLastTwoAvg * 0.5 +
-        item.foulsSufferedLastTwoAvg * 0.5;
+      const directInteresting = isDirectionalFoulMatchup(item, candidate);
+      const reverseInteresting = isDirectionalFoulMatchup(candidate, item);
+      if (!directInteresting && !reverseInteresting) continue;
 
-      const left = directScore >= reverseScore ? item : candidate;
-      const right = directScore >= reverseScore ? candidate : item;
+      const directScore =
+        committedFoulSignalForRisk(item) * 1.15 +
+        sufferedFoulSignalForRisk(candidate) +
+        item.sparkIndex * 0.08 +
+        candidate.sparkIndex * 0.04;
+      const reverseScore =
+        committedFoulSignalForRisk(candidate) * 1.15 +
+        sufferedFoulSignalForRisk(item) +
+        candidate.sparkIndex * 0.08 +
+        item.sparkIndex * 0.04;
+
+      const useDirect =
+        directInteresting && reverseInteresting
+          ? directScore >= reverseScore
+          : directInteresting;
+      const left = useDirect ? item : candidate;
+      const right = useDirect ? candidate : item;
 
       const key =
         typeof left.playerId === "number" && typeof right.playerId === "number"
@@ -452,7 +628,9 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
       const pairPriority =
         left.sparkIndex +
         right.sparkIndex +
-        (left.foulsCommittedSeasonAvg + right.foulsSufferedSeasonAvg) * 5;
+        (committedFoulSignalForRisk(left) + sufferedFoulSignalForRisk(right)) * 8 +
+        (left.h2hHadCard ? 4 : 0) +
+        (right.h2hHadCard ? 2 : 0);
 
       const current = map.get(key);
       if (!current || pairPriority > current.pairPriority) {
@@ -489,14 +667,9 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
     return out;
   }, [selectedMatch, selectedMatchMetrics]);
 
-  const playerRowsNoKeepers = useMemo(
-    () => selectedMatchMetrics.filter((item) => item.roleIcon !== "🧤"),
-    [selectedMatchMetrics]
-  );
-  const goalkeeperRows = useMemo(
-    () => selectedMatchMetrics.filter((item) => item.roleIcon === "🧤"),
-    [selectedMatchMetrics]
-  );
+  useEffect(() => {
+    setFrictionDetailIndex(null);
+  }, [selectedMatch?.eventId]);
 
   const playerAnalyticsView: KioskView | null =
     view === "PLAYER_FRICTION" || view === "FOUL_RISK_SUFFERED" || view === "FOUL_RISK_COMMITTED"
@@ -510,7 +683,7 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
       homeTeamId: selectedMatch.homeTeam.id,
       awayTeamId: selectedMatch.awayTeam.id,
       kind: "suffered"
-    });
+    }).sort((a, b) => b.riskScore - a.riskScore);
   }, [selectedMatch, selectedMatchMetrics]);
 
   const foulRiskCommittedEntries = useMemo(() => {
@@ -520,7 +693,7 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
       homeTeamId: selectedMatch.homeTeam.id,
       awayTeamId: selectedMatch.awayTeam.id,
       kind: "committed"
-    });
+    }).sort((a, b) => b.riskScore - a.riskScore);
   }, [selectedMatch, selectedMatchMetrics]);
 
   const hasMatchFrameHeatmaps = useMemo(
@@ -531,50 +704,92 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
     [selectedMatchMetrics]
   );
 
-  const showSerieAFormFromFriction =
-    fixtureId === "kiosk-hybrid" &&
-    Boolean(selectedMatch && normalizeKioskCompetitionSlug(selectedMatch.competitionSlug) === "serie-a") &&
-    playerDetailLevel === "full";
+  const showRoundFormSpecial =
+    (fixtureId === "kiosk-hybrid" || fixtureId === "kiosk") &&
+    Boolean(selectedMatch) &&
+    !accessSummary.isMember;
+  const showBookingAlarm = false;
 
   useEffect(() => {
-    if (!showSerieAFormFromFriction || !selectedMatch) {
-      setSerieARoundFormRows(undefined);
-      setSerieARoundFormLoading(false);
-      setSerieARoundFormUsedFallback(false);
+    if (!showRoundFormSpecial || !selectedMatch) {
+      setRoundMatchupLeaders(undefined);
+      setRoundMatchupLoading(false);
+      setRoundMatchupUsedFallback(false);
+      return;
+    }
+    if (adminBulkRefreshing) {
       return;
     }
     let cancelled = false;
     const ac = new AbortController();
-    setSerieARoundFormRows(undefined);
-    setSerieARoundFormUsedFallback(false);
-    setSerieARoundFormLoading(true);
+    setRoundMatchupLeaders(undefined);
+    setRoundMatchupUsedFallback(false);
+    setRoundMatchupLoading(true);
 
     async function loadRoundForm() {
+      const suffered: RoundFoulLeaderEntry[] = [];
+      const committed: RoundFoulLeaderEntry[] = [];
+      const matchesToAnalyze = visibleMatches.slice(0, 10);
+
       try {
-        const res = await fetch(
-          `/api/tactical/serie-a-round-form?eventId=${selectedMatch.eventId}`,
-          { cache: "no-store", signal: ac.signal }
-        );
-        if (!res.ok) {
-          if (!cancelled) {
-            setSerieARoundFormRows([]);
-            setSerieARoundFormUsedFallback(true);
-          }
-          return;
+        for (const match of matchesToAnalyze) {
+          if (cancelled || ac.signal.aborted) break;
+          const cachedLocal = readKioskInsightsLocal(match.eventId);
+          const list =
+            cachedLocal?.metrics?.length && Array.isArray(cachedLocal.metrics)
+              ? cachedLocal.metrics
+              : null;
+          if (!list?.length) continue;
+
+          const sufferedRows = analyzeFoulRisk({
+            metrics: list,
+            homeTeamId: match.homeTeam.id,
+            awayTeamId: match.awayTeam.id,
+            kind: "suffered"
+          });
+          const committedRows = analyzeFoulRisk({
+            metrics: list,
+            homeTeamId: match.homeTeam.id,
+            awayTeamId: match.awayTeam.id,
+            kind: "committed"
+          });
+          for (const entry of sufferedRows) suffered.push({ entry, match });
+          for (const entry of committedRows) committed.push({ entry, match });
         }
-        const json = (await res.json()) as { metrics?: TacticalMetrics[] };
-        const list = Array.isArray(json.metrics) ? json.metrics : [];
+
+        if (suffered.length === 0 && committed.length === 0 && selectedMatchMetrics.length > 0) {
+          setRoundMatchupUsedFallback(true);
+          for (const entry of analyzeFoulRisk({
+            metrics: selectedMatchMetrics,
+            homeTeamId: selectedMatch.homeTeam.id,
+            awayTeamId: selectedMatch.awayTeam.id,
+            kind: "suffered"
+          })) {
+            suffered.push({ entry, match: selectedMatch });
+          }
+          for (const entry of analyzeFoulRisk({
+            metrics: selectedMatchMetrics,
+            homeTeamId: selectedMatch.homeTeam.id,
+            awayTeamId: selectedMatch.awayTeam.id,
+            kind: "committed"
+          })) {
+            committed.push({ entry, match: selectedMatch });
+          }
+        }
+
         if (!cancelled) {
-          setSerieARoundFormRows(list);
-          setSerieARoundFormUsedFallback(list.length === 0);
+          setRoundMatchupLeaders({
+            suffered: suffered.sort((a, b) => b.entry.riskScore - a.entry.riskScore).slice(0, 5),
+            committed: committed.sort((a, b) => b.entry.riskScore - a.entry.riskScore).slice(0, 5)
+          });
         }
       } catch {
         if (!cancelled) {
-          setSerieARoundFormRows([]);
-          setSerieARoundFormUsedFallback(true);
+          setRoundMatchupLeaders({ suffered: [], committed: [] });
+          setRoundMatchupUsedFallback(true);
         }
       } finally {
-        if (!cancelled) setSerieARoundFormLoading(false);
+        if (!cancelled) setRoundMatchupLoading(false);
       }
     }
 
@@ -583,78 +798,119 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
       cancelled = true;
       ac.abort();
     };
-  }, [showSerieAFormFromFriction, selectedMatch]);
+  }, [
+    showRoundFormSpecial,
+    selectedMatch,
+    visibleMatches,
+    selectedMatchMetrics,
+    adminBulkRefreshing
+  ]);
 
-  const serieAFormLeaders = useMemo(() => {
-    if (!showSerieAFormFromFriction) return null;
-    if (serieARoundFormRows === undefined) return null;
-    const TOP = 10;
-
-    const baseRows =
-      serieARoundFormRows.length > 0 ? serieARoundFormRows : selectedMatchMetrics;
-
-    /** Stessa persona può comparire più volte in `metrics` (merge supplementari / id vs nome): una sola riga per squadra+nome. */
-    const normalizePlayerName = (name: string) => name.replace(/\s+/g, " ").trim().toUpperCase();
-    const rosterKey = (m: TacticalMetrics) => `${m.teamId}|${normalizePlayerName(m.playerName)}`;
-    const pickBetterRow = (a: TacticalMetrics, b: TacticalMetrics): TacticalMetrics => {
-      const aId = typeof a.playerId === "number" && a.playerId > 0;
-      const bId = typeof b.playerId === "number" && b.playerId > 0;
-      if (aId && !bId) return a;
-      if (bId && !aId) return b;
-      return a;
-    };
-    const byRoster = new Map<string, TacticalMetrics>();
-    for (const m of baseRows) {
-      const k = rosterKey(m);
-      const prev = byRoster.get(k);
-      byRoster.set(k, prev ? pickBetterRow(m, prev) : m);
+  useEffect(() => {
+    if (!showBookingAlarm) {
+      setBookingAlarmLeaders(undefined);
+      setBookingAlarmLoading(false);
+      return;
     }
-    const rowsUnique = Array.from(byRoster.values());
 
-    const playerKey = (m: TacticalMetrics): string => rosterKey(m);
+    let cancelled = false;
+    const ac = new AbortController();
+    setBookingAlarmLeaders(undefined);
+    setBookingAlarmLoading(true);
 
-    const used = new Set<string>();
-    const takeUnique = (
-      predicate: (m: TacticalMetrics) => boolean,
-      score: (m: TacticalMetrics) => number
-    ): TacticalMetrics[] => {
-      const picked = [...rowsUnique]
-        .filter(predicate)
-        .filter((m) => !used.has(playerKey(m)))
-        .sort((a, b) => score(b) - score(a))
-        .slice(0, TOP);
-      for (const m of picked) used.add(playerKey(m));
-      return picked;
+    async function loadBookingAlarm() {
+      const bestByPlayer = new Map<string, BookingAlarmEntry>();
+      const matchesToAnalyze = upcomingMatchesRef.current
+        .filter((match) => isTopFiveLeagueSlug(match.competitionSlug))
+        .slice(0, BOOKING_ALARM_MAX_MATCHES);
+      const playerAnalyticsParam =
+        playerAnalyticsPolicy === "serie_a_players" ? "&playerAnalytics=serie_a_players" : "";
+
+      try {
+        for (let i = 0; i < matchesToAnalyze.length && !ac.signal.aborted; i += BOOKING_ALARM_BATCH_SIZE) {
+          const batch = matchesToAnalyze.slice(i, i + BOOKING_ALARM_BATCH_SIZE);
+          const loaded = await Promise.all(
+            batch.map(async (match) => ({
+              match,
+              metrics: await fetchMatchMetricsForBookingAlarm({
+                match,
+                playerAnalyticsParam,
+                parentSignal: ac.signal
+              })
+            }))
+          );
+
+          for (const { match, metrics: list } of loaded) {
+            if (!list.length) continue;
+
+            const byPlayer = new Map<string, TacticalMetrics>();
+            for (const player of list) {
+              byPlayer.set(playerStableKey(player), player);
+            }
+
+            for (const player of byPlayer.values()) {
+              if (player.roleIcon === "🧤") continue;
+              const marker = findBookingAlarmMarker(player, list);
+              if (!marker) continue;
+
+              const foulsSuffered = bookingAlarmTargetFouls(player);
+              const dribbles = dribbleSignal(player);
+              if (foulsSuffered < BOOKING_ALARM_MIN_TARGET_FOULS) continue;
+              if (dribbles < BOOKING_ALARM_MIN_TARGET_DRIBBLES) continue;
+
+              const score = bookingAlarmScore(player, marker);
+              const starRating = bookingAlarmStars(score, player, marker);
+              if (starRating < 3) continue;
+              const key = `marker:${marker.team}|${normalizePlayerName(marker.playerName)}`;
+              const candidate: BookingAlarmEntry = { player, match, marker, starRating, score };
+              const prev = bestByPlayer.get(key);
+              if (!prev || candidate.score > prev.score) {
+                bestByPlayer.set(key, candidate);
+              }
+            }
+          }
+        }
+
+        if (!cancelled) {
+          setBookingAlarmLeaders(
+            Array.from(bestByPlayer.values())
+              .sort((a, b) => b.score - a.score)
+              .slice(0, 10)
+          );
+        }
+      } catch {
+        if (!cancelled && !ac.signal.aborted) {
+          setBookingAlarmLeaders([]);
+        }
+      } finally {
+        if (!cancelled) setBookingAlarmLoading(false);
+      }
+    }
+
+    void loadBookingAlarm();
+    return () => {
+      cancelled = true;
+      ac.abort();
     };
-
-    /**
-     * Ordine di assegnazione: prima portieri (parate), poi fuori porta (tiri), poi tutti per i falli.
-     * Così i portieri non “consumano” slot nelle altre classifiche e i nomi restano distinti tra le quattro top.
-     */
-    const saves = takeUnique((m) => m.roleIcon === "🧤", (m) => m.savesLastFiveAvg);
-    const shots = takeUnique((m) => m.roleIcon !== "🧤", (m) => m.shotsLastFiveAvg);
-    const foulsCommitted = takeUnique(() => true, (m) => {
-      const h2h = (m.h2hFoulsCommitted ?? 0) * 0.6;
-      const card = m.h2hHadCard ? 0.35 + (m.h2hRedCards ?? 0) * 0.35 : 0;
-      return m.foulsCommittedLastFiveAvg + h2h + card;
-    });
-    const foulsSuffered = takeUnique(() => true, (m) => {
-      const h2h = (m.h2hFoulsSuffered ?? 0) * 0.6;
-      const card = m.h2hHadCard ? 0.25 : 0;
-      return m.foulsSufferedLastFiveAvg + h2h + card;
-    });
-
-    return { foulsCommitted, foulsSuffered, shots, saves };
-  }, [showSerieAFormFromFriction, selectedMatchMetrics, serieARoundFormRows]);
+  }, [showBookingAlarm, bookingAlarmMatchKey, playerAnalyticsPolicy]);
 
   useEffect(() => {
     async function loadMatches() {
       if (presetMatch) {
         const presetUpcoming = filterMatchesKickoffInFuture([presetMatch]);
         setMatches(presetUpcoming);
-        setSelectedMatchId(presetUpcoming[0]?.eventId ?? 0);
+        // Non auto-selezionare match: prima l’utente deve scegliere il campionato.
+        setSelectedMatchId(0);
         setMatchesError(null);
         return;
+      }
+      {
+        const cached = readKioskMatchesCache(fixtureId);
+        if (cached.length > 0) {
+          setMatches(cached);
+          setSelectedMatchId(0);
+          setMatchesError(null);
+        }
       }
       const singleMatchFilter = testingMatch ?? (SINGLE_MATCH_MODE
         ? {
@@ -689,18 +945,13 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
         }))
       );
       setMatches(normalized);
-      const upcomingAfterFetch = filterMatchesKickoffInFuture(normalized);
-      if (upcomingAfterFetch.length > 0) {
-        setSelectedMatchId(upcomingAfterFetch[0].eventId);
-      }
+      writeKioskMatchesCache(fixtureId, normalized);
+      // Non auto-selezionare match: prima l’utente deve scegliere il campionato.
+      setSelectedMatchId(0);
       setMatchesError(null);
     }
     void loadMatches();
-  }, [presetMatch, testingMatch]);
-
-  useEffect(() => {
-    setInsightsRefreshNonce(0);
-  }, [selectedMatch?.eventId]);
+  }, [fixtureId, presetMatch, testingMatch]);
 
   useEffect(() => {
     if (!selectedMatch) {
@@ -709,11 +960,81 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
       return;
     }
 
-    const scope = scopeFromCompetitionSlug(selectedMatch.competitionSlug);
+    const snap = adminInsightsSnap;
+    const testingOrPreset = Boolean(testingMatch || presetMatch);
     let cancelled = false;
     const abort = new AbortController();
+
+    const weeklyQuotaActive = accessSummary.matchUsage.limit != null;
+
+    /** Solo account senza quota settimanale (pro/admin): kiosk locale senza round-trip API. Con quota, serve sempre l'API per conteggio e limite. */
+    if (!testingOrPreset && !weeklyQuotaActive) {
+      const ls = readKioskInsightsLocal(selectedMatch.eventId);
+
+      if (adminBulkRefreshing) {
+        if (ls?.metrics?.length) {
+          setMetrics(ls.metrics);
+          setPlayerDetailLevel(ls.playerDetailLevel);
+        }
+        setLoadingMatchInsights(true);
+        setMatchInsightsError(null);
+        return () => {
+          cancelled = true;
+          abort.abort();
+        };
+      }
+
+      if (ls?.metrics?.length) {
+        setMetrics(ls.metrics);
+        setPlayerDetailLevel(ls.playerDetailLevel);
+        setMatchInsightsError(null);
+        setLoadingMatchInsights(false);
+        return () => {
+          cancelled = true;
+          abort.abort();
+        };
+      }
+
+      setMetrics([]);
+      setPlayerDetailLevel("full");
+      setMatchInsightsError(
+        "Analisi giocatori non presenti in cache per questa partita. Un amministratore deve avviare l'aggiornamento dati dalla dashboard Tactical: i dati restano in memoria locale fino al prossimo refresh."
+      );
+      setLoadingMatchInsights(false);
+      return () => {
+        cancelled = true;
+        abort.abort();
+      };
+    }
+
+    const ls = readKioskInsightsLocal(selectedMatch.eventId);
+
+    if (adminBulkRefreshing) {
+      if (ls?.metrics?.length) {
+        setMetrics(ls.metrics);
+        setPlayerDetailLevel(ls.playerDetailLevel);
+      }
+      setLoadingMatchInsights(true);
+      setMatchInsightsError(null);
+      return () => {
+        cancelled = true;
+        abort.abort();
+      };
+    }
+
+    if (ls?.metrics?.length) {
+      setMetrics(ls.metrics);
+      setPlayerDetailLevel(ls.playerDetailLevel);
+    }
+
+    const scope = scopeFromCompetitionSlug(selectedMatch.competitionSlug);
+
     const forceRefreshParam =
-      insightsRefreshNonce > 0 || testingMatch || presetMatch ? "&forceRefresh=1" : "";
+      canRefreshData &&
+      (Boolean(testingMatch || presetMatch) ||
+        (snap > 0 && typeof ls?.insightsSnap === "number" && ls.insightsSnap < snap))
+        ? "&forceRefresh=1"
+        : "";
 
     async function loadMatchInsights() {
       setLoadingMatchInsights(true);
@@ -733,8 +1054,18 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
 
         if (!response.ok) {
           if (!cancelled) {
-            setMatchInsightsError("Dati match non disponibili (insights). Riprova o usa Aggiorna dati.");
+            if (response.status === 403) {
+              setMetrics([]);
+            }
+            setMatchInsightsError(
+              response.status === 403
+                ? "Hai già scelto 3 partite questa settimana. Potrai selezionarne altre dalla prossima settimana."
+                : "Dati match non disponibili in questo momento."
+            );
             setLoadingMatchInsights(false);
+            if (response.status === 403) {
+              void reloadAccessSummary();
+            }
           }
           return;
         }
@@ -745,14 +1076,20 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
         };
 
         if (!cancelled) {
-          setMetrics(Array.isArray(json.metrics) ? json.metrics : []);
-          setPlayerDetailLevel(json.playerDetailLevel === "team_only" ? "team_only" : "full");
+          const metrics = Array.isArray(json.metrics) ? json.metrics : [];
+          const playerDetailLevel =
+            json.playerDetailLevel === "team_only" ? ("team_only" as const) : ("full" as const);
+          writeKioskInsightsLocal(selectedMatch.eventId, { metrics, playerDetailLevel, insightsSnap: snap });
+          setMetrics(metrics);
+          setPlayerDetailLevel(playerDetailLevel);
+          await reloadAccessSummary();
           setLoadingMatchInsights(false);
+          setMatchInsightsError(null);
         }
       } catch {
         if (abort.signal.aborted) return;
         if (!cancelled) {
-          setMatchInsightsError("Dati match non disponibili (insights). Riprova o usa Aggiorna dati.");
+          setMatchInsightsError("Dati match non disponibili in questo momento.");
           setLoadingMatchInsights(false);
         }
       }
@@ -763,29 +1100,28 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
       cancelled = true;
       abort.abort();
     };
-  }, [
-    selectedMatch,
-    insightsRefreshNonce,
-    playerAnalyticsPolicy,
-    testingMatch,
-    presetMatch
-  ]);
+  }, [selectedMatch, adminBulkRefreshing, playerAnalyticsPolicy, testingMatch, presetMatch, canRefreshData, adminInsightsSnap, accessSummary.matchUsage.limit]);
 
   return (
-    <section className="space-y-5 rounded-2xl border border-cyan-400/30 bg-slate-900/50 p-3 sm:space-y-6 sm:p-5">
-      <header className="space-y-2">
-        <h2 className="text-xl font-semibold text-cyan-300 sm:text-2xl">{kioskTitle}</h2>
+    <section className="space-y-5 rounded-[2rem] border border-white/10 bg-gradient-to-br from-slate-950/60 via-slate-900/45 to-cyan-950/35 p-3 shadow-[0_24px_70px_rgba(2,6,23,0.28)] ring-1 ring-white/5 sm:space-y-6 sm:p-5">
+      <header className="space-y-4 rounded-[1.5rem] border border-white/10 bg-gradient-to-br from-cyan-400/12 via-white/[0.045] to-fuchsia-400/10 p-4 sm:p-5">
+        <div>
+          <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-cyan-200/75">
+            Match dashboard
+          </p>
+          <h2 className="text-xl font-semibold tracking-tight text-white sm:text-2xl">{kioskTitle}</h2>
+        </div>
         {kioskDescription ? (
-          <p className="text-xs text-slate-400 sm:text-sm">{kioskDescription}</p>
+          <p className="max-w-3xl text-xs leading-relaxed text-slate-400 sm:text-sm">{kioskDescription}</p>
         ) : null}
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-3 rounded-[1.5rem] border border-white/10 bg-slate-950/35 p-2">
           <button
             type="button"
             onClick={() => setView("PLAYER_FRICTION")}
-            className={`rounded-lg border px-3 py-2 text-xs font-semibold tracking-wide ${
+            className={`rounded-full px-6 py-3 text-sm font-bold transition ${
               view === "PLAYER_FRICTION"
-                ? "border-cyan-300 bg-cyan-400/20 text-cyan-200"
-                : "border-slate-700 bg-slate-900 text-slate-300"
+                ? "bg-gradient-to-r from-cyan-300 to-blue-400 text-slate-950 shadow-lg shadow-cyan-950/25"
+                : "text-slate-300 hover:bg-cyan-300/12 hover:text-cyan-50"
             }`}
           >
             Scontri in campo
@@ -793,10 +1129,10 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
           <button
             type="button"
             onClick={() => setView("FOUL_RISK_SUFFERED")}
-            className={`rounded-lg border px-3 py-2 text-xs font-semibold tracking-wide ${
+            className={`rounded-full px-6 py-3 text-sm font-bold transition ${
               view === "FOUL_RISK_SUFFERED"
-                ? "border-cyan-300 bg-cyan-400/20 text-cyan-200"
-                : "border-slate-700 bg-slate-900 text-slate-300"
+                ? "bg-gradient-to-r from-rose-300 to-orange-300 text-slate-950 shadow-lg shadow-rose-950/25"
+                : "text-slate-300 hover:bg-rose-300/12 hover:text-rose-50"
             }`}
           >
             Rischio falli subiti
@@ -804,124 +1140,140 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
           <button
             type="button"
             onClick={() => setView("FOUL_RISK_COMMITTED")}
-            className={`rounded-lg border px-3 py-2 text-xs font-semibold tracking-wide ${
+            className={`rounded-full px-6 py-3 text-sm font-bold transition ${
               view === "FOUL_RISK_COMMITTED"
-                ? "border-cyan-300 bg-cyan-400/20 text-cyan-200"
-                : "border-slate-700 bg-slate-900 text-slate-300"
+                ? "bg-gradient-to-r from-violet-300 to-fuchsia-300 text-slate-950 shadow-lg shadow-fuchsia-950/25"
+                : "text-slate-300 hover:bg-fuchsia-300/12 hover:text-fuchsia-50"
             }`}
           >
             Rischio falli commessi
           </button>
+          <a
+            href="/kiosk/allarme-ammonizioni"
+            className="rounded-full border border-yellow-300/35 bg-yellow-300/12 px-6 py-3 text-sm font-bold text-yellow-100 transition hover:border-yellow-200 hover:bg-yellow-300/20"
+          >
+            Allarme ammonizioni
+          </a>
         </div>
       </header>
 
-      {showSerieAFormFromFriction ? (
-        <article className="rounded-xl border border-amber-400/25 bg-slate-950/80 p-4">
-          <h3 className="mb-1 text-sm font-semibold uppercase tracking-wide text-amber-200">
-            Serie A — forma recente (giornata intera)
+      {showBookingAlarm ? (
+        <article className="rounded-[1.5rem] border border-amber-200/20 bg-gradient-to-br from-amber-300/14 via-orange-400/[0.08] to-rose-400/[0.08] p-4 shadow-[0_16px_45px_rgba(120,53,15,0.16)] ring-1 ring-amber-100/10 backdrop-blur">
+          <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h3 className="text-base font-black uppercase tracking-wide text-amber-100">
+                Allarme Ammonizione
+              </h3>
+              <p className="mt-1 max-w-3xl text-sm leading-relaxed text-amber-50/80">
+                Top 10 globale dei <strong>marcatori a rischio cartellino</strong>: sono i giocatori che dovranno
+                marcare avversari con alta media di <strong>falli subiti</strong> e{" "}
+                <strong>dribbling riusciti</strong>.
+              </p>
+            </div>
+            <span className="rounded-full border border-amber-200/25 bg-amber-200/12 px-3 py-1 text-xs font-bold uppercase tracking-wide text-amber-100">
+              Solo top 5 campionati
+            </span>
+          </div>
+
+          {bookingAlarmLeaders === undefined || bookingAlarmLoading ? (
+            <p className="text-sm text-amber-50/70">Calcolo dei profili più caldi su tutte le prossime partite…</p>
+          ) : bookingAlarmLeaders.length === 0 ? (
+            <p className="text-sm text-amber-50/70">
+              Nessun profilo forte disponibile al momento: servono media falli subiti, dribbling e matchup sufficienti.
+            </p>
+          ) : (
+            <ol className="grid gap-3 lg:grid-cols-2">
+              {bookingAlarmLeaders.map((item, idx) => (
+                <li
+                  key={`${item.match.eventId}-${item.marker.team}-${item.marker.playerName}`}
+                  className="rounded-2xl border border-amber-100/15 bg-slate-950/35 p-4"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-black text-amber-200">
+                        {idx + 1}. <span className="text-white">{item.marker.playerName}</span>
+                      </p>
+                      <p className="mt-1 text-xs text-slate-400">
+                        {item.marker.team} · {competitionLabel(item.match.competitionSlug)}
+                        {item.marker.positionCode ? ` · ${item.marker.positionCode}` : ""}
+                      </p>
+                    </div>
+                    <span className="shrink-0 rounded-full bg-amber-300/15 px-3 py-1 text-xs font-bold text-amber-100">
+                      Score {item.score.toFixed(1)}
+                    </span>
+                  </div>
+
+                  <div className="mt-3 grid gap-2 text-xs text-slate-300 sm:grid-cols-3">
+                    <span className="rounded-xl bg-white/[0.045] px-3 py-2">
+                      Falli commessi: <strong className="text-rose-100">{formatStat(item.marker.foulsCommittedSeasonAvg)}</strong>
+                    </span>
+                    <span className="rounded-xl bg-white/[0.045] px-3 py-2">
+                      Avversario: <strong className="text-cyan-100">{item.player.playerName}</strong>
+                    </span>
+                    <span className="rounded-xl bg-white/[0.045] px-3 py-2">
+                      Rating: <strong className="text-amber-100">{starString(item.starRating)}</strong>
+                    </span>
+                  </div>
+
+                  <p className="mt-3 text-xs leading-relaxed text-slate-300">
+                    Prossima partita: <strong>{item.match.homeTeam.name} vs {item.match.awayTeam.name}</strong>.
+                    Dovrà marcare <strong>{item.player.playerName}</strong> ({item.player.team}
+                    {item.player.positionCode ? `, ${item.player.positionCode}` : ""}), che ha media{" "}
+                    <strong>{formatStat(bookingAlarmTargetFouls(item.player))}</strong> falli subiti e{" "}
+                    <strong>{formatStat(dribbleSignal(item.player))}</strong> dribbling riusciti a partita.
+                  </p>
+                </li>
+              ))}
+            </ol>
+          )}
+        </article>
+      ) : null}
+
+      {showRoundFormSpecial ? (
+        <article className={softPanelClass}>
+          <h3 className="mb-1 text-base font-bold uppercase tracking-wide text-amber-100">
+            Top giornata — {selectedMatch ? competitionLabel(selectedMatch.competitionSlug) : "campionato"}
           </h3>
-          <p className="mb-4 text-[11px] leading-relaxed text-slate-500">
-            Top 10 calcolate sul pool di <strong>tutti i giocatori coinvolti nella stessa giornata</strong> di Serie A del
-            match selezionato (stesso <code className="text-slate-400">round</code>), con le stesse medie sulle ultime
-            partite usate per il modello scontri.{" "}
-            <strong>Ogni giocatore compare al massimo in una sola classifica</strong> (ordine: parate → tiri → falli
-            commessi → subiti).
+          <p className="mb-4 text-sm leading-relaxed text-slate-300">
+            I 5 giocatori più interessanti calcolati sui <strong>matchup delle prossime partite</strong> del campionato
+            selezionato, ordinati dal punteggio più alto al più basso.
           </p>
-          {serieARoundFormUsedFallback ? (
-            <p className="mb-3 rounded-lg border border-amber-600/40 bg-amber-950/40 px-3 py-2 text-[11px] text-amber-100/95">
-              Dati giornata non disponibili: classifica provvisoria solo sulle due squadre del prossimo match (come il
-              caricamento match-insights).
+          {roundMatchupUsedFallback ? (
+            <p className="mb-3 rounded-2xl border border-amber-300/20 bg-amber-300/10 px-4 py-3 text-sm text-amber-100/95">
+              Matchup giornata completi non disponibili: classifica provvisoria solo sul match selezionato.
             </p>
           ) : null}
-          {serieARoundFormRows === undefined || serieARoundFormLoading ? (
-            <p className="text-sm text-slate-400">Caricamento giocatori della giornata Serie A…</p>
-          ) : serieAFormLeaders ? (
+          {roundMatchupLeaders === undefined || roundMatchupLoading ? (
+            <p className="text-sm text-slate-400">Caricamento matchup della giornata…</p>
+          ) : roundMatchupLeaders ? (
             <div className="grid gap-4 lg:grid-cols-2">
               {(
                 [
-                  ["Falli commessi (media ultimi 5)", serieAFormLeaders.foulsCommitted, (m: TacticalMetrics) => m.foulsCommittedLastFiveAvg, (m: TacticalMetrics) => m.foulsCommittedLastFiveSampleCount ?? 0],
-                  ["Falli subiti (media ultimi 5)", serieAFormLeaders.foulsSuffered, (m: TacticalMetrics) => m.foulsSufferedLastFiveAvg, (m: TacticalMetrics) => m.foulsSufferedLastFiveSampleCount ?? 0],
-                  ["Tiri (media ultimi 5)", serieAFormLeaders.shots, (m: TacticalMetrics) => m.shotsLastFiveAvg, (m: TacticalMetrics) => m.shotsLastFiveSampleCount ?? 0],
-                  ["Parate (media ultimi 5)", serieAFormLeaders.saves, (m: TacticalMetrics) => m.savesLastFiveAvg, (m: TacticalMetrics) => m.savesLastFiveSampleCount ?? 0]
+                  ["Top 5 rischio falli commessi", roundMatchupLeaders.committed],
+                  ["Top 5 rischio falli subiti", roundMatchupLeaders.suffered]
                 ] as const
-              ).map(([title, list, val, nMatches]) => (
-                <div key={title} className="rounded-lg border border-slate-700/80 bg-slate-900/50 p-3">
-                  <p className="mb-2 text-xs font-semibold text-slate-200">{title}</p>
+              ).map(([title, list]) => (
+                <div key={title} className={subtleCardClass}>
+                  <p className="mb-3 text-base font-bold text-slate-100">{title}</p>
                   {list.length === 0 ? (
-                    <p className="text-xs text-slate-500">Nessun dato disponibile.</p>
+                    <p className="text-sm text-slate-500">Nessun dato disponibile.</p>
                   ) : (
-                    <ol className="space-y-1.5 text-xs">
+                    <ol className="space-y-3 text-sm">
                       {list.map((m, idx) => (
-                        <li key={`${title}-${m.playerId ?? m.playerName}-${idx}`} className="flex justify-between gap-2">
-                          <span className="text-slate-300">
-                            <span className="font-semibold text-amber-100/90">{idx + 1}.</span> {m.playerName}{" "}
-                            <span className="text-slate-500">({m.team})</span>
-                            {title.startsWith("Falli ") && m.h2hEventId ? (
-                              <span className="ml-2 text-[10px] text-slate-500">
-                                H2H:{" "}
-                                <span className="font-mono text-slate-400">
-                                  {title.includes("commessi")
-                                    ? formatStat(m.h2hFoulsCommitted ?? 0)
-                                    : formatStat(m.h2hFoulsSuffered ?? 0)}
-                                </span>
-                                {m.h2hHadCard ? (
-                                  <span className="ml-1 text-amber-200/90">
-                                    {m.h2hRedCards ? "🟥" : "🟨"}
-                                  </span>
-                                ) : null}
-                              </span>
-                            ) : null}
-                            {title.includes("Falli commessi") && typeof m.oddsFoulsCommittedLine === "number" ? (
-                              <span className="ml-2 text-[10px] text-slate-500">
-                                Linea:{" "}
-                                <span className="font-mono text-slate-300">
-                                  {ouPick(m.foulsCommittedLastFiveAvg, m.oddsFoulsCommittedLine)}{" "}
-                                  {m.oddsFoulsCommittedLine.toFixed(1)}
-                                </span>
-                                <span className="ml-1 font-mono text-slate-500">
-                                  ({formatOdds(
-                                    ouPick(m.foulsCommittedLastFiveAvg, m.oddsFoulsCommittedLine) === "Over"
-                                      ? m.oddsFoulsCommittedOver
-                                      : m.oddsFoulsCommittedUnder
-                                  )})
-                                </span>
-                                {m.oddsBookmaker ? (
-                                  <span className="ml-1 text-[10px] text-slate-600">{m.oddsBookmaker}</span>
-                                ) : null}
-                              </span>
-                            ) : null}
-                            {title.includes("Falli subiti") && typeof m.oddsCardsLine === "number" ? (
-                              <span className="ml-2 text-[10px] text-slate-500">
-                                Cartellino:{" "}
-                                <span className="font-mono text-slate-300">
-                                  {(() => {
-                                    const predCards = m.foulsCommittedLastFiveAvg * 0.18 + (m.h2hHadCard ? 0.12 : 0);
-                                    return `${ouPick(predCards, m.oddsCardsLine)} ${m.oddsCardsLine.toFixed(1)}`;
-                                  })()}
-                                </span>
-                                <span className="ml-1 font-mono text-slate-500">
-                                  ({(() => {
-                                    const predCards = m.foulsCommittedLastFiveAvg * 0.18 + (m.h2hHadCard ? 0.12 : 0);
-                                    return formatOdds(
-                                      ouPick(predCards, m.oddsCardsLine) === "Over"
-                                        ? m.oddsCardsOver
-                                        : m.oddsCardsUnder
-                                    );
-                                  })()}
-                                  )
-                                </span>
-                                {m.oddsBookmaker ? (
-                                  <span className="ml-1 text-[10px] text-slate-600">{m.oddsBookmaker}</span>
-                                ) : null}
-                              </span>
-                            ) : null}
-                          </span>
-                          <span className="shrink-0 font-mono text-slate-200">
-                            {formatStat(val(m))}
-                            <span className="text-slate-500">
-                              {" "}
-                              / {Math.min(5, nMatches(m))} p.
+                        <li
+                          key={`${title}-${m.match.eventId}-${m.entry.teamId}-${m.entry.playerId ?? m.entry.playerName}-${idx}`}
+                          className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.035] px-3 py-2"
+                        >
+                          <span className="min-w-0 text-slate-200">
+                            <span className="mr-2 font-black text-amber-200">{idx + 1}.</span>
+                            <span className="font-bold">{m.entry.playerName}</span>
+                            <span className="ml-2 text-slate-400">({m.entry.team})</span>
+                            <span className="mt-1 block text-xs text-slate-500">
+                              {m.match.homeTeam.name} vs {m.match.awayTeam.name}
                             </span>
+                          </span>
+                          <span className="shrink-0 rounded-full bg-amber-300/15 px-3 py-1 font-bold text-amber-100">
+                            {starString(m.entry.starRating)}
                           </span>
                         </li>
                       ))}
@@ -934,83 +1286,131 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
         </article>
       ) : null}
 
-      <div className="space-y-6">
-        <div className="space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => setSelectedCompetition("ALL")}
-              className={`rounded-lg border px-3 py-2 text-xs ${
-                selectedCompetition === "ALL"
-                  ? "border-cyan-300 bg-cyan-400/20 text-cyan-200"
-                  : "border-slate-700 text-slate-300"
-              }`}
-            >
-              Tutti
-            </button>
-            {leagueFilterSlugs.map((slug) => (
-              <button
-                key={slug}
-                type="button"
-                onClick={() => setSelectedCompetition(slug)}
-                className={`rounded-lg border px-3 py-2 text-xs ${
-                  normalizeKioskCompetitionSlug(selectedCompetition) === slug
-                    ? "border-cyan-300 bg-cyan-400/20 text-cyan-200"
-                    : "border-slate-700 text-slate-300"
-                }`}
-              >
-                {competitionLabel(slug)}
-              </button>
-            ))}
+      <div className="space-y-6" id="kiosk-fixture-picker">
+        <div className={softPanelClass}>
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-base font-bold text-white">1. Scegli il campionato</p>
+              <p className="text-sm text-slate-400">2. Clicca una partita e guarda i segnali principali.</p>
             </div>
-            <button
-              type="button"
-              onClick={() => setInsightsRefreshNonce((n) => n + 1)}
-              disabled={!selectedMatch || loadingMatchInsights}
-              className="shrink-0 rounded-lg border border-emerald-400/40 bg-emerald-500/10 px-3 py-2 text-xs font-semibold text-emerald-200 hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              Aggiorna dati
-            </button>
+            <div className="flex flex-wrap items-center gap-3">
+              {accessSummary.matchUsage.limit != null ? (
+                <div className="rounded-2xl border border-cyan-300/20 bg-cyan-300/10 px-4 py-2 text-sm text-cyan-100">
+                  <span className="font-black">Utilizzi settimanali:</span>{" "}
+                  {accessSummary.matchUsage.used}/{accessSummary.matchUsage.limit ?? 3} partite
+                </div>
+              ) : (
+                <div className="rounded-2xl border border-emerald-300/20 bg-emerald-300/10 px-4 py-2 text-sm font-black text-emerald-100">
+                  Accesso {accessSummary.isAdmin ? "admin" : "pro"} completo
+                </div>
+              )}
+              {canRefreshData ? (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!canRefreshData) return;
+                    setAdminBulkRefreshing(true);
+                    setLoadingMatchInsights(true);
+                    setMatchInsightsError(null);
+                    setAdminBulkProgress({ current: 0, total: 0 });
+                    try {
+                      const snap = bumpAdminInsightsSnap();
+                      window.dispatchEvent(
+                        new CustomEvent<{ snap: number }>(KIOSK_ADMIN_INSIGHTS_REFRESH_EVENT, {
+                          detail: { snap }
+                        })
+                      );
+                      const topFiveTargets = dedupeMatchesByEventId(upcomingMatches).filter((m) =>
+                        isTopFiveLeagueSlug(m.competitionSlug)
+                      );
+                      const total = topFiveTargets.length;
+                      if (mountedRef.current) {
+                        setAdminBulkProgress(total > 0 ? { current: 0, total } : { current: 0, total: 0 });
+                      }
+                      await prefetchAllMenuInsights(topFiveTargets, snap, (current, tot) => {
+                        if (mountedRef.current) setAdminBulkProgress({ current, total: tot });
+                      });
+                      if (mountedRef.current) setAdminInsightsSnap(snap);
+                    } finally {
+                      if (mountedRef.current) {
+                        setAdminBulkRefreshing(false);
+                        setLoadingMatchInsights(false);
+                        setAdminBulkProgress(null);
+                      }
+                      void reloadAccessSummary();
+                    }
+                  }}
+                  disabled={loadingMatchInsights || adminBulkRefreshing}
+                  className={primaryButtonClass}
+                >
+                  Aggiorna dati admin
+                </button>
+              ) : null}
+            </div>
           </div>
+          <div className="space-y-4">
+            <div className="flex flex-wrap gap-3">
+              {leagueFilterSlugs.map((slug) => (
+                <button
+                  key={slug}
+                  type="button"
+                  onClick={() => {
+                    setSelectedCompetition(slug);
+                    setSelectedMatchId(0);
+                  }}
+                  className={`rounded-full border px-6 py-3 text-sm font-bold transition hover:scale-[1.02] ${
+                    selectedCompetition && normalizeKioskCompetitionSlug(selectedCompetition) === slug
+                      ? "border-cyan-200/70 bg-gradient-to-r from-cyan-400 to-blue-500 text-white shadow-lg shadow-cyan-950/25"
+                      : "border-white/10 bg-white/[0.055] text-slate-200 hover:border-cyan-300/40 hover:bg-cyan-300/12 hover:text-cyan-50"
+                  }`}
+                >
+                  {competitionLabel(slug)}
+                </button>
+              ))}
+            </div>
 
-          <div className="grid gap-2 lg:grid-cols-2">
-            {visibleMatches.map((match) => (
-              <button
-                key={match.eventId}
-                type="button"
-                onClick={() => setSelectedMatchId(match.eventId)}
-                className={`rounded-xl border p-3 text-left ${
-                  selectedMatch?.eventId === match.eventId
-                    ? "border-cyan-300 bg-cyan-400/10"
-                    : "border-slate-700 bg-slate-900/40"
-                }`}
-              >
-                <p className="text-xs uppercase text-slate-400">
-                  {competitionLabel(match.competitionSlug)}
-                </p>
-                <p className="text-sm font-semibold text-slate-100">
-                  {match.homeTeam.name} vs {match.awayTeam.name}
-                </p>
-                <p className="text-xs text-slate-400">{formatKickoff(match.startTimestamp)}</p>
-              </button>
-            ))}
-          </div>
+            <div className="grid gap-4 lg:grid-cols-2">
+              {visibleMatches.map((match) => (
+                <button
+                  key={match.eventId}
+                  type="button"
+                  onClick={() => setSelectedMatchId(match.eventId)}
+                  className={`rounded-[1.35rem] border p-5 text-left transition hover:translate-y-[-1px] ${
+                    selectedMatch?.eventId === match.eventId
+                      ? "border-cyan-200/70 bg-gradient-to-br from-cyan-400/22 via-blue-400/12 to-fuchsia-400/14 shadow-lg shadow-cyan-950/25"
+                      : "border-white/10 bg-gradient-to-br from-white/[0.065] to-white/[0.025] hover:border-cyan-300/35 hover:bg-cyan-300/10"
+                  }`}
+                >
+                  <p className="text-xs font-semibold uppercase tracking-wide text-cyan-200/80">
+                    {competitionLabel(match.competitionSlug)}
+                  </p>
+                  <p className="mt-1 text-lg font-bold text-white">
+                    {match.homeTeam.name} vs {match.awayTeam.name}
+                  </p>
+                  <p className="mt-2 text-sm text-slate-300">Calcio d&apos;inizio: {formatKickoff(match.startTimestamp)}</p>
+                </button>
+              ))}
+            </div>
 
           {presetMatch && !matchesError && matches.length === 0 ? (
-            <p className="rounded-lg border border-slate-600 bg-slate-900/60 px-3 py-2 text-sm text-slate-300">
+            <p className={infoBoxClass}>
               La partita preimpostata ha già calcio d&apos;inizio passato: non viene mostrata nel menu.
             </p>
           ) : null}
           {!presetMatch && !matchesError && matches.length === 0 ? (
-            <p className="rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-sm text-amber-100">
+            <p className="rounded-2xl border border-amber-300/20 bg-amber-300/10 px-4 py-3 text-sm text-amber-100">
               Nessuna partita nel menu: controlla la chiave SportAPI, il budget e le variabili d&apos;ambiente del
               calendario (es. <code className="text-xs">TACTICAL_LOOKAHEAD_DAYS</code>). Senza partite non è possibile
               caricare le analisi giocatori.
             </p>
           ) : null}
+          {!matchesError && matches.length > 0 && !selectedCompetition ? (
+            <p className="rounded-2xl border border-cyan-300/20 bg-cyan-300/10 px-4 py-3 text-sm text-cyan-50">
+              Seleziona un <strong>campionato</strong> (pulsanti sopra) per vedere le partite e le statistiche.
+            </p>
+          ) : null}
           {!matchesError && matches.length > 0 && upcomingMatches.length === 0 ? (
-            <p className="rounded-lg border border-slate-600 bg-slate-900/60 px-3 py-2 text-sm text-slate-300">
+            <p className={infoBoxClass}>
               Tutte le partite caricate hanno già il calcio d’inizio nel passato: in menu restano solo match non ancora
               giocati.
             </p>
@@ -1021,12 +1421,12 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
 
           {matchesError ? <p className="text-sm text-rose-300">{matchesError}</p> : null}
 
-          {loadingMatchInsights && selectedMatch ? (
+          {(loadingMatchInsights && !adminBulkRefreshing) && selectedMatch ? (
             <p className="text-sm text-slate-400">Caricamento analisi giocatori…</p>
           ) : null}
           {matchInsightsError ? <p className="text-sm text-rose-300">{matchInsightsError}</p> : null}
           {playerDetailLevel === "team_only" ? (
-            <p className="rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-sm text-amber-100">
+            <p className="rounded-2xl border border-amber-300/20 bg-amber-300/10 px-4 py-3 text-sm text-amber-100">
               Per questa competizione il menu ibrido non carica l&apos;analisi giocatori (es.{" "}
               <strong>Serie B</strong>). Restano attive <strong>Serie A</strong>,{" "}
               <strong>Champions League</strong>, <strong>Europa League</strong> e{" "}
@@ -1034,10 +1434,11 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
             </p>
           ) : null}
         </div>
+        </div>
 
         <div className="space-y-4">
           {playerDetailLevel === "team_only" ? (
-            <div className="rounded-xl border border-slate-600 bg-slate-950/70 p-6 text-center">
+            <div className={`${softPanelClass} text-center`}>
               <p className="text-base text-slate-200">
                 Per questa lega non sono disponibili scontri in campo nè heatmap giocatori nel menu ibrido.
               </p>
@@ -1049,312 +1450,175 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
           ) : (
             <>
               {playerAnalyticsView === "PLAYER_FRICTION" ? (
-                <p className="text-sm text-slate-300">
-                  Per la partita selezionata vengono evidenziati i <strong>4 scontri più interessanti</strong> tra
-                  giocatori avversari (priorità a sovrapposizione heatmap e profilo falli), con mappa del campo. Per
-                  Champions, Europa e Conference le <strong>medie falli</strong> e lo <strong>storico partite</strong>{" "}
-                  usano il <strong>campionato domestico</strong> di ogni squadra (più partite), non solo la fase UEFA.
-                </p>
-              ) : playerAnalyticsView === "FOUL_RISK_SUFFERED" ? (
-                <p className="text-sm text-slate-300">
-                  Giocatori la cui <strong>heatmap stagionale</strong> (stesso orientamento degli scontri) si sovrappone
-                  in modo significativo a avversari con media <strong>falli commessi &gt; 1,00</strong> a partita in
-                  campionato: possibile esposizione a falli subiti.
-                </p>
-              ) : (
-                <p className="text-sm text-slate-300">
-                  Giocatori con forte incrocio territoriale verso avversari che <strong>subiscono in media più di 1,00</strong>{" "}
-                  falli a partita: contestazione frequente e rischio di entrare in situazioni da fallo commesso.
-                </p>
-              )}
-
-              {!hasMatchFrameHeatmaps ? (
-                <p className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-amber-100">
-                  Heatmap giocatore nel frame partita non disponibili (cache precedente). Ricarica i dati del match o
-                  attendi il prossimo aggiornamento insights.
+                <p className="rounded-2xl border border-cyan-300/20 bg-cyan-300/10 p-4 text-sm leading-relaxed text-cyan-50">
+                  Focus su pochi duelli: dove i profili statistici si incrociano sulla medesima fascia con possibile
+                  contatto ripetuto e cartellino verso.
                 </p>
               ) : null}
 
               {playerAnalyticsView === "PLAYER_FRICTION" ? (
                 <>
-                  {matchFrictionPairs.length === 0 ? (
-                    <p className="text-sm text-amber-200">
-                      Per questa partita non risultano scontri tra giocatori particolarmente evidenti.
+                  {!hasMatchFrameHeatmaps ? (
+                    <p className="rounded-2xl border border-amber-300/20 bg-amber-300/10 p-3 text-sm text-amber-100">
+                      Heatmap giocatore nel frame partita non disponibili (cache precedente). Ricarica i dati del match o
+                      attendi il prossimo aggiornamento insights.
                     </p>
                   ) : null}
-                  {matchFrictionPairs.map((pair, idx) => (
-                    <section key={`${pair.left.playerName}-${pair.right.playerName}-${idx}`} className="space-y-3">
-                      <p className="text-xs uppercase tracking-wide text-cyan-300">
-                        Scontro {idx + 1} — tra i più interessanti
-                      </p>
-                      <p className="text-sm text-slate-200">{pair.left.sparkNarrative}</p>
-                      {pair.left.sparkFrictionHeatmap ? (
-                        <div className="rounded-xl border border-emerald-500/25 bg-slate-950/80 p-4 shadow-inner">
-                          <p className="mb-3 text-xs font-medium text-slate-400">
-                            Mappa del campo — dove i due giocatori sono stati più presenti in stagione
+
+                  {matchFrictionPairs.length === 0 ? (
+                    <p className="text-sm text-amber-200">
+                      Per questa partita non risultano matchup con incrocio tattico e profilo falli abbastanza forte.
+                    </p>
+                  ) : matchFrictionPairs.length > 1 && frictionDetailIndex === null ? (
+                    <div className="space-y-3">
+                      {matchFrictionPairs.map((pair, idx) => (
+                        <button
+                          key={`${pair.left.playerName}-${pair.right.playerName}-${idx}`}
+                          type="button"
+                          onClick={() => setFrictionDetailIndex(idx)}
+                          className={`${softPanelClass} w-full text-left transition hover:border-cyan-400/35 hover:shadow-cyan-500/10`}
+                        >
+                          <p className="text-xs font-semibold uppercase tracking-wide text-cyan-200">
+                            Scontro {idx + 1} — tra i più interessanti
                           </p>
-                          <FrictionPitchHeatmap {...pair.left.sparkFrictionHeatmap} />
-                        </div>
-                      ) : null}
-                      {pair.left.sparkFrictionExplanation ? (
-                        <p className="rounded-xl border border-slate-600/50 bg-slate-900/60 p-4 text-sm leading-relaxed text-slate-200">
-                          {pair.left.sparkFrictionExplanation}
-                        </p>
-                      ) : null}
-                      <div className="grid gap-4 lg:grid-cols-2">
-                        <article className="rounded-xl border border-cyan-400/25 bg-slate-950/70 p-4">
-                          <p className="text-sm font-semibold text-slate-100">{pair.left.playerName}</p>
-                          <p className="text-xs text-slate-400">{pair.left.team}</p>
-                          <p className="mt-2 text-sm text-slate-300">
-                            Falli commessi in media (campionato): circa {pair.left.foulsCommittedSeasonAvg.toFixed(1)} a
-                            partita.
+                          <p className="mt-2 text-lg font-bold text-white">
+                            {pair.left.playerName}{" "}
+                            <span className="mx-2 text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">
+                              vs
+                            </span>{" "}
+                            {pair.right.playerName}
                           </p>
-                        </article>
-                        <article className="rounded-xl border border-violet-400/25 bg-slate-950/70 p-4">
-                          <p className="text-sm font-semibold text-slate-100">{pair.right.playerName}</p>
-                          <p className="text-xs text-slate-400">{pair.right.team}</p>
-                          <p className="mt-2 text-sm text-slate-300">
-                            Falli subiti in media (campionato): circa {pair.right.foulsSufferedSeasonAvg.toFixed(1)} a
-                            partita.
+                          <p className="mt-2 text-sm leading-relaxed text-slate-300">
+                            {(pair.left.sparkNarrative || "").slice(0, 220)}
+                            {(pair.left.sparkNarrative?.length ?? 0) > 220 ? "…" : ""}
                           </p>
-                        </article>
-                      </div>
-                    </section>
-                  ))}
+                          <span className="mt-4 inline-flex text-xs font-semibold text-cyan-300">Apri dettaglio →</span>
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    (() => {
+                      const idx = matchFrictionPairs.length === 1 ? 0 : frictionDetailIndex ?? 0;
+                      const pair = matchFrictionPairs[idx];
+                      if (!pair) return null;
+                      const model = buildMatchupDetailModel(idx + 1, pair.left, pair.right);
+                      return (
+                        <MatchupDetailPage
+                          model={model}
+                          showBackLink={matchFrictionPairs.length > 1}
+                          onBack={() => setFrictionDetailIndex(null)}
+                        />
+                      );
+                    })()
+                  )}
                 </>
               ) : playerAnalyticsView === "FOUL_RISK_SUFFERED" ? (
-                foulRiskSufferedEntries.length === 0 ? (
-                  <p className="text-sm text-amber-200">
-                    Nessun giocatore supera le soglie di sovrapposizione heatmap con avversari “fisici” (falli commessi
-                    &gt; 1,00) per questa partita.
-                  </p>
+                selectedMatch ? (
+                  <FoulSufferedRiskPanel
+                    fixtureId={fixtureId}
+                    entries={foulRiskSufferedEntries}
+                    selectedMatch={selectedMatch}
+                    selectedMatchMetrics={selectedMatchMetrics}
+                    selectedMetricsByRosterKey={selectedMetricsByRosterKey}
+                    leagueFilterSlugs={leagueFilterSlugs}
+                    selectedCompetitionNormalized={
+                      selectedCompetition ? normalizeKioskCompetitionSlug(selectedCompetition) : ""
+                    }
+                    onSelectCompetitionSlug={(slug) => {
+                      setSelectedCompetition(slug);
+                      setSelectedMatchId(0);
+                    }}
+                    competitionLabel={competitionLabel}
+                    accessSummary={accessSummary}
+                    normalizePlayerName={normalizePlayerName}
+                    simpleLevelFromScore={simpleLevelFromScore}
+                    onOpenCommittedView={() => setView("FOUL_RISK_COMMITTED")}
+                  />
                 ) : (
-                  foulRiskSufferedEntries.map((entry, idx) => (
-                    <section
-                      key={`foul-suffered-${entry.playerId ?? entry.playerName}-${idx}`}
-                      className="space-y-3 rounded-xl border border-rose-500/20 bg-slate-950/70 p-4"
-                    >
-                      {(() => {
-                        const rosterKey = `${entry.teamId}|${normalizePlayerName(entry.playerName)}`;
-                        const m = selectedMetricsByRosterKey.get(rosterKey);
-                        if (!m) return null;
-
-                        const foulOu =
-                          typeof m.oddsFoulsCommittedLine === "number"
-                            ? ouPick(m.foulsCommittedLastFiveAvg, m.oddsFoulsCommittedLine)
-                            : null;
-                        const cardOu =
-                          typeof m.oddsCardsLine === "number"
-                            ? ouPick(predictedCardsFromMetric(m), m.oddsCardsLine)
-                            : null;
-
-                        if (!foulOu && !cardOu) return null;
-
-                        return (
-                          <p className="text-[11px] text-slate-400">
-                            {foulOu ? (
-                              <span className="mr-3">
-                                Linea falli:{" "}
-                                <span className="font-mono text-slate-200">
-                                  {foulOu} {m.oddsFoulsCommittedLine?.toFixed(1)}
-                                </span>{" "}
-                                <span className="font-mono text-slate-500">
-                                  (
-                                  {formatOdds(
-                                    foulOu === "Over" ? m.oddsFoulsCommittedOver : m.oddsFoulsCommittedUnder
-                                  )}
-                                  )
-                                </span>
-                              </span>
-                            ) : null}
-                            {cardOu ? (
-                              <span className="mr-3">
-                                Linea cartellino:{" "}
-                                <span className="font-mono text-slate-200">
-                                  {cardOu} {m.oddsCardsLine?.toFixed(1)}
-                                </span>{" "}
-                                <span className="font-mono text-slate-500">
-                                  ({formatOdds(cardOu === "Over" ? m.oddsCardsOver : m.oddsCardsUnder)})
-                                </span>
-                              </span>
-                            ) : null}
-                            {m.oddsBookmaker ? (
-                              <span className="text-slate-600">{m.oddsBookmaker}</span>
-                            ) : null}
-                          </p>
-                        );
-                      })()}
-                      <p className="text-xs uppercase tracking-wide text-rose-200">
-                        Rischio subiti — {idx + 1} · {entry.playerName}
-                      </p>
-                      <p className="text-xs text-slate-400">
-                        {entry.team} · punteggio sintetico {entry.riskScore.toFixed(1)} · sovrapposizione massima ~{" "}
-                        {entry.maxCollisionPercent}%
-                      </p>
-                      <div className="rounded-xl border border-emerald-500/25 bg-slate-950/80 p-4 shadow-inner">
-                        <p className="mb-3 text-xs font-medium text-slate-400">
-                          Heatmap: giocatore (A) e principali zone di pressione avversaria (B)
-                        </p>
-                        <FrictionPitchHeatmap {...entry.heatmap} />
-                      </div>
-                      <p className="rounded-xl border border-slate-600/50 bg-slate-900/60 p-4 text-sm leading-relaxed text-slate-200">
-                        {entry.justification}
-                      </p>
-                      {entry.aggressors.length > 0 ? (
-                        <ul className="space-y-1 text-xs text-slate-400">
-                          {entry.aggressors.map((a) => (
-                            <li key={`${entry.playerName}-${a.playerName}`}>
-                              <span className="font-medium text-slate-300">{a.playerName}</span> ({a.team}): collisione
-                              ~{a.collisionPercent}% · falli commessi/stag. ~{a.foulsCommittedSeasonAvg.toFixed(2)}
-                            </li>
-                          ))}
-                        </ul>
-                      ) : null}
-                    </section>
-                  ))
+                  <p className="text-sm text-slate-400">
+                    Seleziona una partita per consultare il rischio falli subiti.
+                  </p>
                 )
-              ) : foulRiskCommittedEntries.length === 0 ? (
-                <p className="text-sm text-amber-200">
-                  Nessun giocatore supera le soglie con avversari che subiscono in media più di 1,00 falli a partita.
-                </p>
-              ) : (
-                foulRiskCommittedEntries.map((entry, idx) => (
-                  <section
-                    key={`foul-committed-${entry.playerId ?? entry.playerName}-${idx}`}
-                    className="space-y-3 rounded-xl border border-violet-500/20 bg-slate-950/70 p-4"
-                  >
-                    {(() => {
-                      const rosterKey = `${entry.teamId}|${normalizePlayerName(entry.playerName)}`;
-                      const m = selectedMetricsByRosterKey.get(rosterKey);
-                      if (!m) return null;
-
-                      const foulOu =
-                        typeof m.oddsFoulsCommittedLine === "number"
-                          ? ouPick(m.foulsCommittedLastFiveAvg, m.oddsFoulsCommittedLine)
-                          : null;
-                      const cardOu =
-                        typeof m.oddsCardsLine === "number"
-                          ? ouPick(predictedCardsFromMetric(m), m.oddsCardsLine)
-                          : null;
-
-                      if (!foulOu && !cardOu) return null;
-
-                      return (
-                        <p className="text-[11px] text-slate-400">
-                          {foulOu ? (
-                            <span className="mr-3">
-                              Linea falli:{" "}
-                              <span className="font-mono text-slate-200">
-                                {foulOu} {m.oddsFoulsCommittedLine?.toFixed(1)}
-                              </span>{" "}
-                              <span className="font-mono text-slate-500">
-                                ({formatOdds(foulOu === "Over" ? m.oddsFoulsCommittedOver : m.oddsFoulsCommittedUnder)})
-                              </span>
-                            </span>
-                          ) : null}
-                          {cardOu ? (
-                            <span className="mr-3">
-                              Linea cartellino:{" "}
-                              <span className="font-mono text-slate-200">
-                                {cardOu} {m.oddsCardsLine?.toFixed(1)}
-                              </span>{" "}
-                              <span className="font-mono text-slate-500">
-                                ({formatOdds(cardOu === "Over" ? m.oddsCardsOver : m.oddsCardsUnder)})
-                              </span>
-                            </span>
-                          ) : null}
-                          {m.oddsBookmaker ? <span className="text-slate-600">{m.oddsBookmaker}</span> : null}
-                        </p>
-                      );
-                    })()}
-                    <p className="text-xs uppercase tracking-wide text-violet-200">
-                      Rischio commessi — {idx + 1} · {entry.playerName}
-                    </p>
-                    <p className="text-xs text-slate-400">
-                      {entry.team} · punteggio sintetico {entry.riskScore.toFixed(1)} · sovrapposizione massima ~{" "}
-                      {entry.maxCollisionPercent}%
-                    </p>
-                    <div className="rounded-xl border border-emerald-500/25 bg-slate-950/80 p-4 shadow-inner">
-                      <p className="mb-3 text-xs font-medium text-slate-400">
-                        Heatmap: giocatore (A) e zone occupate dagli avversari più “tirati” (B)
-                      </p>
-                      <FrictionPitchHeatmap {...entry.heatmap} />
-                    </div>
-                    <p className="rounded-xl border border-slate-600/50 bg-slate-900/60 p-4 text-sm leading-relaxed text-slate-200">
-                      {entry.justification}
-                    </p>
-                    {entry.aggressors.length > 0 ? (
-                      <ul className="space-y-1 text-xs text-slate-400">
-                        {entry.aggressors.map((a) => (
-                          <li key={`${entry.playerName}-${a.playerName}`}>
-                            <span className="font-medium text-slate-300">{a.playerName}</span> ({a.team}): collisione
-                            ~{a.collisionPercent}% · falli subiti/stag. ~{a.foulsSufferedSeasonAvg.toFixed(2)}
-                          </li>
-                        ))}
-                      </ul>
-                    ) : null}
-                  </section>
-                ))
-              )}
-
-              {playerAnalyticsView === "PLAYER_FRICTION" ? (
-                <div className="grid gap-4 lg:grid-cols-2">
-                  <TopPlayersSeasonTable
-                    title="Top 5 Tiratori — Stagione"
-                    rows={playerRowsNoKeepers}
-                    valueSelector={(item) => numeric(item.shotsSeasonAvg)}
-                    onTopPlayersComputed={(top) =>
-                      setSeasonShooterKeys(new Set(top.map((p) => playerStableKey(p))))
+              ) : playerAnalyticsView === "FOUL_RISK_COMMITTED" ? (
+                selectedMatch ? (
+                  <FoulCommittedRiskPanel
+                    fixtureId={fixtureId}
+                    entries={foulRiskCommittedEntries}
+                    selectedMatch={selectedMatch}
+                    selectedMatchMetrics={selectedMatchMetrics}
+                    selectedMetricsByRosterKey={selectedMetricsByRosterKey}
+                    leagueFilterSlugs={leagueFilterSlugs}
+                    selectedCompetitionNormalized={
+                      selectedCompetition ? normalizeKioskCompetitionSlug(selectedCompetition) : ""
                     }
+                    onSelectCompetitionSlug={(slug) => {
+                      setSelectedCompetition(slug);
+                      setSelectedMatchId(0);
+                    }}
+                    competitionLabel={competitionLabel}
+                    accessSummary={accessSummary}
+                    normalizePlayerName={normalizePlayerName}
+                    simpleLevelFromScore={simpleLevelFromScore}
+                    onOpenSufferedView={() => setView("FOUL_RISK_SUFFERED")}
                   />
-                  <TopPlayersLastTwoTable
-                    title="Top 5 Tiratori — Ultimi 2"
-                    rows={playerRowsNoKeepers}
-                    valueSelector={(item) => numeric(item.shotsLastTwoAvg)}
-                    sampleCountSelector={(item) => item.shotsLastTwoSampleCount}
-                    excludePlayers={seasonShooterKeys}
-                  />
-                  <TopPlayersSeasonTable
-                    title="Portieri — Parate (stagione)"
-                    rows={goalkeeperRows}
-                    valueSelector={(item) => numeric(item.savesSeasonAvg)}
-                  />
-                  <TopPlayersSeasonTable
-                    title="Top 5 Più Fallosi — Stagione"
-                    rows={playerRowsNoKeepers}
-                    valueSelector={(item) => numeric(item.foulsCommittedSeasonAvg)}
-                    onTopPlayersComputed={(top) =>
-                      setSeasonFoulsCommittedKeys(new Set(top.map((p) => playerStableKey(p))))
-                    }
-                  />
-                  <TopPlayersLastTwoTable
-                    title="Top 5 Più Fallosi — Ultimi 2"
-                    rows={playerRowsNoKeepers}
-                    valueSelector={(item) => numeric(item.foulsCommittedLastTwoAvg)}
-                    sampleCountSelector={(item) => item.foulsCommittedLastTwoSampleCount}
-                    excludePlayers={seasonFoulsCommittedKeys}
-                  />
-                  <TopPlayersSeasonTable
-                    title="Top 5 Falli Subiti — Stagione"
-                    rows={playerRowsNoKeepers}
-                    valueSelector={(item) => numeric(item.foulsSufferedSeasonAvg)}
-                    onTopPlayersComputed={(top) =>
-                      setSeasonFoulsSufferedKeys(new Set(top.map((p) => playerStableKey(p))))
-                    }
-                  />
-                  <TopPlayersLastTwoTable
-                    title="Top 5 Falli Subiti — Ultimi 2"
-                    rows={playerRowsNoKeepers}
-                    valueSelector={(item) => numeric(item.foulsSufferedLastTwoAvg)}
-                    sampleCountSelector={(item) => item.foulsSufferedLastTwoSampleCount}
-                    excludePlayers={seasonFoulsSufferedKeys}
-                  />
-                </div>
+                ) : (
+                  <p className="text-sm text-slate-400">
+                    Seleziona una partita per consultare il rischio falli commessi.
+                  </p>
+                )
               ) : null}
             </>
           )}
         </div>
       </div>
+
+      {adminBulkRefreshing && adminBulkProgress ? (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[#050814]/92 p-6 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl border border-cyan-300/25 bg-[#07111F] p-6 shadow-2xl">
+            <p className="text-center text-sm font-bold uppercase tracking-wide text-cyan-200">
+              Aggiornamento dati admin
+            </p>
+            <p className="mt-2 text-center text-xs leading-relaxed text-slate-400">
+              Ricalcolo match-insights con heatmap per tutte le partite future dei{" "}
+              <strong className="text-slate-300">top 5 campionati</strong> presenti nel menu (Serie A, Premier League,
+              LaLiga, Bundesliga, Ligue 1).
+            </p>
+            <p className="mt-4 text-center text-sm text-slate-300">
+              {adminBulkProgress.total > 0 ? (
+                <>
+                  Partite elaborate:{" "}
+                  <strong className="text-white">{adminBulkProgress.current}</strong> di{" "}
+                  <strong className="text-white">{adminBulkProgress.total}</strong>
+                </>
+              ) : (
+                <span>Preparazione elenco partite top 5…</span>
+              )}
+            </p>
+            <p className="mt-1 text-center text-xs text-slate-500">
+              {adminBulkProgress.total > 0 && adminBulkProgress.total - adminBulkProgress.current > 0
+                ? `Mancano ancora ${adminBulkProgress.total - adminBulkProgress.current} partit${
+                    adminBulkProgress.total - adminBulkProgress.current === 1 ? "a" : "e"
+                  } da aggiornare.`
+                : adminBulkProgress.total === 0
+                  ? "Se il contatore resta a zero, non ci sono match futuri dei top 5 nel menu caricato."
+                  : "Finalizzazione cache locale…"}
+            </p>
+            <div className="mt-5 h-2.5 overflow-hidden rounded-full bg-slate-800">
+              <div
+                className={`h-full rounded-full bg-gradient-to-r from-cyan-400 to-blue-500 transition-all duration-300 ${
+                  adminBulkProgress.total === 0 ? "animate-pulse" : ""
+                }`}
+                style={{
+                  width:
+                    adminBulkProgress.total > 0
+                      ? `${Math.min(100, (adminBulkProgress.current / adminBulkProgress.total) * 100)}%`
+                      : "38%"
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }

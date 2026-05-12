@@ -2,6 +2,10 @@ import type { SparkFrictionHeatmapPayload } from "@/lib/types";
 
 type FrictionPitchHeatmapProps = SparkFrictionHeatmapPayload & {
   className?: string;
+  /** Rendering compatto (liste / card) senza alterare i punti. */
+  compact?: boolean;
+  /** Cerchio tratteggiato in coordinate campo 0–100 (solo evidenziazione visiva). */
+  highlightCirclePct?: { cx: number; cy: number; r: number };
 };
 
 /** Campo orizzontale: lunghezza 105, larghezza 68 (proporzioni da regolamento). */
@@ -31,7 +35,9 @@ export function FrictionPitchHeatmap({
   clubColorB,
   pointsA,
   pointsB,
-  className = ""
+  className = "",
+  compact = false,
+  highlightCirclePct
 }: FrictionPitchHeatmapProps) {
   const globalMax = Math.max(maxIntensity(pointsA), maxIntensity(pointsB), 1);
 
@@ -55,14 +61,14 @@ export function FrictionPitchHeatmap({
 
   return (
     <div className={`space-y-3 ${className}`}>
-      <div className="relative w-full overflow-hidden rounded-2xl border border-white/10 bg-slate-900/80 shadow-[0_12px_40px_rgba(0,0,0,0.45)] ring-1 ring-white/5">
+      <div className="relative w-full overflow-hidden rounded-[1.35rem] border border-white/10 bg-white/[0.03] p-2 shadow-[0_18px_50px_rgba(8,13,28,0.35)] ring-1 ring-white/10">
         {/* Campo largo: priorità alla larghezza così i punti si distribuiscono meglio sullo schermo. */}
         <div
           className="relative mx-auto w-full max-w-[min(100%,1200px)]"
           style={{
             aspectRatio: `${VB_W} / ${VB_H}`,
-            minHeight: "min(280px, 85vw)",
-            maxHeight: "min(78vh, 720px)"
+            minHeight: compact ? "88px" : "min(280px, 85vw)",
+            maxHeight: compact ? "120px" : "min(78vh, 720px)"
           }}
         >
           <svg
@@ -75,9 +81,9 @@ export function FrictionPitchHeatmap({
           <title>Mappa posizioni: {labelA} e {labelB}</title>
           <defs>
             <linearGradient id="turfFriction" x1="0%" y1="0%" x2="0%" y2="100%">
-              <stop offset="0%" stopColor="#1a6b3c" />
-              <stop offset="45%" stopColor="#145a32" />
-              <stop offset="100%" stopColor="#0c3d22" />
+              <stop offset="0%" stopColor="#2f8f55" />
+              <stop offset="45%" stopColor="#227644" />
+              <stop offset="100%" stopColor="#155433" />
             </linearGradient>
             <linearGradient id="turfStripe" x1="0%" y1="0%" x2="0%" y2="100%">
               <stop offset="0%" stopColor="rgba(255,255,255,0.03)" />
@@ -110,7 +116,7 @@ export function FrictionPitchHeatmap({
               rx="1.6"
               ry="1.6"
               fill="none"
-              stroke="rgba(255,255,255,0.5)"
+              stroke="rgba(255,255,255,0.62)"
               strokeWidth="0.4"
             />
             <line
@@ -118,7 +124,7 @@ export function FrictionPitchHeatmap({
               y1="0"
               x2={VB_W / 2}
               y2={VB_H}
-              stroke="rgba(255,255,255,0.55)"
+              stroke="rgba(255,255,255,0.65)"
               strokeWidth="0.35"
             />
             <circle
@@ -126,7 +132,7 @@ export function FrictionPitchHeatmap({
               cy={VB_H / 2}
               r={9.15}
               fill="none"
-              stroke="rgba(255,255,255,0.55)"
+              stroke="rgba(255,255,255,0.65)"
               strokeWidth="0.35"
             />
             <rect
@@ -135,7 +141,7 @@ export function FrictionPitchHeatmap({
               width="16.5"
               height="40.32"
               fill="none"
-              stroke="rgba(255,255,255,0.55)"
+              stroke="rgba(255,255,255,0.65)"
               strokeWidth="0.35"
             />
             <rect
@@ -144,11 +150,22 @@ export function FrictionPitchHeatmap({
               width="16.5"
               height="40.32"
               fill="none"
-              stroke="rgba(255,255,255,0.55)"
+              stroke="rgba(255,255,255,0.65)"
               strokeWidth="0.35"
             />
             <g style={{ mixBlendMode: "screen" }}>{renderBlobs(pointsB, clubColorB)}</g>
             <g style={{ mixBlendMode: "screen" }}>{renderBlobs(pointsA, clubColorA)}</g>
+            {highlightCirclePct ? (
+              <circle
+                cx={(Math.max(0, Math.min(100, highlightCirclePct.cx)) / 100) * VB_W}
+                cy={(Math.max(0, Math.min(100, highlightCirclePct.cy)) / 100) * VB_H}
+                r={Math.max(2, (Math.max(0, Math.min(100, highlightCirclePct.r)) / 100) * VB_H)}
+                fill="none"
+                stroke="rgba(248,250,252,0.55)"
+                strokeWidth="0.55"
+                strokeDasharray="1.8 2.2"
+              />
+            ) : null}
           </g>
 
           {empty ? (
@@ -167,23 +184,42 @@ export function FrictionPitchHeatmap({
         </svg>
         </div>
       </div>
-      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-slate-300">
-        <span className="inline-flex items-center gap-2">
-          <span
-            className="h-3 w-3 rounded-full shadow-md ring-2 ring-white/20"
-            style={{ backgroundColor: clubColorA }}
-          />
-          <span className="font-medium text-slate-100">{labelA}</span>
-        </span>
-        <span className="inline-flex items-center gap-2">
-          <span
-            className="h-3 w-3 rounded-full shadow-md ring-2 ring-white/20"
-            style={{ backgroundColor: clubColorB }}
-          />
-          <span className="font-medium text-slate-100">{labelB}</span>
-        </span>
-        <span className="text-xs text-slate-500">Più il colore è intenso, più il giocatore è stato spesso in quella zona (stagione).</span>
-      </div>
+      {!compact ? (
+        <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3">
+          <p className="mb-3 text-sm font-bold text-white">Legenda facile</p>
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-3 text-base text-slate-200">
+            <span className="inline-flex items-center gap-2">
+              <span
+                className="h-4 w-4 rounded-full shadow-md ring-2 ring-white/20"
+                style={{ backgroundColor: clubColorA }}
+              />
+              <span className="font-medium text-slate-100">{labelA}</span>
+            </span>
+            <span className="inline-flex items-center gap-2">
+              <span
+                className="h-4 w-4 rounded-full shadow-md ring-2 ring-white/20"
+                style={{ backgroundColor: clubColorB }}
+              />
+              <span className="font-medium text-slate-100">{labelB}</span>
+            </span>
+          </div>
+          <p className="mt-3 text-sm leading-relaxed text-slate-300">
+            Se i colori sono vicini o sovrapposti, i due giocatori possono incontrarsi spesso. Il colore più intenso indica
+            una zona in cui il giocatore passa più tempo.
+          </p>
+        </div>
+      ) : (
+        <p className="text-[10px] text-slate-500">
+          <span className="mr-3 inline-flex items-center gap-1">
+            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: clubColorA }} />
+            <span className="truncate">{labelA}</span>
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: clubColorB }} />
+            <span className="truncate">{labelB}</span>
+          </span>
+        </p>
+      )}
     </div>
   );
 }

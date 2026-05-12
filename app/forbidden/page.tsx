@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { getSessionContext } from "@/lib/auth/session";
-import { AllowlistThisIpButton } from "@/components/allowlist-this-ip-button";
 
 function safeNextPath(next?: string): string {
   const raw = (next ?? "").trim();
@@ -29,10 +28,9 @@ export default async function ForbiddenPage({
         {session?.organization?.role === "admin" ? (
           <div className="mt-5 rounded-xl border border-emerald-400/25 bg-slate-950/40 p-4">
             <p className="text-sm text-slate-300">
-              Sei admin: puoi autorizzare automaticamente l&apos;IP corrente per la tua organizzazione.
+              Sei admin: puoi gestire gli utenti autorizzati dal pannello amministrativo.
             </p>
             <div className="mt-3 flex flex-wrap gap-3">
-              <AllowlistThisIpButton nextPath={nextPath} />
               <Link
                 href={nextPath}
                 className="rounded-xl border border-slate-600/60 px-4 py-2 text-sm font-semibold text-slate-200"

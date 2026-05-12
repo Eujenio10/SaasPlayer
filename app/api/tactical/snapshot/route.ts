@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getOrganizationContextForUser } from "@/lib/auth/organization";
-import { getSubscriptionContextForOrganization } from "@/lib/auth/subscription";
 import { getOrRefreshSnapshot } from "@/lib/tactical-snapshots";
 
 export async function GET(request: Request) {
@@ -23,17 +22,10 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
-  const subscription = await getSubscriptionContextForOrganization(
-    organization.organizationId
-  );
-  if (!subscription?.isOperational) {
-    return NextResponse.json({ error: "subscription_inactive" }, { status: 402 });
-  }
-
   const snapshot = await getOrRefreshSnapshot({
     organizationId: organization.organizationId,
     fixtureId,
-    forceRefresh: refresh
+    forceRefresh: organization.role === "admin" && refresh
   });
 
   return NextResponse.json({

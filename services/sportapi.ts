@@ -85,6 +85,12 @@ interface SportApiLineupPlayer {
     foulsDrawn?: number;
     drawnFouls?: number;
     foulWon?: number;
+    successfulDribbles?: number;
+    dribbles?: number;
+    wonContest?: number;
+    totalContest?: number;
+    successfulDribble?: number;
+    dribblesWon?: number;
     saves?: number;
     shotOffTarget?: number;
     errorLeadToAShot?: number;
@@ -495,6 +501,30 @@ const FOULS_COMMITTED_STAT_KEYS = [
   "fouls_committed"
 ] as const;
 
+const DRIBBLES_STAT_KEYS = [
+  "successfulDribbles",
+  "successfulDribble",
+  "wonContest",
+  "wonDribbles",
+  "dribblesWon",
+  "dribbleWon",
+  "dribblesCompleted",
+  "completedDribbles",
+  "successful_dribbles",
+  "won_contest"
+] as const;
+
+const DRIBBLES_ATTEMPT_STAT_KEYS = [
+  "totalContest",
+  "dribbles",
+  "totalDribbles",
+  "dribbleAttempts",
+  "attemptedDribbles",
+  "dribblesAttempted",
+  "challengeLost",
+  "total_contest"
+] as const;
+
 const SAVES_STAT_KEYS = [
   "saves",
   "goalkeeperSaves",
@@ -554,6 +584,30 @@ function foulsCommittedSeasonTotalFromOverall(overall: Record<string, number> | 
   const flat = readNumericByAliases(wide, FOULS_COMMITTED_STAT_KEYS);
   if (flat !== undefined) return flat;
   return deepFindNumericForStatKeys(overall, FOULS_COMMITTED_STAT_KEYS);
+}
+
+function dribblesFromLineupStats(
+  stats: SportApiLineupPlayer["statistics"] | undefined
+): number {
+  if (!stats) return 0;
+  const s = stats as Record<string, unknown>;
+  const n = readNumericMaxByAliases(s, DRIBBLES_STAT_KEYS);
+  if (n !== undefined && n > 0) return n;
+  const attempts = readNumericMaxByAliases(s, DRIBBLES_ATTEMPT_STAT_KEYS);
+  return attempts !== undefined && attempts > 0 ? Math.round(attempts * 0.45 * 100) / 100 : 0;
+}
+
+function dribblesSeasonTotalFromOverall(overall: Record<string, number> | null): number | undefined {
+  if (!overall) return undefined;
+  const wide = overall as unknown as Record<string, unknown>;
+  const flat = readNumericMaxByAliases(wide, DRIBBLES_STAT_KEYS);
+  if (flat !== undefined) return flat;
+  const deep = deepFindNumericForStatKeys(overall, DRIBBLES_STAT_KEYS);
+  if (deep !== undefined) return deep;
+  const attempts = readNumericMaxByAliases(wide, DRIBBLES_ATTEMPT_STAT_KEYS);
+  if (attempts !== undefined) return Math.round(attempts * 0.45 * 100) / 100;
+  const deepAttempts = deepFindNumericForStatKeys(overall, DRIBBLES_ATTEMPT_STAT_KEYS);
+  return deepAttempts !== undefined ? Math.round(deepAttempts * 0.45 * 100) / 100 : undefined;
 }
 
 function foulsSufferedFromLineupStats(
@@ -678,7 +732,11 @@ async function collectUniqueTournamentSeasonEventPool(
  * Tutti i giocatori delle partite di Serie A della stessa giornata (`round`) del match di riferimento.
  * Usa le stesse chiamate aggregate di `fetchSportPerformanceForTeams` per ogni fixture della giornata.
  */
-export async function fetchSerieARoundPlayerPerformances(anchorEventId: number): Promise<SportPerformanceInput[]> {
+export async function fetchCompetitionRoundPlayerPerformances(params: {
+  anchorEventId: number;
+  competitionSlug?: string;
+}): Promise<SportPerformanceInput[]> {
+  const { anchorEventId, competitionSlug: requestedCompetitionSlug } = params;
   const eventResponse = await sportApiFetch(`/api/v1/event/${anchorEventId}`, {
     requestType: "snapshot",
     revalidateSeconds: 120
@@ -693,7 +751,9 @@ export async function fetchSerieARoundPlayerPerformances(anchorEventId: number):
   if (!anchorNode) return [];
 
   const pseudoEvent = { tournament: anchorNode.tournament } as SportApiEvent;
-  if (normalizeCompetitionSlug(competitionSlug(pseudoEvent)) !== "serie-a") return [];
+  const normalizedCompetition = normalizeCompetitionSlug(competitionSlug(pseudoEvent));
+  const requested = requestedCompetitionSlug ? normalizeCompetitionSlug(requestedCompetitionSlug) : normalizedCompetition;
+  if (requested && normalizedCompetition !== requested) return [];
 
   const round = parseRoundFromEventPayload(payload);
   const homeTeam = anchorNode.homeTeam as SportApiEvent["homeTeam"] | undefined;
@@ -711,7 +771,7 @@ export async function fetchSerieARoundPlayerPerformances(anchorEventId: number):
       homeTeamName,
       awayTeamId,
       awayTeamName,
-      competitionSlug: "serie-a",
+      competitionSlug: normalizedCompetition,
       tournamentId: utTournamentId,
       seasonId: utSeasonId
     });
@@ -725,7 +785,7 @@ export async function fetchSerieARoundPlayerPerformances(anchorEventId: number):
   const sid = Number(utSeasonId);
   const inRound = pool.filter((ev) => {
     if (!ev.id || !ev.homeTeam?.id || !ev.awayTeam?.id) return false;
-    if (normalizeCompetitionSlug(competitionSlug(ev)) !== "serie-a") return false;
+    if (normalizeCompetitionSlug(competitionSlug(ev)) !== normalizedCompetition) return false;
     if (Number(ev.season?.id) !== sid) return false;
     return Number(ev.roundInfo?.round) === round;
   });
@@ -757,7 +817,7 @@ export async function fetchSerieARoundPlayerPerformances(anchorEventId: number):
           homeTeamName: ev.homeTeam?.name ?? "Home",
           awayTeamId: ev.awayTeam!.id as number,
           awayTeamName: ev.awayTeam?.name ?? "Away",
-          competitionSlug: "serie-a",
+          competitionSlug: normalizedCompetition,
           tournamentId: utTournamentId,
           seasonId: utSeasonId
         })
@@ -767,6 +827,13 @@ export async function fetchSerieARoundPlayerPerformances(anchorEventId: number):
   }
 
   return Array.from(byKey.values());
+}
+
+export async function fetchSerieARoundPlayerPerformances(anchorEventId: number): Promise<SportPerformanceInput[]> {
+  return fetchCompetitionRoundPlayerPerformances({
+    anchorEventId,
+    competitionSlug: "serie-a"
+  });
 }
 
 export async function fetchEventSeasonContextForInsights(eventId: number): Promise<SeasonContext | null> {
@@ -1744,6 +1811,7 @@ function mapLineupPlayerToPerformance(params: {
     foulsSufferedSeasonAvg: foulsSufferedFromLineupStats(params.player.statistics),
     foulsSufferedLastTwoAvg: foulsSufferedFromLineupStats(params.player.statistics),
     foulsSufferedLastFiveAvg: foulsSufferedFromLineupStats(params.player.statistics),
+    dribblesSeasonAvg: dribblesFromLineupStats(params.player.statistics),
     opponentExpectedGoalsCreated: 0,
     savePercentage: saveDenominator > 0 ? (saves / saveDenominator) * 100 : 65,
     savesSeasonAvg: saves,
@@ -1908,6 +1976,7 @@ async function fetchFallbackPlayersForTeam(params: {
     foulsSufferedSeasonAvg: 0,
     foulsSufferedLastTwoAvg: 0,
     foulsSufferedLastFiveAvg: 0,
+    dribblesSeasonAvg: 0,
     opponentExpectedGoalsCreated: 0,
     savePercentage: 65,
     savesSeasonAvg: 0,
@@ -2263,7 +2332,9 @@ export async function fetchSportPerformanceForTeams(params: {
       const playerAppearances = new Map<string, number>();
       const playerFoulsCommitted = new Map<string, number[]>();
       const playerFoulsSuffered = new Map<string, number[]>();
+      const playerDribbles = new Map<string, number[]>();
       const playerRole = new Map<string, string>();
+      const playerPositionCode = new Map<string, string>();
       const playerJersey = new Map<string, number>();
       const teamConcededShotsOnTarget: number[] = [];
 
@@ -2290,13 +2361,16 @@ export async function fetchSportPerformanceForTeams(params: {
           if (!playerSaves.has(name)) playerSaves.set(name, []);
           if (!playerFoulsCommitted.has(name)) playerFoulsCommitted.set(name, []);
           if (!playerFoulsSuffered.has(name)) playerFoulsSuffered.set(name, []);
+          if (!playerDribbles.has(name)) playerDribbles.set(name, []);
           playerAppearances.set(name, (playerAppearances.get(name) ?? 0) + 1);
 
           playerShots.get(name)?.push(player.statistics?.totalShots ?? 0);
           playerSaves.get(name)?.push(savesFromLineupStats(player.statistics));
           playerFoulsCommitted.get(name)?.push(foulsCommittedFromLineupStats(player.statistics));
           playerFoulsSuffered.get(name)?.push(foulsSufferedFromLineupStats(player.statistics));
+          playerDribbles.get(name)?.push(dribblesFromLineupStats(player.statistics));
           playerRole.set(name, mapPositionToRole(player.position));
+          if (player.position?.trim()) playerPositionCode.set(name, player.position.trim());
           playerJersey.set(name, player.jerseyNumber ?? player.shirtNumber ?? 0);
         }
       }
@@ -2342,6 +2416,7 @@ export async function fetchSportPerformanceForTeams(params: {
         const savesSeries = playerSaves.get(name) ?? [0];
         const foulsCommittedSeries = playerFoulsCommitted.get(name) ?? [0];
         const foulsSufferedSeries = playerFoulsSuffered.get(name) ?? [0];
+        const dribblesSeries = playerDribbles.get(name) ?? [0];
         const shotsSeasonAvg =
           shotsSeries.reduce((a, b) => a + b, 0) / Math.max(1, shotsSeries.length);
         const shotsLastTwoAvg =
@@ -2372,6 +2447,8 @@ export async function fetchSportPerformanceForTeams(params: {
         const foulsSufferedLastFiveAvg =
           foulsSufferedSeries.slice(0, starterLastFiveMatches).reduce((a, b) => a + b, 0) /
           Math.max(1, Math.min(starterLastFiveMatches, foulsSufferedSeries.length));
+        const dribblesSeasonAvg =
+          dribblesSeries.reduce((a, b) => a + b, 0) / Math.max(1, dribblesSeries.length);
 
         const row = {
           athleteId: undefined,
@@ -2380,6 +2457,7 @@ export async function fetchSportPerformanceForTeams(params: {
           teamId: team.teamId,
           jerseyNumber: playerJersey.get(name) ?? 0,
           role: playerRole.get(name) ?? "midfielder",
+          positionCode: playerPositionCode.get(name),
           clubColor: team.clubColor,
           shotsTotal: shotsSeries[0] ?? 0,
           shotsLastTwoAvg,
@@ -2395,6 +2473,7 @@ export async function fetchSportPerformanceForTeams(params: {
           foulsSufferedSeasonAvg,
           foulsSufferedLastTwoAvg,
           foulsSufferedLastFiveAvg,
+          dribblesSeasonAvg,
           opponentExpectedGoalsCreated: 0,
           savePercentage: 65,
           savesSeasonAvg,
@@ -2473,6 +2552,7 @@ export async function fetchSportPerformanceForTeams(params: {
       const fouledLastFiveByPlayer = new Map<number, number[]>();
       const foulsSeasonByPlayer = new Map<number, number[]>();
       const fouledSeasonByPlayer = new Map<number, number[]>();
+      const dribblesSeasonByPlayer = new Map<number, number[]>();
       const teamConcededShotsOnTarget: number[] = [];
       const starterIds = new Set(startersFromSelectedMatch.map((player) => player.player?.id as number));
 
@@ -2504,10 +2584,12 @@ export async function fetchSportPerformanceForTeams(params: {
           if (!fouledLastFiveByPlayer.has(playerId)) fouledLastFiveByPlayer.set(playerId, []);
           if (!foulsSeasonByPlayer.has(playerId)) foulsSeasonByPlayer.set(playerId, []);
           if (!fouledSeasonByPlayer.has(playerId)) fouledSeasonByPlayer.set(playerId, []);
+          if (!dribblesSeasonByPlayer.has(playerId)) dribblesSeasonByPlayer.set(playerId, []);
 
           savesSeasonByPlayer.get(playerId)?.push(savesFromLineupStats(matchPlayer.statistics));
           foulsSeasonByPlayer.get(playerId)?.push(foulsCommittedFromLineupStats(matchPlayer.statistics));
           fouledSeasonByPlayer.get(playerId)?.push(foulsSufferedFromLineupStats(matchPlayer.statistics));
+          dribblesSeasonByPlayer.get(playerId)?.push(dribblesFromLineupStats(matchPlayer.statistics));
 
           if ((shotsLastTwoByPlayer.get(playerId)?.length ?? 0) < starterLastTwoMatches) {
             shotsLastTwoByPlayer.get(playerId)?.push(matchPlayer.statistics?.totalShots ?? 0);
@@ -2584,6 +2666,11 @@ export async function fetchSportPerformanceForTeams(params: {
           overall && sufferedTotal !== undefined
             ? sufferedTotal / appearancesRaw
             : 0;
+        const dribblesTotal = dribblesSeasonTotalFromOverall(overall);
+        let dribblesSeasonAvg =
+          overall && dribblesTotal !== undefined
+            ? dribblesTotal / appearancesRaw
+            : 0;
 
         const shotsLastTwoSeries = shotsLastTwoByPlayer.get(playerId) ?? [];
         const shotsLastFiveSeries = shotsLastFiveByPlayer.get(playerId) ?? [];
@@ -2596,6 +2683,7 @@ export async function fetchSportPerformanceForTeams(params: {
         const savesSeasonSeries = savesSeasonByPlayer.get(playerId) ?? [];
         const foulsSeasonSeries = foulsSeasonByPlayer.get(playerId) ?? [];
         const fouledSeasonSeries = fouledSeasonByPlayer.get(playerId) ?? [];
+        const dribblesSeasonSeries = dribblesSeasonByPlayer.get(playerId) ?? [];
         const capLt = starterLastTwoMatches;
         const capLf = starterLastFiveMatches;
         const shotsLastTwoN = shotsLastTwoSeries.length;
@@ -2609,6 +2697,7 @@ export async function fetchSportPerformanceForTeams(params: {
         const savesSeasonN = savesSeasonSeries.length;
         const foulsSeasonN = foulsSeasonSeries.length;
         const fouledSeasonN = fouledSeasonSeries.length;
+        const dribblesSeasonN = dribblesSeasonSeries.length;
         const shotsLastTwoAvg =
           shotsLastTwoN > 0
             ? shotsLastTwoSeries.reduce((a, b) => a + b, 0) /
@@ -2661,6 +2750,10 @@ export async function fetchSportPerformanceForTeams(params: {
           foulsSufferedSeasonAvg =
             fouledSeasonSeries.reduce((a, b) => a + b, 0) / Math.max(1, fouledSeasonN);
         }
+        if (dribblesSeasonN > 0) {
+          dribblesSeasonAvg =
+            dribblesSeasonSeries.reduce((a, b) => a + b, 0) / Math.max(1, dribblesSeasonN);
+        }
 
         if (
           foulsSufferedSeasonAvg <= 0 &&
@@ -2702,6 +2795,7 @@ export async function fetchSportPerformanceForTeams(params: {
           foulsSufferedSeasonAvg,
           foulsSufferedLastTwoAvg,
           foulsSufferedLastFiveAvg,
+          dribblesSeasonAvg,
           opponentExpectedGoalsCreated: 0,
           savePercentage: 65,
           savesSeasonAvg,

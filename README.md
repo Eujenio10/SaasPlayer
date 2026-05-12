@@ -108,9 +108,9 @@ Seed iniziale organizzazione/admin in `supabase/seed.sql`.
 
 - Pannello admin: `/admin/subscriptions`.
 - API gestione manuale: `POST /api/admin/subscriptions`.
-- API registrazione nuova agenzia: `POST /api/admin/organizations`.
-- Selezione centro nel pannello con dropdown (gestione per singola organizzazione).
-- Registrazione agenzia dal pannello:
+- API registrazione nuovo account/gruppo: `POST /api/admin/organizations`.
+- Selezione account nel pannello con dropdown.
+- Registrazione account dal pannello:
   - crea `organizations`
   - assegna admin iniziale
   - inizializza `subscriptions`

@@ -1,3 +1,4 @@
+import { frictionHeatmapIsTrustedForUi } from "@/lib/friction-heatmap-validation";
 import { FrictionPitchHeatmap } from "@/components/friction-pitch-heatmap";
 import type { TacticalMetrics } from "@/lib/types";
 
@@ -60,8 +61,15 @@ export function TacticalCard({ metrics }: TacticalCardProps) {
             ) : (
               <p className="mb-3 text-sm text-slate-300">{metrics.sparkNarrative}</p>
             )}
-            {metrics.sparkFrictionHeatmap ? (
+            {metrics.sparkFrictionHeatmap &&
+            frictionHeatmapIsTrustedForUi(metrics.sparkFrictionHeatmap, {
+              positionCodeA: metrics.positionCode
+            }) ? (
               <FrictionPitchHeatmap {...metrics.sparkFrictionHeatmap} />
+            ) : metrics.sparkDuel ? (
+              <p className="mb-3 rounded-lg border border-amber-600/30 bg-emerald-950/40 px-3 py-6 text-center text-sm leading-relaxed text-slate-300">
+                Heatmap non disponibile per questo scontro
+              </p>
             ) : (
               <div className="relative mb-3 h-20 overflow-hidden rounded-lg border border-emerald-600/30 bg-emerald-950/40">
                 <div className="absolute inset-x-0 top-1/2 h-px bg-white/25" />

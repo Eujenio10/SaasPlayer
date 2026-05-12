@@ -28,7 +28,7 @@ async function setPasswordAction(formData: FormData) {
     redirect("/set-password?error=1");
   }
 
-  redirect("/login?next=%2Fdisplay");
+  redirect("/login?next=%2F");
 }
 
 export default async function SetPasswordPage({

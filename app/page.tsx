@@ -1,5 +1,5 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
+import { DashboardHomePage } from "@/components/dashboard-home-page";
 import { getSessionContext } from "@/lib/auth/session";
 
 export const dynamic = "force-dynamic";
@@ -54,96 +54,9 @@ export default async function HomePage({
   if (!session) {
     redirect("/login");
   }
+  if (!session.organization) {
+    redirect("/forbidden");
+  }
 
-  const isAdmin = session.organization?.role === "admin";
-
-  return (
-    <section className="grid gap-6 py-6 sm:gap-8 sm:py-10">
-      <header className="rounded-2xl border border-cyan-300/30 bg-graphite/80 p-5 shadow-broadcast sm:p-8">
-        <h1 className="text-3xl font-bold text-slate-100 sm:text-4xl md:text-5xl">
-          Tactical Intelligence Hub
-        </h1>
-        <p className="mt-4 max-w-3xl text-base text-slate-300 sm:text-lg">
-          Hub editoriale B2B per analisi tattica calcistica in tempo reale, progettato
-          per sale operative di agenzie sportive.
-        </p>
-        <div className="mt-6 flex flex-wrap items-center gap-3">
-          <>
-            <span className="rounded-lg border border-cyan-400/40 px-3 py-1 text-sm text-cyan-200">
-              Operatore: {session.email ?? "utente autenticato"}
-            </span>
-            <form action="/auth/logout" method="post">
-              <button
-                type="submit"
-                className="rounded-lg border border-cyan-400/40 px-3 py-1 text-sm text-cyan-200"
-              >
-                Disconnetti
-              </button>
-            </form>
-          </>
-        </div>
-      </header>
-
-      <div className="grid gap-4 md:grid-cols-2">
-        <Link
-          href="/display"
-          className="rounded-2xl border border-cyan-400/40 bg-darkGray p-4 transition hover:border-cyan-300 sm:p-6"
-        >
-          <h2 className="text-xl font-semibold text-cyan-300 sm:text-2xl">/display Tactical TV</h2>
-          <p className="mt-2 text-slate-300">
-            Serie A: heatmap degli scontri e top tiratori (ultime 2) solo per le partite del giorno, carosello
-            automatico. Per vetrina: pulsante &quot;schermo intero&quot; o link dedicato{" "}
-            <span className="text-cyan-200">/display?vetrina=1</span>.
-          </p>
-        </Link>
-        {isAdmin ? (
-          <Link
-            href="/kiosk"
-            className="rounded-2xl border border-cyan-400/40 bg-darkGray p-4 transition hover:border-cyan-300 sm:p-6"
-          >
-            <h2 className="text-xl font-semibold text-cyan-300 sm:text-2xl">/kiosk Interactive</h2>
-            <p className="mt-2 text-slate-300">
-              Modalita desktop interna con confronto 1 vs 1 tra giocatori (tutte le leghe).
-            </p>
-          </Link>
-        ) : null}
-        <Link
-          href="/kiosk/hybrid"
-          className="rounded-2xl border border-emerald-400/40 bg-darkGray p-4 transition hover:border-emerald-300 sm:p-6"
-        >
-          <h2 className="text-xl font-semibold text-emerald-300 sm:text-2xl">/kiosk/hybrid</h2>
-          <p className="mt-2 text-slate-300">
-            Serie B nel menu con solo statistiche squadra; analisi giocatori e heatmap per Serie A, Champions ed
-            Europa League; altre leghe solo statistiche di squadra.
-          </p>
-        </Link>
-        {isAdmin ? (
-          <Link
-            href="/kiosk-testing"
-            className="rounded-2xl border border-amber-400/40 bg-darkGray p-4 transition hover:border-amber-300 sm:p-6"
-          >
-            <h2 className="text-xl font-semibold text-amber-300 sm:text-2xl">/kiosk-testing</h2>
-            <p className="mt-2 text-slate-300">
-              Test mirato su PSG vs Tolosa per verificare estrazione e mapping dati con meno chiamate API.
-            </p>
-          </Link>
-        ) : null}
-      </div>
-
-      {isAdmin ? (
-        <div className="grid gap-4">
-          <Link
-            href="/admin/subscriptions"
-            className="rounded-2xl border border-cyan-400/40 bg-darkGray p-4 transition hover:border-cyan-300 sm:p-6"
-          >
-            <h2 className="text-xl font-semibold text-cyan-300 sm:text-2xl">/admin/subscriptions</h2>
-            <p className="mt-2 text-slate-300">
-              Pannello amministrativo per attivazione, sospensione e rinnovo manuale
-              dell&apos;abbonamento tramite bonifico.
-            </p>
-          </Link>
-        </div>
-      ) : null}
-    </section>
-  );
+  return <DashboardHomePage email={session.email} />;
 }

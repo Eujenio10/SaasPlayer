@@ -14,7 +14,7 @@ export default function TermsPage() {
         </p>
         <p>
           Tactical Intelligence Hub fornisce analisi statistiche indipendenti a
-          carattere informativo/editoriale e non svolge intermediazione di gioco.
+          carattere sportivo, informativo ed editoriale.
         </p>
       </div>
     </section>

@@ -39,6 +39,8 @@ export interface TacticalMetrics {
   playerId?: number;
   playerName: string;
   jerseyNumber: number;
+  /** Posizione/codice da formazione prevista o lineup provider (es. DC, DR, DL, MR, AML). */
+  positionCode?: string;
   roleIcon: "🛡️" | "⚡" | "🎯" | "🧤";
   team: string;
   teamId: number;
@@ -82,6 +84,8 @@ export interface TacticalMetrics {
   foulsSufferedSeasonAvg: number;
   foulsSufferedLastTwoAvg: number;
   foulsSufferedLastFiveAvg: number;
+  /** Dribbling riusciti/registrati a partita, quando il provider espone la statistica. */
+  dribblesSeasonAvg?: number;
   /** Partite campionate per la media "ultimi 2" (0 = nessun dato reale, evitare confronto con la stagione). */
   shotsLastTwoSampleCount?: number;
   savesLastTwoSampleCount?: number;
@@ -103,6 +107,7 @@ export interface TacticalMetrics {
    * Valori opzionali: presenti solo quando `match-insights` riesce a risalire all’ultimo H2H e ai lineups.
    */
   h2hEventId?: number;
+  /** Tot falli/cartellini nell’ultimo scontro diretto H2H recuperato (non medie a partita). */
   h2hFoulsCommitted?: number;
   h2hFoulsSuffered?: number;
   h2hYellowCards?: number;
@@ -202,6 +207,8 @@ export interface SportPerformanceInput {
   foulsSufferedSeasonAvg: number;
   foulsSufferedLastTwoAvg: number;
   foulsSufferedLastFiveAvg: number;
+  /** Dribbling riusciti/registrati a partita, quando il provider espone la statistica. */
+  dribblesSeasonAvg?: number;
   opponentExpectedGoalsCreated: number;
   savePercentage: number;
   savesSeasonAvg: number;

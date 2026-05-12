@@ -5,6 +5,7 @@ import {
   normalizeCompetitionSlugForInsights
 } from "@/lib/match-insights-service";
 import { getOrRefreshTacticalMatchesMenuFull } from "@/lib/tactical-matches-menu-cache";
+import { frictionHeatmapIsTrustedForUi } from "@/lib/friction-heatmap-validation";
 import { isHybridFullPlayerAnalyticsCompetitionSlug } from "@/lib/hybrid-player-analytics-competition";
 import type {
   CompetitionScope,
@@ -310,7 +311,14 @@ async function buildSerieADisplayProgramBody(): Promise<DisplayProgramPayload> {
       for (const pair of row.pairs) {
         if (frictionSlidesAdded >= maxFrictionSlidesPerMatch) break;
         const hm = pair.left.sparkFrictionHeatmap;
-        if (!hm) continue;
+        if (
+          !hm ||
+          !frictionHeatmapIsTrustedForUi(hm, {
+            positionCodeA: pair.left.positionCode,
+            positionCodeB: pair.right.positionCode
+          })
+        )
+          continue;
 
         const a = pair.left.playerName.trim().toUpperCase();
         const b = pair.right.playerName.trim().toUpperCase();

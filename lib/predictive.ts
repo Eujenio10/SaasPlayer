@@ -1,3 +1,4 @@
+import { frictionHeatmapIsTrustedForUi } from "@/lib/friction-heatmap-validation";
 import type { SportPerformanceInput, TacticalMetrics } from "@/lib/types";
 
 function clamp(value: number, min = 0, max = 100): number {
@@ -82,6 +83,8 @@ function centroidDistance(
 
 /** Pochi punti = centroid instabile: si usa solo il blend fisico. */
 const MIN_HEATMAP_POINTS_FOR_SPATIAL = 3;
+const HIGH_FOULS_COMMITTED_AVG = 1.1;
+const HIGH_FOULS_SUFFERED_AVG = 1.25;
 
 function foulFrictionScore(athlete: SportPerformanceInput, opponent: SportPerformanceInput): number {
   return clamp(
@@ -90,6 +93,38 @@ function foulFrictionScore(athlete: SportPerformanceInput, opponent: SportPerfor
     0,
     100
   );
+}
+
+function committedFoulSignal(player: SportPerformanceInput): number {
+  return Math.max(
+    player.foulsCommittedSeasonAvg,
+    player.foulsCommittedLastFiveAvg * 0.95,
+    player.foulsCommitted
+  );
+}
+
+function sufferedFoulSignal(player: SportPerformanceInput): number {
+  return Math.max(
+    player.foulsSufferedSeasonAvg,
+    player.foulsSufferedLastFiveAvg * 0.95,
+    player.foulsSuffered
+  );
+}
+
+function isDirectionalFoulMatchup(
+  likelyOffender: SportPerformanceInput,
+  likelyVictim: SportPerformanceInput
+): boolean {
+  const committed = committedFoulSignal(likelyOffender);
+  const suffered = sufferedFoulSignal(likelyVictim);
+  return (
+    (committed >= HIGH_FOULS_COMMITTED_AVG && suffered >= HIGH_FOULS_SUFFERED_AVG) ||
+    (committed >= HIGH_FOULS_COMMITTED_AVG + 0.25 && suffered >= HIGH_FOULS_SUFFERED_AVG - 0.2)
+  );
+}
+
+function isInterestingFoulPair(a: SportPerformanceInput, b: SportPerformanceInput): boolean {
+  return isDirectionalFoulMatchup(a, b) || isDirectionalFoulMatchup(b, a);
 }
 
 type RoleKind = "gk" | "def" | "mid" | "fwd";
@@ -190,7 +225,7 @@ function lateralLeanPairForMarking(
   return { la: laAdj, lb, ya: cA.y, yb: cBOpp.y };
 }
 
-/** 0–40: quanto il duello ricorda una marcatura “naturale” (fascia + ruoli). */
+/** 0–55: quanto il duello ricorda una marcatura “naturale” (fascia + ruoli/schieramento). */
 function markingAffinityScore(
   athlete: SportPerformanceInput,
   opponent: SportPerformanceInput,
@@ -203,7 +238,7 @@ function markingAffinityScore(
   const { la, lb, ya, yb } = lateralLeanPairForMarking(athlete, opponent, homeTeamId);
   const laneMatch = clamp(1 - Math.min(1, Math.abs(la - lb) / 0.88), 0, 1);
 
-  let score = laneMatch * 15;
+  let score = laneMatch * 22;
 
   const wideA = Math.abs(la) > 0.24;
   const wideB = Math.abs(lb) > 0.24;
@@ -214,12 +249,12 @@ function markingAffinityScore(
     (rkA === "def" && (rkB === "fwd" || rkB === "mid")) ||
     (rkB === "def" && (rkA === "fwd" || rkA === "mid"));
   if (defVsAtt && laneMatch > 0.32) {
-    score += wideA || wideB ? 16 : 9;
+    score += wideA || wideB ? 22 : 12;
   }
 
   if (rkA === "mid" && rkB === "mid" && laneMatch > 0.42) {
-    score += 11;
-    if (wideA && wideB) score += 5;
+    score += 13;
+    if (wideA && wideB) score += 7;
   }
 
   if (
@@ -228,7 +263,7 @@ function markingAffinityScore(
     centralB &&
     Math.abs(ya - yb) > 9
   ) {
-    score += 13;
+    score += 14;
   }
 
   if (rkA === "def" && rkB === "def" && centralA && centralB) {
@@ -242,10 +277,10 @@ function markingAffinityScore(
   const pfA = lineupPositionFlank(athlete.positionCode);
   const pfB = lineupPositionFlank(opponent.positionCode);
   if (pfA !== 0 && pfB !== 0 && pfA === pfB && laneMatch > 0.4) {
-    score += 6;
+    score += 9;
   }
 
-  return clamp(score, 0, 40);
+  return clamp(score, 0, 55);
 }
 
 function frictionOverlapScore(
@@ -281,7 +316,7 @@ function frictionOverlapScore(
     const spatial = clamp(100 - distance, 0, 100);
     const foulBlend = foulFrictionScore(athlete, opponent);
     const combined = clamp(
-      spatial * 0.56 + foulBlend * 0.22 + marking * 0.33,
+      spatial * 0.46 + foulBlend * 0.2 + marking * 0.54,
       0,
       100
     );
@@ -289,7 +324,7 @@ function frictionOverlapScore(
   }
 
   const foulOnly = foulFrictionScore(athlete, opponent);
-  return clamp(foulOnly * 0.82 + marking * 0.4, 0, 100) * foulsTrigger;
+  return clamp(foulOnly * 0.62 + marking * 0.72, 0, 100) * foulsTrigger;
 }
 
 const HEATMAP_POINTS_RENDER_CAP = 72;
@@ -324,39 +359,6 @@ export function buildHeatmapPointsMatchFrameForPayload(
   return capHeatmapPointsForPayload(inFrame);
 }
 
-function stableSeed01(seed: string): number {
-  let h = 2166136261;
-  for (let i = 0; i < seed.length; i += 1) {
-    h ^= seed.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return (h >>> 0) / 4294967295;
-}
-
-function buildEstimatedHeatmapPoints(
-  centerX: number,
-  centerY: number,
-  seed: string
-): SportPerformanceInput["heatmapPoints"] {
-  const s1 = stableSeed01(`${seed}:a`);
-  const s2 = stableSeed01(`${seed}:b`);
-  const dx = (s1 - 0.5) * 7.5;
-  const dy = (s2 - 0.5) * 7.5;
-  const pattern: Array<[number, number, number]> = [
-    [0, 0, 1.0],
-    [2.8, 1.6, 0.82],
-    [-2.2, 1.2, 0.74],
-    [1.9, -2.0, 0.68],
-    [-1.7, -2.4, 0.62],
-    [4.0, -0.4, 0.56]
-  ];
-
-  return pattern.map(([px, py, intensity]) => ({
-    x: clamp(centerX + dx + px, 2, 98),
-    y: clamp(centerY + dy + py, 2, 98),
-    intensity
-  }));
-}
 
 function buildFrictionExplanation(
   athlete: SportPerformanceInput,
@@ -450,11 +452,36 @@ function calculateSparkDetector(
   }
 
   const bestOpponent = nearbyAthletes
-    .map((opponent) => ({
-      opponent,
-      overlap: frictionOverlapScore(athlete, opponent, homeTeamId)
-    }))
+    .map((opponent) => {
+      const overlap = frictionOverlapScore(athlete, opponent, homeTeamId);
+      const marking = markingAffinityScore(athlete, opponent, homeTeamId);
+      const hasHeatmapSupport =
+        athlete.heatmapPoints.length >= MIN_HEATMAP_POINTS_FOR_SPATIAL &&
+        opponent.heatmapPoints.length >= MIN_HEATMAP_POINTS_FOR_SPATIAL &&
+        overlap >= 58;
+
+      return {
+        opponent,
+        overlap,
+        marking,
+        isInteresting:
+          isInterestingFoulPair(athlete, opponent) &&
+          (marking >= 14 || hasHeatmapSupport)
+      };
+    })
+    .filter((item) => item.isInteresting)
     .sort((a, b) => b.overlap - a.overlap)[0];
+
+  if (!bestOpponent) {
+    return {
+      index: clamp(athlete.foulsCommitted * 20),
+      narrative: "Non emerge un matchup falli davvero rilevante con lo schieramento previsto.",
+      zone: { x: 50, y: 50, glow: 0 },
+      duel: null,
+      frictionExplanation: null,
+      frictionHeatmap: null
+    };
+  }
 
   const opp = bestOpponent.opponent;
   const useHomePitchFrame = homeTeamId !== undefined && homeTeamId > 0;
@@ -479,18 +506,11 @@ function calculateSparkDetector(
     foulsSufferedB: opp.foulsSuffered
   };
 
-  const aN = athlete.heatmapPoints.length;
-  const bN = opp.heatmapPoints.length;
-  const heatmapOk =
-    aN >= MIN_HEATMAP_POINTS_FOR_SPATIAL && bN >= MIN_HEATMAP_POINTS_FOR_SPATIAL;
-
-  const markingScore = markingAffinityScore(athlete, opp, homeTeamId);
+  const markingScore = bestOpponent.marking;
   const narrative =
-    markingScore >= 16
+    markingScore >= 18
       ? `Possibile scontro in campo tra ${athlete.athleteName} e ${opp.athleteName}, con profilo da duello tattico sulla stessa fascia (marcatura plausibile).`
       : `Possibile scontro in campo tra ${athlete.athleteName} e ${opp.athleteName}.`;
-
-  const frictionExplanation = buildFrictionExplanation(athlete, opp, heatmapOk, markingScore);
 
   const oppPointsForDisplay = useHomePitchFrame
     ? opp.heatmapPoints.length > 0
@@ -499,33 +519,48 @@ function calculateSparkDetector(
     : opp.heatmapPoints.length > 0
       ? mirrorHeatmapPointsX(opp.heatmapPoints)
       : [];
-  const oppCentroid = heatmapCentroid(oppPointsForDisplay);
+
   const athletePointsForDisplay = useHomePitchFrame
     ? athlete.heatmapPoints.length > 0
       ? normalizeHeatmapToHomeFrame(athlete.heatmapPoints, athlete.teamId, homeTeamId)
       : []
     : athlete.heatmapPoints;
-  const pointsA =
-    athletePointsForDisplay.length > 0
-      ? capHeatmapPointsForPayload(athletePointsForDisplay)
-      : buildEstimatedHeatmapPoints(zone.x, zone.y, `${athlete.athleteName}|${opp.athleteName}|A`);
-  const pointsB =
-    oppPointsForDisplay.length > 0
-      ? capHeatmapPointsForPayload(oppPointsForDisplay)
-      : buildEstimatedHeatmapPoints(
-          oppCentroid.x > 0 || oppCentroid.y > 0 ? oppCentroid.x : zone.x + 3.5,
-          oppCentroid.x > 0 || oppCentroid.y > 0 ? oppCentroid.y : zone.y - 1.5,
-          `${athlete.athleteName}|${opp.athleteName}|B`
-        );
 
-  const frictionHeatmap: TacticalMetrics["sparkFrictionHeatmap"] = {
-    labelA: athlete.athleteName,
-    labelB: opp.athleteName,
-    clubColorA: athlete.clubColor || "#38bdf8",
-    clubColorB: opp.clubColor || "#c084fc",
-    pointsA,
-    pointsB
-  };
+  const pointsACapped =
+    athletePointsForDisplay.length > 0 ? capHeatmapPointsForPayload(athletePointsForDisplay) : [];
+  const pointsBCapped =
+    oppPointsForDisplay.length > 0 ? capHeatmapPointsForPayload(oppPointsForDisplay) : [];
+
+  const frictionHeatmap: TacticalMetrics["sparkFrictionHeatmap"] | null =
+    pointsACapped.length > 0 && pointsBCapped.length > 0
+      ? frictionHeatmapIsTrustedForUi(
+          {
+            labelA: athlete.athleteName,
+            labelB: opp.athleteName,
+            clubColorA: athlete.clubColor || "#38bdf8",
+            clubColorB: opp.clubColor || "#c084fc",
+            pointsA: pointsACapped,
+            pointsB: pointsBCapped
+          },
+          { positionCodeA: athlete.positionCode, positionCodeB: opp.positionCode }
+        )
+        ? {
+            labelA: athlete.athleteName,
+            labelB: opp.athleteName,
+            clubColorA: athlete.clubColor || "#38bdf8",
+            clubColorB: opp.clubColor || "#c084fc",
+            pointsA: pointsACapped,
+            pointsB: pointsBCapped
+          }
+        : null
+      : null;
+
+  const frictionExplanation = buildFrictionExplanation(
+    athlete,
+    opp,
+    frictionHeatmap !== null,
+    markingScore
+  );
 
   return { index, narrative, zone, duel, frictionExplanation, frictionHeatmap };
 }
@@ -560,6 +595,7 @@ export function buildTacticalMetrics(
     playerId: athlete.athleteId,
     playerName: athlete.athleteName.toUpperCase(),
     jerseyNumber: athlete.jerseyNumber,
+    positionCode: athlete.positionCode,
     roleIcon: roleToIcon(athlete.role),
     team: athlete.team,
     teamId: athlete.teamId,
@@ -590,6 +626,7 @@ export function buildTacticalMetrics(
     foulsSufferedSeasonAvg: athlete.foulsSufferedSeasonAvg,
     foulsSufferedLastTwoAvg: athlete.foulsSufferedLastTwoAvg,
     foulsSufferedLastFiveAvg: athlete.foulsSufferedLastFiveAvg,
+    dribblesSeasonAvg: athlete.dribblesSeasonAvg ?? 0,
     shotsLastTwoSampleCount: athlete.shotsLastTwoSampleCount,
     savesLastTwoSampleCount: athlete.savesLastTwoSampleCount,
     foulsCommittedLastTwoSampleCount: athlete.foulsCommittedLastTwoSampleCount,

@@ -2,7 +2,7 @@
 -- Sostituire i placeholder prima dell'esecuzione.
 
 insert into public.organizations (id, name, allowed_ip)
-values ('11111111-1111-1111-1111-111111111111', 'Agenzia Demo', '127.0.0.1')   --Sostituisci nome e IP con quello dell azienda
+values ('11111111-1111-1111-1111-111111111111', 'Account Demo', '127.0.0.1')   -- Sostituisci nome account prima dell'esecuzione.
 on conflict (id) do nothing;
 
 insert into public.data_retention_policies (

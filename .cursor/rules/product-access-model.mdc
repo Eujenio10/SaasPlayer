@@ -1,0 +1,14 @@
+---
+description: Product access model and positioning
+alwaysApply: true
+---
+
+# Product Access Model
+
+- Tactical Intelligence Hub is an online sports-analysis product for authenticated account users, not an agency or betting-center kiosk.
+- Avoid copy that references betting, gambling, bookmakers, agencies, or betting shops. Frame the product as sports, tactical, statistical, and editorial analysis.
+- Only users present in the database may access protected product pages.
+- Roles are `admin`, `pro`, and `member`. Legacy `viewer` users should be treated as `member`.
+- Admins can access everything and are the only users allowed to refresh/recompute data.
+- Pro users can consult stats for all supported competitions without weekly match limits.
+- Member users can analyze at most 3 chosen matches per week and only see 3 random visible positions in the yellow-card Top 10; remaining rows should be obscured.
