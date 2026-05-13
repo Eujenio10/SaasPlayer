@@ -11,6 +11,7 @@ import type { UserAccessSummary } from "@/lib/auth/user-access";
 import type { CompetitionScope, TacticalMetrics } from "@/lib/types";
 import {
   bumpAdminInsightsSnap,
+  clearAllKioskInsightsLocal,
   KIOSK_ADMIN_INSIGHTS_REFRESH_EVENT,
   readKioskInsightsLocal,
   readKioskMatchesCache,
@@ -1324,6 +1325,21 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
                     setMatchInsightsError(null);
                     setAdminBulkProgress({ current: 0, total: 0 });
                     try {
+                      const purgeRes = await fetch("/api/tactical/org-kiosk-match-insights", {
+                        method: "DELETE",
+                        credentials: "include"
+                      });
+                      if (!purgeRes.ok) {
+                        if (mountedRef.current) {
+                          setMatchInsightsError(
+                            "Impossibile azzerare gli snapshot precedenti sul server (permessi o connessione). Riprova."
+                          );
+                        }
+                        return;
+                      }
+
+                      clearAllKioskInsightsLocal();
+
                       const snap = bumpAdminInsightsSnap();
                       window.dispatchEvent(
                         new CustomEvent<{ snap: number }>(KIOSK_ADMIN_INSIGHTS_REFRESH_EVENT, {
