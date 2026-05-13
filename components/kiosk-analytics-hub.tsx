@@ -1340,6 +1340,8 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
                       await prefetchAllMenuInsights(topFiveTargets, snap, (current, tot) => {
                         if (mountedRef.current) setAdminBulkProgress({ current, total: tot });
                       });
+                      /** Riduce mismatch menu DB vs prefetch: ripersiste il calendario condiviso lato admin. */
+                      await fetch("/api/tactical/matches", { cache: "no-store", credentials: "include" });
                     } finally {
                       if (mountedRef.current) {
                         setAdminBulkRefreshing(false);
