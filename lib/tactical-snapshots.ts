@@ -107,9 +107,18 @@ export async function getOrRefreshSnapshot(params: {
   organizationId: string;
   fixtureId?: string;
   forceRefresh?: boolean;
+  /**
+   * Pro/Member: false — non chiamare SportAPI anche se snapshot assente o scaduto.
+   */
+  allowProviderRefresh?: boolean;
 }): Promise<TacticalSnapshotRow | null> {
   const fixtureId = params.fixtureId ?? defaultFixtureId();
   const latest = await getLatestSnapshot(params.organizationId, fixtureId);
+  const allowProvider = params.allowProviderRefresh !== false;
+
+  if (!allowProvider) {
+    return latest;
+  }
 
   if (params.forceRefresh || !latest) {
     return refreshSnapshot({ organizationId: params.organizationId, fixtureId });

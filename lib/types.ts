@@ -178,7 +178,8 @@ export type DisplayProgramContext = "serie_a_today" | "serie_a_next";
 export interface DisplayProgramPayload {
   slides: DisplayProgramSlide[];
   updatedAt: string;
-  sourceStatus: "ok" | "empty" | "error";
+  /** `organization_db_empty`: nessun programma salvato dagli admin (lettura Pro senza RapidAPI). */
+  sourceStatus: "ok" | "empty" | "error" | "organization_db_empty";
   programContext?: DisplayProgramContext;
 }
 

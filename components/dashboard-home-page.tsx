@@ -462,9 +462,19 @@ function HomePage({ email }: DashboardHomePageProps) {
       try {
         const res = await fetch("/api/tactical/matches", { cache: "no-store" });
         if (!res.ok) throw new Error("matches_unavailable");
-        const json = (await res.json()) as { matches?: UpcomingMatchItem[] };
+        const json = (await res.json()) as {
+          matches?: UpcomingMatchItem[];
+          persistedSnapshotMissing?: boolean;
+        };
         const raw = Array.isArray(json.matches) ? json.matches : [];
-        if (!cancelled) setMatches(dedupeMatchesByEventId(raw));
+        if (!cancelled) {
+          setMatches(dedupeMatchesByEventId(raw));
+          if (raw.length === 0 && json.persistedSnapshotMissing) {
+            setMatchesError(
+              "Il calendario condiviso non è ancora stato preparato dall’organizzazione. Un amministratore deve caricare una volta il menù dal Tactical Hub (nessuna leva sul piano API per i lettori Pro)."
+            );
+          }
+        }
       } catch {
         if (!cancelled) setMatchesError("Impossibile caricare il calendario partite.");
       } finally {

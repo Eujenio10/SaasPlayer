@@ -16,7 +16,11 @@ function defaultFixtureId() {
 export const getCachedTacticalSnapshot = cache(
   async (organizationId: string): Promise<TacticalDataResult> => {
     const fixtureId = defaultFixtureId();
-    const snapshot = await getOrRefreshSnapshot({ organizationId, fixtureId });
+    const snapshot = await getOrRefreshSnapshot({
+      organizationId,
+      fixtureId,
+      allowProviderRefresh: false
+    });
 
     return {
       fixtureId,

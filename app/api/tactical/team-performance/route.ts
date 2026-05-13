@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getOrganizationContextForUser } from "@/lib/auth/organization";
-import type { CompetitionScope } from "@/lib/types";
+import type { CompetitionScope, TeamPerformanceBlueprint } from "@/lib/types";
 import { fetchTeamPerformanceBlueprint } from "@/services/sportapi";
 
 const querySchema = z.object({
@@ -12,6 +12,11 @@ const querySchema = z.object({
   force: z.enum(["0", "1"]).optional(),
   scope: z.enum(["DOMESTIC", "CUP", "EUROPE"]).default("DOMESTIC")
 });
+
+function competitionSlugKey(raw: string | undefined): string {
+  const s = raw?.trim().toLowerCase() ?? "";
+  return s.slice(0, 120);
+}
 
 export async function GET(request: Request) {
   const supabase = createSupabaseServerClient();
@@ -55,20 +60,69 @@ export async function GET(request: Request) {
     scope: CompetitionScope;
   };
 
-  try {
-    const blueprint = await fetchTeamPerformanceBlueprint({
-      teamId,
-      teamName,
-      competitionSlug,
-      forceRefresh: organization.role === "admin" && force === "1",
-      scope
-    });
+  const slugKey = competitionSlugKey(competitionSlug);
+
+  /** Pro/Member: zero SportAPI — solo snapshot salvato da un admin. */
+  if (organization.role !== "admin") {
+    const { data: row, error } = await supabase
+      .from("organization_team_performance_snapshot")
+      .select("blueprint")
+      .eq("organization_id", organization.organizationId)
+      .eq("team_id", teamId)
+      .eq("scope", scope)
+      .eq("competition_slug_key", slugKey)
+      .maybeSingle();
+
+    if (error) {
+      return NextResponse.json({ error: "read_failed" }, { status: 500 });
+    }
+
+    const persistedSnapshotMissing = row == null;
+    const blueprint =
+      row?.blueprint && typeof row.blueprint === "object"
+        ? (row.blueprint as TeamPerformanceBlueprint)
+        : null;
 
     return NextResponse.json({
       teamId,
       teamName,
       scope,
-      blueprint
+      blueprint,
+      persistedSnapshotMissing,
+      teamPerformanceSource: "organization_db"
+    });
+  }
+
+  try {
+    const blueprint = await fetchTeamPerformanceBlueprint({
+      teamId,
+      teamName,
+      competitionSlug,
+      forceRefresh: force === "1",
+      scope
+    });
+
+    await supabase.from("organization_team_performance_snapshot").upsert(
+      {
+        organization_id: organization.organizationId,
+        team_id: teamId,
+        scope,
+        competition_slug_key: slugKey,
+        blueprint: blueprint as unknown as Record<string, unknown>,
+        updated_at: new Date().toISOString()
+      },
+      {
+        onConflict: "organization_id,team_id,scope,competition_slug_key"
+      }
+    );
+
+    return NextResponse.json({
+      teamId,
+      teamName,
+      scope,
+      blueprint,
+      persistedSnapshotMissing: false,
+      teamPerformanceSource: "provider_or_cache"
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "team_performance_unavailable";

@@ -59,6 +59,76 @@ interface KioskAnalyticsHubProps {
   presetMatch?: UpcomingMatchItem;
 }
 
+async function fetchOrgKioskInsightsFromApi(eventId: number): Promise<{
+  metrics: TacticalMetrics[];
+  playerDetailLevel: "full" | "team_only";
+  insightsSnap: number;
+} | null> {
+  try {
+    const res = await fetch(
+      `/api/tactical/org-kiosk-match-insights?eventId=${encodeURIComponent(String(eventId))}`,
+      { cache: "no-store", credentials: "include" }
+    );
+    if (!res.ok) return null;
+    const json = (await res.json()) as {
+      metrics?: TacticalMetrics[];
+      playerDetailLevel?: string;
+      insightsSnap?: number;
+    };
+    const metrics = Array.isArray(json.metrics) ? json.metrics : [];
+    if (metrics.length === 0) return null;
+    const playerDetailLevel = json.playerDetailLevel === "team_only" ? "team_only" : "full";
+    const insightsSnap = typeof json.insightsSnap === "number" ? json.insightsSnap : 0;
+    return { metrics, playerDetailLevel, insightsSnap };
+  } catch {
+    return null;
+  }
+}
+
+async function persistOrgKioskInsightsToApi(params: {
+  eventId: number;
+  insightsSnap: number;
+  playerDetailLevel: "full" | "team_only";
+  metrics: TacticalMetrics[];
+}): Promise<boolean> {
+  try {
+    const res = await fetch("/api/tactical/org-kiosk-match-insights", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({
+        eventId: params.eventId,
+        insightsSnap: params.insightsSnap,
+        playerDetailLevel: params.playerDetailLevel,
+        metrics: params.metrics
+      })
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+async function consumeMemberMatchWeekSlotIfNeeded(params: {
+  eventId: number;
+  isMember: boolean;
+}): Promise<{ ok: true } | { ok: false; reason: "limit" | "network" }> {
+  if (!params.isMember) return { ok: true };
+  try {
+    const res = await fetch("/api/tactical/member-match-week-consume", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ eventId: params.eventId })
+    });
+    if (res.status === 403) return { ok: false, reason: "limit" };
+    if (!res.ok) return { ok: false, reason: "network" };
+    return { ok: true };
+  } catch {
+    return { ok: false, reason: "network" };
+  }
+}
+
 const SINGLE_MATCH_MODE = process.env.NEXT_PUBLIC_KIOSK_SINGLE_MATCH_MODE === "1";
 const SINGLE_MATCH_HOME =
   process.env.NEXT_PUBLIC_KIOSK_SINGLE_MATCH_HOME?.trim() || "Paris Saint-Germain";
@@ -426,6 +496,17 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
           playerDetailLevel: json.playerDetailLevel === "team_only" ? "team_only" : "full",
           insightsSnap: snap
         });
+        const metricsPersist = Array.isArray(json.metrics) ? json.metrics : [];
+        const pdlPersist =
+          json.playerDetailLevel === "team_only" ? ("team_only" as const) : ("full" as const);
+        if (metricsPersist.length > 0) {
+          void persistOrgKioskInsightsToApi({
+            eventId: match.eventId,
+            insightsSnap: snap,
+            playerDetailLevel: pdlPersist,
+            metrics: metricsPersist
+          });
+        }
       } catch {
         // Prefetch massivo best-effort: errori isolati non bloccano gli altri eventId.
       }
@@ -688,11 +769,12 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
       try {
         for (const match of matchesToAnalyze) {
           if (cancelled || ac.signal.aborted) break;
-          const cachedLocal = readKioskInsightsLocal(match.eventId);
-          const list =
-            cachedLocal?.metrics?.length && Array.isArray(cachedLocal.metrics)
-              ? cachedLocal.metrics
-              : null;
+          let list: TacticalMetrics[] | null =
+            readKioskInsightsLocal(match.eventId)?.metrics ?? null;
+          if (!Array.isArray(list) || list.length === 0) {
+            const orgRow = await fetchOrgKioskInsightsFromApi(match.eventId);
+            list = orgRow?.metrics?.length ? orgRow.metrics : null;
+          }
           if (!list?.length) continue;
 
           const sufferedRows = analyzeFoulRisk({
@@ -883,12 +965,18 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
         setMatchesError("Impossibile caricare il menu partite.");
         return;
       }
-      let json = (await response.json()) as { matches?: UpcomingMatchItem[] };
+      let json = (await response.json()) as {
+        matches?: UpcomingMatchItem[];
+        persistedSnapshotMissing?: boolean;
+      };
       let list = json.matches ?? [];
       if (singleMatchFilter && list.length === 0) {
         const fallback = await fetch("/api/tactical/matches", { cache: "no-store" });
         if (fallback.ok) {
-          json = (await fallback.json()) as { matches?: UpcomingMatchItem[] };
+          json = (await fallback.json()) as {
+            matches?: UpcomingMatchItem[];
+            persistedSnapshotMissing?: boolean;
+          };
           list = json.matches ?? [];
         }
       }
@@ -902,7 +990,19 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
       writeKioskMatchesCache(fixtureId, normalized);
       // Non auto-selezionare match: prima l’utente deve scegliere il campionato.
       setSelectedMatchId(0);
-      setMatchesError(null);
+      if (
+        normalized.length === 0 &&
+        !presetMatch &&
+        !testingMatch
+      ) {
+        setMatchesError(
+          json.persistedSnapshotMissing
+            ? "Menù partite non ancora salvato dall’organizzazione. Un amministratore deve aprire il Tactical Hub una volta (caricamento menu completo) così anche i profili Pro usano solo i dati in database, senza consumare il piano API esterno."
+            : "Nessuna partita futura nel menù condiviso. Chiedi a un amministratore di aggiornare il Tactical Hub quando serve un refresh del calendario."
+        );
+      } else {
+        setMatchesError(null);
+      }
     }
     void loadMatches();
   }, [fixtureId, presetMatch, testingMatch]);
@@ -914,147 +1014,110 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
       return;
     }
 
-    const snap = adminInsightsSnap;
     const testingOrPreset = Boolean(testingMatch || presetMatch);
     let cancelled = false;
-    const abort = new AbortController();
 
-    const weeklyQuotaActive = accessSummary.matchUsage.limit != null;
+    /** Durante prefetch massivo: anteprima da cache locale; sync completo al termine del bulk. */
+    if (adminBulkRefreshing) {
+      const lsWarm = readKioskInsightsLocal(selectedMatch.eventId);
+      if (lsWarm?.metrics?.length) {
+        setMetrics(lsWarm.metrics);
+        setPlayerDetailLevel(lsWarm.playerDetailLevel);
+      }
+      setLoadingMatchInsights(true);
+      setMatchInsightsError(null);
+      return () => {
+        cancelled = true;
+      };
+    }
 
-    /** Solo account senza quota settimanale (pro/admin): kiosk locale senza round-trip API. Con quota, serve sempre l'API per conteggio e limite. */
-    if (!testingOrPreset && !weeklyQuotaActive) {
-      const ls = readKioskInsightsLocal(selectedMatch.eventId);
+    void (async () => {
+      setLoadingMatchInsights(true);
+      setMatchInsightsError(null);
 
-      if (adminBulkRefreshing) {
-        if (ls?.metrics?.length) {
-          setMetrics(ls.metrics);
-          setPlayerDetailLevel(ls.playerDetailLevel);
+      const orgRow = await fetchOrgKioskInsightsFromApi(selectedMatch.eventId);
+      if (cancelled) return;
+      if (orgRow) {
+        if (!testingOrPreset && accessSummary.isMember) {
+          const unlocked = await consumeMemberMatchWeekSlotIfNeeded({
+            eventId: selectedMatch.eventId,
+            isMember: true
+          });
+          if (!cancelled && !unlocked.ok) {
+            setMetrics([]);
+            setPlayerDetailLevel("full");
+            setMatchInsightsError(
+              unlocked.reason === "limit"
+                ? "Hai già scelto 3 partite questa settimana. Potrai selezionarne altre dalla prossima settimana."
+                : "Impossibile verificare la quota partite settimanali. Controlla la connessione e riprova."
+            );
+            setLoadingMatchInsights(false);
+            if (unlocked.reason === "limit") {
+              void reloadAccessSummary();
+            }
+            return;
+          }
         }
-        setLoadingMatchInsights(true);
+
+        writeKioskInsightsLocal(selectedMatch.eventId, {
+          metrics: orgRow.metrics,
+          playerDetailLevel: orgRow.playerDetailLevel,
+          insightsSnap: orgRow.insightsSnap
+        });
+        setMetrics(orgRow.metrics);
+        setPlayerDetailLevel(orgRow.playerDetailLevel);
+        await reloadAccessSummary();
+        setLoadingMatchInsights(false);
         setMatchInsightsError(null);
-        return () => {
-          cancelled = true;
-          abort.abort();
-        };
+        return;
       }
 
+      const ls = readKioskInsightsLocal(selectedMatch.eventId);
+
       if (ls?.metrics?.length) {
+        if (!testingOrPreset && accessSummary.isMember) {
+          const unlocked = await consumeMemberMatchWeekSlotIfNeeded({
+            eventId: selectedMatch.eventId,
+            isMember: true
+          });
+          if (!cancelled && !unlocked.ok) {
+            setMetrics([]);
+            setPlayerDetailLevel("full");
+            setMatchInsightsError(
+              unlocked.reason === "limit"
+                ? "Hai già scelto 3 partite questa settimana. Potrai selezionarne altre dalla prossima settimana."
+                : "Impossibile verificare la quota partite settimanali. Controlla la connessione e riprova."
+            );
+            setLoadingMatchInsights(false);
+            if (unlocked.reason === "limit") {
+              void reloadAccessSummary();
+            }
+            return;
+          }
+        }
+
         setMetrics(ls.metrics);
         setPlayerDetailLevel(ls.playerDetailLevel);
         setMatchInsightsError(null);
         setLoadingMatchInsights(false);
-        return () => {
-          cancelled = true;
-          abort.abort();
-        };
+        void reloadAccessSummary();
+        return;
       }
 
-      setMetrics([]);
-      setPlayerDetailLevel("full");
-      setMatchInsightsError(
-        "Analisi giocatori non presenti in cache per questa partita. Un amministratore deve avviare l'aggiornamento dati dalla dashboard Tactical: i dati restano in memoria locale fino al prossimo refresh."
-      );
-      setLoadingMatchInsights(false);
-      return () => {
-        cancelled = true;
-        abort.abort();
-      };
-    }
-
-    const ls = readKioskInsightsLocal(selectedMatch.eventId);
-
-    if (adminBulkRefreshing) {
-      if (ls?.metrics?.length) {
-        setMetrics(ls.metrics);
-        setPlayerDetailLevel(ls.playerDetailLevel);
-      }
-      setLoadingMatchInsights(true);
-      setMatchInsightsError(null);
-      return () => {
-        cancelled = true;
-        abort.abort();
-      };
-    }
-
-    if (ls?.metrics?.length) {
-      setMetrics(ls.metrics);
-      setPlayerDetailLevel(ls.playerDetailLevel);
-    }
-
-    const scope = scopeFromCompetitionSlug(selectedMatch.competitionSlug);
-
-    const forceRefreshParam =
-      canRefreshData &&
-      (Boolean(testingMatch || presetMatch) ||
-        (snap > 0 && typeof ls?.insightsSnap === "number" && ls.insightsSnap < snap))
-        ? "&forceRefresh=1"
-        : "";
-
-    async function loadMatchInsights() {
-      setLoadingMatchInsights(true);
-      setMatchInsightsError(null);
-
-      const playerAnalyticsParam =
-        playerAnalyticsPolicy === "serie_a_players" ? "&playerAnalytics=serie_a_players" : "";
-      try {
-        const response = await fetch(
-          `/api/tactical/match-insights?eventId=${selectedMatch.eventId}&homeTeamId=${selectedMatch.homeTeam.id}&awayTeamId=${selectedMatch.awayTeam.id}&homeTeamName=${encodeURIComponent(
-            selectedMatch.homeTeam.name
-          )}&awayTeamName=${encodeURIComponent(
-            selectedMatch.awayTeam.name
-          )}&competitionSlug=${encodeURIComponent(selectedMatch.competitionSlug)}&scope=${scope}${forceRefreshParam}${playerAnalyticsParam}`,
-          { cache: "no-store", signal: abort.signal }
+      if (!cancelled) {
+        setMetrics([]);
+        setPlayerDetailLevel("full");
+        setMatchInsightsError(
+          "Analisi giocatori non disponibili per questa partita. Un amministratore deve eseguire «Aggiorna dati admin» dal kiosk: i dati vengono salvati sul database dell’organizzazione e restano consultabili da tutti i dispositivi."
         );
-
-        if (!response.ok) {
-          if (!cancelled) {
-            if (response.status === 403) {
-              setMetrics([]);
-            }
-            setMatchInsightsError(
-              response.status === 403
-                ? "Hai già scelto 3 partite questa settimana. Potrai selezionarne altre dalla prossima settimana."
-                : "Dati match non disponibili in questo momento."
-            );
-            setLoadingMatchInsights(false);
-            if (response.status === 403) {
-              void reloadAccessSummary();
-            }
-          }
-          return;
-        }
-
-        const json = (await response.json()) as {
-          metrics?: TacticalMetrics[];
-          playerDetailLevel?: "full" | "team_only";
-        };
-
-        if (!cancelled) {
-          const metrics = Array.isArray(json.metrics) ? json.metrics : [];
-          const playerDetailLevel =
-            json.playerDetailLevel === "team_only" ? ("team_only" as const) : ("full" as const);
-          writeKioskInsightsLocal(selectedMatch.eventId, { metrics, playerDetailLevel, insightsSnap: snap });
-          setMetrics(metrics);
-          setPlayerDetailLevel(playerDetailLevel);
-          await reloadAccessSummary();
-          setLoadingMatchInsights(false);
-          setMatchInsightsError(null);
-        }
-      } catch {
-        if (abort.signal.aborted) return;
-        if (!cancelled) {
-          setMatchInsightsError("Dati match non disponibili in questo momento.");
-          setLoadingMatchInsights(false);
-        }
+        setLoadingMatchInsights(false);
       }
-    }
+    })();
 
-    void loadMatchInsights();
     return () => {
       cancelled = true;
-      abort.abort();
     };
-  }, [selectedMatch, adminBulkRefreshing, playerAnalyticsPolicy, testingMatch, presetMatch, canRefreshData, adminInsightsSnap, accessSummary.matchUsage.limit]);
+  }, [selectedMatch, adminBulkRefreshing, testingMatch, presetMatch, accessSummary.isMember]);
 
   return (
     <section className="space-y-5 rounded-[2rem] border border-white/10 bg-gradient-to-br from-slate-950/60 via-slate-900/45 to-cyan-950/35 p-3 shadow-[0_24px_70px_rgba(2,6,23,0.28)] ring-1 ring-white/5 sm:space-y-6 sm:p-5">

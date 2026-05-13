@@ -36,6 +36,15 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "invalid_params", details: parsed.error.flatten() }, { status: 400 });
   }
 
+  if (organization.role !== "admin") {
+    return NextResponse.json({
+      metrics: [],
+      playerCount: 0,
+      roundFormSource: "organization_db_empty",
+      persistedSnapshotMissing: true
+    });
+  }
+
   const { eventId, competitionSlug } = parsed.data;
   const ttlHours = Number(process.env.TACTICAL_ROUND_FORM_CACHE_HOURS ?? "6");
   const cacheKey = `round_form:v1:${competitionSlug ?? "auto"}:${eventId}`;

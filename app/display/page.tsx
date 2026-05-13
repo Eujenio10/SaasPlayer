@@ -2,6 +2,10 @@ import { DisplayView } from "@/components/display-view";
 import { BackToMenu } from "@/components/back-to-menu";
 import { requireProtectedSession } from "@/lib/auth/guards";
 import { getCachedSerieADisplayProgram } from "@/lib/serie-a-display-program";
+import {
+  loadDisplayProgramSnapshotForOrganization,
+  organizationDbEmptyDisplayProgram
+} from "@/lib/display-program-org-snapshot-read";
 
 export const dynamic = "force-dynamic";
 
@@ -11,7 +15,13 @@ export default async function DisplayPage({
   searchParams: Record<string, string | string[] | undefined>;
 }) {
   const session = await requireProtectedSession();
-  const program = await getCachedSerieADisplayProgram();
+
+  let program =
+    session.organization.role === "admin"
+      ? await getCachedSerieADisplayProgram()
+      : (await loadDisplayProgramSnapshotForOrganization(session.organization.organizationId)) ??
+        organizationDbEmptyDisplayProgram(new Date().toISOString());
+
   const vetrinaRaw = searchParams.vetrina;
   const vetrinaQuery = vetrinaRaw === "1" || vetrinaRaw === "true";
 

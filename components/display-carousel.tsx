@@ -67,7 +67,7 @@ export function DisplayCarousel({
     // Se la pagina è stata renderizzata durante un momento di cache “vuota” (es. quota/piano aggiornati),
     // forza un refresh una sola volta al mount per riprendersi subito senza attendere il polling.
     if (!slides.length) {
-      void pull(true);
+      void pull(false);
     }
 
     const interval = window.setInterval(() => {
@@ -90,8 +90,10 @@ export function DisplayCarousel({
 
   if (!slides.length) {
     const emptyCopy =
-      program.sourceStatus === "error"
-        ? "Errore temporaneo nel recupero dei dati SportAPI."
+      program.sourceStatus === "organization_db_empty"
+        ? "Programma display non ancora salvato dall’organizzazione. Un amministratore deve caricare una volta questo schermo da account admin (consumo API esterno solo lato admin)."
+      : program.sourceStatus === "error"
+        ? "Errore temporaneo nel recupero dei dati sportivi sul server admin."
         : program.programContext === "serie_a_today"
           ? "Ci sono (o c’erano) partite oggi, ma heatmap e tiratori non sono disponibili al momento. Riprova tra qualche minuto."
           : program.programContext === "serie_a_next"

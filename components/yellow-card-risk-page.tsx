@@ -68,6 +68,57 @@ let yellowCardRiskLoadPromise: Promise<{
   rows: YellowCardRiskPlayer[];
 }> | null = null;
 
+async function fetchOrgYellowCardSnapshotFromApi(): Promise<{
+  matches: UpcomingMatchItem[];
+  rows: YellowCardRiskPlayer[];
+  insightsSnap: number;
+} | null> {
+  try {
+    const res = await fetch("/api/tactical/org-yellow-card-snapshot", {
+      cache: "no-store",
+      credentials: "include"
+    });
+    if (!res.ok) return null;
+    const json = (await res.json()) as {
+      rows?: YellowCardRiskPlayer[];
+      matches?: UpcomingMatchItem[];
+      insightsSnap?: number;
+    };
+    const matches = Array.isArray(json.matches) ? json.matches : [];
+    const rows = Array.isArray(json.rows) ? json.rows : [];
+    if (!rows.length) return null;
+    /** Stessa coerenza dello snapshot locale: partite deve essere ancora “futura” sul calendario. */
+    const candidate = { matches, rows };
+    if (!isYellowCardStoredSnapshotFresh(candidate)) return null;
+    const insightsSnap = typeof json.insightsSnap === "number" ? json.insightsSnap : 0;
+    return {
+      matches: yellowCardSnapshotFutureMatches(matches),
+      rows,
+      insightsSnap
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function persistOrgYellowCardSnapshotToApi(snapshot: {
+  insightsSnap: number;
+  matches: UpcomingMatchItem[];
+  rows: YellowCardRiskPlayer[];
+}): Promise<boolean> {
+  try {
+    const res = await fetch("/api/tactical/org-yellow-card-snapshot", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify(snapshot)
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 interface YellowCardRiskSnapshot {
   savedAt: string;
   matches: UpcomingMatchItem[];
@@ -712,6 +763,11 @@ async function loadYellowCardRiskData(options?: {
   forceRefresh?: boolean;
   /** Solo dall’hub kiosk già caricato (nessuna fetch HTTP dal browser). */
   usePersistedKioskInsightsOnly?: boolean;
+  /**
+   * Se vero senza refresh admin: non chiamare calendario SportAPI né match-insights;
+   * si usano snapshot locale validato + copia condivisa in organizzazione.
+   */
+  offlineSnapshotOnly?: boolean;
   onProgress?: (completed: number, total: number) => void;
 }): Promise<{
   matches: UpcomingMatchItem[];
@@ -719,21 +775,51 @@ async function loadYellowCardRiskData(options?: {
 }> {
   const forceRefresh = options?.forceRefresh ?? false;
   const usePersistedKioskInsightsOnly = options?.usePersistedKioskInsightsOnly ?? false;
+  const offlineSnapshotOnly = options?.offlineSnapshotOnly ?? false;
   const onProgress = options?.onProgress;
 
   if (usePersistedKioskInsightsOnly) {
     yellowCardRiskLoadPromise = null;
   }
 
-  /* Nessuna rete: snapshot locale già calcolato e ancora allineato al calendario futuro. */
   if (!forceRefresh && !usePersistedKioskInsightsOnly) {
-    const cachedOnly = readValidatedCachedSnapshot();
-    if (cachedOnly?.rows?.length) {
-      const n = cachedOnly.matches?.length ?? 0;
+    const localValidated = readValidatedCachedSnapshot();
+
+    if (offlineSnapshotOnly) {
+      yellowCardRiskLoadPromise = null;
+      const remote = await fetchOrgYellowCardSnapshotFromApi();
+
+      let best: { matches: UpcomingMatchItem[]; rows: YellowCardRiskPlayer[] } | null =
+        localValidated?.rows?.length
+          ? { matches: localValidated.matches ?? [], rows: localValidated.rows }
+          : null;
+
+      if (remote?.rows?.length) {
+        const rSnap = remote.insightsSnap;
+        const lSnap = localValidated?.insightsSnap ?? -1;
+        if (!best?.rows.length || rSnap >= lSnap) {
+          best = { matches: remote.matches, rows: remote.rows };
+        }
+      }
+
+      if (best?.rows?.length) {
+        const n = best.matches?.length ?? 0;
+        onProgress?.(n, Math.max(n, 1));
+        yellowCardRiskLoadPromise = Promise.resolve(best);
+        return yellowCardRiskLoadPromise;
+      }
+
+      onProgress?.(0, 0);
+      yellowCardRiskLoadPromise = Promise.resolve({ matches: [], rows: [] });
+      return yellowCardRiskLoadPromise;
+    }
+
+    if (localValidated?.rows?.length) {
+      const n = localValidated.matches?.length ?? 0;
       onProgress?.(n, Math.max(n, 1));
       yellowCardRiskLoadPromise = Promise.resolve({
-        matches: cachedOnly.matches ?? [],
-        rows: cachedOnly.rows
+        matches: localValidated.matches ?? [],
+        rows: localValidated.rows
       });
       return yellowCardRiskLoadPromise;
     }
@@ -1123,6 +1209,7 @@ export function YellowCardRiskPage({ userAccess }: { userAccess: UserAccessSumma
     try {
       const data = await loadYellowCardRiskData({
         forceRefresh,
+        offlineSnapshotOnly: !forceRefresh,
         onProgress: (current, total) => {
           if (mountedRef.current) setLoadProgress({ current, total });
         }
@@ -1130,6 +1217,13 @@ export function YellowCardRiskPage({ userAccess }: { userAccess: UserAccessSumma
       if (mountedRef.current) {
         setMatches(data.matches);
         setRows(data.rows);
+      }
+      if (mountedRef.current && forceRefresh && userAccess.canRefreshData && data.rows.length > 0) {
+        await persistOrgYellowCardSnapshotToApi({
+          insightsSnap: readAdminInsightsSnap(),
+          matches: data.matches,
+          rows: data.rows
+        });
       }
     } catch {
       if (mountedRef.current) {
@@ -1141,7 +1235,7 @@ export function YellowCardRiskPage({ userAccess }: { userAccess: UserAccessSumma
         setLoadProgress(null);
       }
     }
-  }, []);
+  }, [userAccess.canRefreshData]);
 
   const refreshFromPersistedKiosk = useCallback(async () => {
     setLoading(true);

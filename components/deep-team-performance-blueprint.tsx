@@ -124,9 +124,23 @@ export function DeepTeamPerformanceBlueprint({
         return;
       }
 
-      const json = (await response.json()) as { blueprint?: TeamPerformanceBlueprint };
+      const json = (await response.json()) as {
+        blueprint?: TeamPerformanceBlueprint | null;
+        persistedSnapshotMissing?: boolean;
+      };
       if (!cancelled) {
-        setBlueprint(json.blueprint ?? null);
+        if (json.persistedSnapshotMissing && json.blueprint == null) {
+          setBlueprint(null);
+          setError(
+            "Blueprint squadra non presente nell’archivio condiviso dell’organizzazione. Serve che un admin apra questa stessa vista e carichi questa combinazione squadra/contesto una volta dal provider."
+          );
+        } else if (json.blueprint != null) {
+          setBlueprint(json.blueprint);
+          setError(null);
+        } else {
+          setBlueprint(null);
+          setError("Blueprint non disponibile per questi parametri.");
+        }
         setLoading(false);
       }
     }
@@ -159,11 +173,20 @@ export function DeepTeamPerformanceBlueprint({
       return;
     }
 
-    const json = (await response.json()) as { teams?: TeamOption[] };
+    const json = (await response.json()) as {
+      teams?: TeamOption[];
+      persistedSnapshotMissing?: boolean;
+    };
     const found = json.teams ?? [];
     if (!found.length) {
       setSearchLoading(false);
-      setError("Nessuna squadra trovata nel perimetro Top5 + UCL/UEL.");
+      if (json.persistedSnapshotMissing) {
+        setError(
+          "Nessun risultato salvato per questa ricerca. Un amministratore deve cercare gli stessi termini dall’analisi blueprint almeno una volta così viene creato l’archivio condiviso senza uso API per i lettori Pro."
+        );
+      } else {
+        setError("Nessuna squadra trovata nel perimetro Top5 + UCL/UEL.");
+      }
       return;
     }
 

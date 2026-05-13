@@ -96,6 +96,17 @@ export async function GET(request: Request) {
   }
 
   const { tournamentId, seasonId, mode } = parsed.data;
+
+  /** Pro/Member: nessun standings live / RapidAPI senza snapshot dedicato (non usato dall’UI al momento). */
+  if (organization.role !== "admin") {
+    return NextResponse.json({
+      rows: [] as StandingsRow[],
+      updatedAt: new Date().toISOString(),
+      standingsSource: "organization_db_empty",
+      persistedSnapshotMissing: true
+    });
+  }
+
   const safeMode = mode ?? "total";
   const ttlHours = Number(process.env.TACTICAL_STANDINGS_CACHE_HOURS ?? "6");
   const cacheKey = `tactical_standings:v1:${tournamentId}:${seasonId}:${safeMode}`;

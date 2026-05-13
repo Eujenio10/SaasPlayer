@@ -25,7 +25,8 @@ export async function GET(request: Request) {
   const snapshot = await getOrRefreshSnapshot({
     organizationId: organization.organizationId,
     fixtureId,
-    forceRefresh: organization.role === "admin" && refresh
+    forceRefresh: organization.role === "admin" && refresh,
+    allowProviderRefresh: organization.role === "admin"
   });
 
   return NextResponse.json({
