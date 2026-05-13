@@ -9,7 +9,7 @@ import {
 } from "@/lib/kiosk-persisted-insights";
 import {
   countYellowCardHighRiskRows,
-  isYellowCardStoredSnapshotFresh,
+  pruneYellowCardSnapshotToScheduledFuture,
   type YellowCardStoredSnapshot
 } from "@/lib/yellow-card-schedule-utils";
 
@@ -151,10 +151,11 @@ export function countYellowCardAlertsFromStorage(threshold = 14): {
     const raw = window.localStorage.getItem(YELLOW_CARD_SNAPSHOT_STORAGE_KEY);
     if (!raw) return { count: 0, savedAtIso: null };
     const parsed = JSON.parse(raw) as YellowCardStoredSnapshot;
-    if (!isYellowCardStoredSnapshotFresh(parsed)) {
+    const pruned = pruneYellowCardSnapshotToScheduledFuture(parsed);
+    if (!pruned) {
       return { count: 0, savedAtIso: null };
     }
-    const count = countYellowCardHighRiskRows(parsed, threshold);
+    const count = countYellowCardHighRiskRows(pruned, threshold);
     return {
       count,
       savedAtIso: typeof parsed.savedAt === "string" ? parsed.savedAt : null

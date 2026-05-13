@@ -11,8 +11,9 @@ import type { UserAccessSummary } from "@/lib/auth/user-access";
 import type { CompetitionScope, TacticalMetrics } from "@/lib/types";
 import {
   bumpAdminInsightsSnap,
-  clearAllKioskInsightsLocal,
   KIOSK_ADMIN_INSIGHTS_REFRESH_EVENT,
+  KIOSK_INSIGHTS_LOCAL_STORAGE_PREFIX,
+  KIOSK_INSIGHTS_LOCAL_WRITE_EVENT,
   readKioskInsightsLocal,
   readKioskMatchesCache,
   writeKioskInsightsLocal,
@@ -126,6 +127,25 @@ async function consumeMemberMatchWeekSlotIfNeeded(params: {
     return { ok: true };
   } catch {
     return { ok: false, reason: "network" };
+  }
+}
+
+/** Allinea la cache locale insight partite allo stesso prefisso del modulo persistenza (compatibile anche se manca export helper nel bundle). */
+function clearKioskInsightsLocalKeys(): void {
+  if (typeof window === "undefined" || typeof window.localStorage === "undefined") return;
+  try {
+    const prefix = KIOSK_INSIGHTS_LOCAL_STORAGE_PREFIX;
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < window.localStorage.length; i++) {
+      const key = window.localStorage.key(i);
+      if (key?.startsWith(prefix)) keysToRemove.push(key);
+    }
+    for (const k of keysToRemove) {
+      window.localStorage.removeItem(k);
+    }
+    window.dispatchEvent(new CustomEvent(KIOSK_INSIGHTS_LOCAL_WRITE_EVENT));
+  } catch {
+    // best-effort
   }
 }
 
@@ -995,7 +1015,7 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
             : "Nessuna partita futura nel menù condiviso. Chiedi a un amministratore di aggiornare il Tactical Hub quando serve un refresh del calendario."
         );
       } else {
-        setMatchesError(null);
+      setMatchesError(null);
       }
     }
     void loadMatches();
@@ -1048,8 +1068,8 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
             setLoadingMatchInsights(false);
             if (unlocked.reason === "limit") {
               void reloadAccessSummary();
-            }
-            return;
+          }
+          return;
           }
         }
 
@@ -1061,7 +1081,7 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
         setMetrics(orgRow.metrics);
         setPlayerDetailLevel(orgRow.playerDetailLevel);
         await reloadAccessSummary();
-        setLoadingMatchInsights(false);
+          setLoadingMatchInsights(false);
         setMatchInsightsError(null);
         return;
       }
@@ -1082,7 +1102,7 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
                 ? "Hai già scelto 3 partite questa settimana. Potrai selezionarne altre dalla prossima settimana."
                 : "Impossibile verificare la quota partite settimanali. Controlla la connessione e riprova."
             );
-            setLoadingMatchInsights(false);
+          setLoadingMatchInsights(false);
             if (unlocked.reason === "limit") {
               void reloadAccessSummary();
             }
@@ -1174,7 +1194,7 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
             <div>
               <h3 className="text-base font-black uppercase tracking-wide text-amber-100">
                 Allarme Ammonizione
-              </h3>
+          </h3>
               <p className="mt-1 max-w-3xl text-sm leading-relaxed text-amber-50/80">
                 Top 10 globale dei <strong>marcatori a rischio cartellino</strong>: sono i giocatori che dovranno
                 marcare avversari con alta media di <strong>falli subiti</strong> e{" "}
@@ -1238,7 +1258,7 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
             </ol>
           )}
         </article>
-      ) : null}
+          ) : null}
 
       {showRoundFormSpecial ? (
         <article className={softPanelClass}>
@@ -1281,8 +1301,8 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
                             <span className="ml-2 text-slate-400">({m.entry.team})</span>
                             <span className="mt-1 block text-xs text-slate-500">
                               {m.match.homeTeam.name} vs {m.match.awayTeam.name}
-                            </span>
                           </span>
+                            </span>
                           <span className="shrink-0 rounded-full bg-amber-300/15 px-3 py-1 font-bold text-amber-100">
                             {starString(m.entry.starRating)}
                           </span>
@@ -1316,8 +1336,8 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
                 </div>
               )}
               {canRefreshData ? (
-                <button
-                  type="button"
+            <button
+              type="button"
                   onClick={async () => {
                     if (!canRefreshData) return;
                     setAdminBulkRefreshing(true);
@@ -1338,7 +1358,7 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
                         return;
                       }
 
-                      clearAllKioskInsightsLocal();
+                      clearKioskInsightsLocalKeys();
 
                       const snap = bumpAdminInsightsSnap();
                       window.dispatchEvent(
@@ -1371,16 +1391,16 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
                   className={primaryButtonClass}
                 >
                   Aggiorna dati admin
-                </button>
+            </button>
               ) : null}
             </div>
           </div>
           <div className="space-y-4">
             <div className="flex flex-wrap gap-3">
-              {leagueFilterSlugs.map((slug) => (
-                <button
-                  key={slug}
-                  type="button"
+            {leagueFilterSlugs.map((slug) => (
+              <button
+                key={slug}
+                type="button"
                   onClick={() => {
                     setSelectedCompetition(slug);
                     setSelectedMatchId(0);
@@ -1389,35 +1409,35 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
                     selectedCompetition && normalizeKioskCompetitionSlug(selectedCompetition) === slug
                       ? "border-cyan-200/70 bg-gradient-to-r from-cyan-400 to-blue-500 text-white shadow-lg shadow-cyan-950/25"
                       : "border-white/10 bg-white/[0.055] text-slate-200 hover:border-cyan-300/40 hover:bg-cyan-300/12 hover:text-cyan-50"
-                  }`}
-                >
-                  {competitionLabel(slug)}
-                </button>
-              ))}
-            </div>
+                }`}
+              >
+                {competitionLabel(slug)}
+              </button>
+            ))}
+          </div>
 
             <div className="grid gap-4 lg:grid-cols-2">
-              {visibleMatches.map((match) => (
-                <button
-                  key={match.eventId}
-                  type="button"
-                  onClick={() => setSelectedMatchId(match.eventId)}
+            {visibleMatches.map((match) => (
+              <button
+                key={match.eventId}
+                type="button"
+                onClick={() => setSelectedMatchId(match.eventId)}
                   className={`rounded-[1.35rem] border p-5 text-left transition hover:translate-y-[-1px] ${
-                    selectedMatch?.eventId === match.eventId
+                  selectedMatch?.eventId === match.eventId
                       ? "border-cyan-200/70 bg-gradient-to-br from-cyan-400/22 via-blue-400/12 to-fuchsia-400/14 shadow-lg shadow-cyan-950/25"
                       : "border-white/10 bg-gradient-to-br from-white/[0.065] to-white/[0.025] hover:border-cyan-300/35 hover:bg-cyan-300/10"
-                  }`}
-                >
+                }`}
+              >
                   <p className="text-xs font-semibold uppercase tracking-wide text-cyan-200/80">
-                    {competitionLabel(match.competitionSlug)}
-                  </p>
+                  {competitionLabel(match.competitionSlug)}
+                </p>
                   <p className="mt-1 text-lg font-bold text-white">
-                    {match.homeTeam.name} vs {match.awayTeam.name}
-                  </p>
+                  {match.homeTeam.name} vs {match.awayTeam.name}
+                </p>
                   <p className="mt-2 text-sm text-slate-300">Calcio d&apos;inizio: {formatKickoff(match.startTimestamp)}</p>
-                </button>
-              ))}
-            </div>
+              </button>
+            ))}
+          </div>
 
           {presetMatch && !matchesError && matches.length === 0 ? (
             <p className={infoBoxClass}>
@@ -1485,12 +1505,12 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
 
               {playerAnalyticsView === "PLAYER_FRICTION" ? (
                 <>
-                  {!hasMatchFrameHeatmaps ? (
+              {!hasMatchFrameHeatmaps ? (
                     <p className="rounded-2xl border border-amber-300/20 bg-amber-300/10 p-3 text-sm text-amber-100">
-                      Heatmap giocatore nel frame partita non disponibili (cache precedente). Ricarica i dati del match o
-                      attendi il prossimo aggiornamento insights.
-                    </p>
-                  ) : null}
+                  Heatmap giocatore nel frame partita non disponibili (cache precedente). Ricarica i dati del match o
+                  attendi il prossimo aggiornamento insights.
+                </p>
+              ) : null}
 
                   {matchFrictionPairs.length === 0 ? (
                     <p className="text-sm text-amber-200">
@@ -1498,7 +1518,7 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
                     </p>
                   ) : matchFrictionPairs.length > 1 && frictionDetailIndex === null ? (
                     <div className="space-y-3">
-                      {matchFrictionPairs.map((pair, idx) => (
+                  {matchFrictionPairs.map((pair, idx) => (
                         <button
                           key={`${pair.left.playerName}-${pair.right.playerName}-${idx}`}
                           type="button"
@@ -1506,8 +1526,8 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
                           className={`${softPanelClass} w-full text-left transition hover:border-cyan-400/35 hover:shadow-cyan-500/10`}
                         >
                           <p className="text-xs font-semibold uppercase tracking-wide text-cyan-200">
-                            Scontro {idx + 1} — tra i più interessanti
-                          </p>
+                        Scontro {idx + 1} — tra i più interessanti
+                      </p>
                           <p className="mt-2 text-lg font-bold text-white">
                             {pair.left.playerName}{" "}
                             <span className="mx-2 text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">
@@ -1596,7 +1616,7 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
               ) : null}
             </>
           )}
-        </div>
+                      </div>
       </div>
 
       {adminBulkRefreshing && adminBulkProgress ? (
@@ -1641,10 +1661,10 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
                       ? `${Math.min(100, (adminBulkProgress.current / adminBulkProgress.total) * 100)}%`
                       : "38%"
                 }}
-              />
-            </div>
-          </div>
+                  />
+                </div>
         </div>
+      </div>
       ) : null}
     </section>
   );

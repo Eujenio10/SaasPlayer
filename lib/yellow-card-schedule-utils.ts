@@ -24,17 +24,31 @@ export function yellowCardSnapshotFutureMatches(matches: UpcomingMatchItem[]): U
   return filterMatchesKickoffInFuture(dedupeMatchesByEventIdSorted(matches));
 }
 
-/** Righe snapshot valide solo se ogni eventId punta ancora a una partita con kickoff futuro inclusa nell’array salvato. */
-export function isYellowCardStoredSnapshotFresh(snapshot: YellowCardStoredSnapshot): boolean {
+/**
+ * Mantiene solo partite ancora calendarizzate nel futuro e le righe collegate per `eventId`.
+ * Evita di scartare tutto lo snapshot quando qualche giornata è già stata giocata e restano partite successive.
+ */
+export function pruneYellowCardSnapshotToScheduledFuture(
+  snapshot: YellowCardStoredSnapshot
+): YellowCardStoredSnapshot | null {
   const futureMatches = yellowCardSnapshotFutureMatches(snapshot.matches ?? []);
   const futureIds = new Set(futureMatches.map((m) => m.eventId));
-  if (futureIds.size === 0) return false;
-  const rows = snapshot.rows ?? [];
-  if (!rows.length) return false;
-  for (const row of rows) {
-    if (typeof row.eventId !== "number" || !futureIds.has(row.eventId)) return false;
-  }
-  return true;
+  if (!futureIds.size) return null;
+  const rows = (snapshot.rows ?? []).filter(
+    (r): r is typeof r & { eventId: number } =>
+      typeof r.eventId === "number" && Number.isFinite(r.eventId) && futureIds.has(r.eventId)
+  );
+  if (!rows.length) return null;
+  return {
+    savedAt: snapshot.savedAt,
+    matches: futureMatches,
+    rows
+  };
+}
+
+/** True se dopo il filtro partite futuro restano almeno partite e righe utilizzabili. */
+export function isYellowCardStoredSnapshotFresh(snapshot: YellowCardStoredSnapshot): boolean {
+  return pruneYellowCardSnapshotToScheduledFuture(snapshot) !== null;
 }
 
 export function countYellowCardHighRiskRows(snapshot: YellowCardStoredSnapshot, threshold: number): number {

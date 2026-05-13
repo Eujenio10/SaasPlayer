@@ -4,6 +4,7 @@ import { getOrganizationContextForUser } from "@/lib/auth/organization";
 import { getApiCache, setApiCache } from "@/lib/api-cache";
 import { filterMatchesKickoffInFuture } from "@/lib/tactical-matches-filters";
 import { getOrRefreshTacticalMatchesMenuFull } from "@/lib/tactical-matches-menu-cache";
+import { upsertMatchesMenuSnapshotForOrganization } from "@/lib/supabase/org-tactical-shared-writes";
 import type { UpcomingMatchItem } from "@/services/sportapi";
 
 function filterMatchesByTeamAndCompetition(
@@ -22,21 +23,6 @@ function filterMatchesByTeamAndCompetition(
       const competitionMatch = !competition || match.competitionSlug.includes(competition);
       return pairMatch && competitionMatch;
     })
-  );
-}
-
-async function upsertOrganizationMatchesSnapshot(
-  supabase: ReturnType<typeof createSupabaseServerClient>,
-  organizationId: string,
-  matches: UpcomingMatchItem[]
-): Promise<void> {
-  await supabase.from("organization_matches_menu_snapshot").upsert(
-    {
-      organization_id: organizationId,
-      matches: matches as unknown as Record<string, unknown>[],
-      updated_at: new Date().toISOString()
-    },
-    { onConflict: "organization_id" }
   );
 }
 
@@ -99,7 +85,13 @@ export async function GET(request: Request) {
   try {
     if (!home && !away && !competition) {
       const upcoming = await getOrRefreshTacticalMatchesMenuFull();
-      await upsertOrganizationMatchesSnapshot(supabase, organization.organizationId, upcoming);
+      const persist = await upsertMatchesMenuSnapshotForOrganization({
+        organizationId: organization.organizationId,
+        matches: upcoming
+      });
+      if (!persist.ok) {
+        console.error("[matches] upsert organization_matches_menu_snapshot failed:", persist.message);
+      }
       return NextResponse.json({
         matches: upcoming,
         total: upcoming.length,
@@ -118,7 +110,13 @@ export async function GET(request: Request) {
     }
 
     const baseList = await getOrRefreshTacticalMatchesMenuFull();
-    await upsertOrganizationMatchesSnapshot(supabase, organization.organizationId, baseList);
+    const persist = await upsertMatchesMenuSnapshotForOrganization({
+      organizationId: organization.organizationId,
+      matches: baseList
+    });
+    if (!persist.ok) {
+      console.error("[matches] upsert organization_matches_menu_snapshot failed:", persist.message);
+    }
 
     const filtered = filterMatchesByTeamAndCompetition(baseList, home, away, competition);
 

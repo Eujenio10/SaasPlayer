@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { filterMatchesKickoffInFuture } from "@/lib/tactical-matches-filters";
+import { filterMatchesKickoffInFuture, matchKickoffIsStillFuture } from "@/lib/tactical-matches-filters";
 import {
   collectKioskInsightEventIdsAlignedToAdminSnap,
   findKioskCachedMatchByEventId,
@@ -13,9 +13,8 @@ import {
 } from "@/lib/kiosk-persisted-insights";
 import {
   dedupeMatchesByEventIdSorted,
-  isYellowCardStoredSnapshotFresh,
   narrowToEachTeamsNextScheduledMatch,
-  yellowCardSnapshotFutureMatches
+  pruneYellowCardSnapshotToScheduledFuture
 } from "@/lib/yellow-card-schedule-utils";
 import {
   committedFoulSignalForRisk,
@@ -86,14 +85,12 @@ async function fetchOrgYellowCardSnapshotFromApi(): Promise<{
     };
     const matches = Array.isArray(json.matches) ? json.matches : [];
     const rows = Array.isArray(json.rows) ? json.rows : [];
-    if (!rows.length) return null;
-    /** Stessa coerenza dello snapshot locale: partite deve essere ancora “futura” sul calendario. */
-    const candidate = { matches, rows };
-    if (!isYellowCardStoredSnapshotFresh(candidate)) return null;
+    const pruned = pruneYellowCardSnapshotToScheduledFuture({ matches, rows });
+    if (!pruned) return null;
     const insightsSnap = typeof json.insightsSnap === "number" ? json.insightsSnap : 0;
     return {
-      matches: yellowCardSnapshotFutureMatches(matches),
-      rows,
+      matches: pruned.matches as UpcomingMatchItem[],
+      rows: pruned.rows as YellowCardRiskPlayer[],
       insightsSnap
     };
   } catch {
@@ -531,13 +528,16 @@ function pickTopTenUniqueMatches(rows: YellowCardRiskPlayer[]): YellowCardRiskPl
 function readValidatedCachedSnapshot(): YellowCardRiskSnapshot | null {
   const raw = readCachedSnapshot();
   if (!raw) return null;
-  if (!isYellowCardStoredSnapshotFresh(raw)) {
+  const pruned = pruneYellowCardSnapshotToScheduledFuture(raw);
+  if (!pruned) {
     clearYellowCardSnapshotCache();
     return null;
   }
   return {
-    ...raw,
-    matches: yellowCardSnapshotFutureMatches(raw.matches ?? [])
+    savedAt: pruned.savedAt ?? raw.savedAt,
+    matches: pruned.matches as UpcomingMatchItem[],
+    rows: pruned.rows as YellowCardRiskPlayer[],
+    insightsSnap: raw.insightsSnap
   };
 }
 
@@ -649,6 +649,7 @@ async function rebuildYellowCardFromPersistedKioskInsights(
     if (!rec?.metrics.length) continue;
     const match = resolveMatchMetaForPersistedKiosk(eventId, rec.metrics);
     if (!match) continue;
+    if (!matchKickoffIsStillFuture(match)) continue;
 
     if (!seen.has(match.eventId)) {
       seen.add(match.eventId);
@@ -800,6 +801,11 @@ async function loadYellowCardRiskData(options?: {
         if (!best?.rows.length || rSnap >= lSnap) {
           best = { matches: remote.matches, rows: remote.rows };
         }
+      }
+
+      if (!best?.rows?.length) {
+        const kiosk = await rebuildYellowCardFromPersistedKioskInsights(onProgress);
+        if (kiosk.rows.length) best = kiosk;
       }
 
       if (best?.rows?.length) {

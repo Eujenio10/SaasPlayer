@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getOrganizationContextForUser } from "@/lib/auth/organization";
+import {
+  purgeOrganizationKioskDerivedSnapshots,
+  upsertKioskMatchInsightsForOrganization
+} from "@/lib/supabase/org-tactical-shared-writes";
 import type { TacticalMetrics } from "@/lib/types";
 
 const getSchema = z.object({
@@ -103,21 +107,52 @@ export async function PUT(request: Request) {
   const { eventId, insightsSnap, playerDetailLevel, metrics } = parsed.data;
   const iso = new Date().toISOString();
 
-  const { error } = await supabase.from("kiosk_organization_match_insights").upsert(
-    {
-      organization_id: organization.organizationId,
-      event_id: eventId,
-      insights_snap: insightsSnap,
-      player_detail_level: playerDetailLevel,
-      metrics: metrics as unknown as Record<string, unknown>[],
-      updated_at: iso
-    },
-    { onConflict: "organization_id,event_id" }
-  );
+  const metricsRows = metrics as TacticalMetrics[];
 
-  if (error) {
-    return NextResponse.json({ error: "write_failed", message: error.message }, { status: 500 });
+  const persist = await upsertKioskMatchInsightsForOrganization({
+    organizationId: organization.organizationId,
+    eventId,
+    insightsSnap,
+    playerDetailLevel,
+    metrics: metricsRows,
+    updatedAt: iso
+  });
+
+  if (!persist.ok) {
+    return NextResponse.json(
+      { error: "write_failed", message: persist.message ?? "persist_failed" },
+      { status: 500 }
+    );
   }
 
   return NextResponse.json({ ok: true, eventId, updatedAt: iso });
+}
+
+/** Prima di ricaricare i dati: elimina gli snapshot derivati dall’organizzazione (solo admin). */
+export async function DELETE() {
+  const supabase = createSupabaseServerClient();
+  const {
+    data: { user }
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
+  }
+
+  const organization = await getOrganizationContextForUser(user.id);
+  if (!organization || organization.role !== "admin") {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
+
+  const purged = await purgeOrganizationKioskDerivedSnapshots(organization.organizationId);
+
+  if (!purged.ok) {
+    return NextResponse.json({ error: "purge_failed", details: purged.messages }, { status: 500 });
+  }
+
+  return NextResponse.json({
+    ok: true,
+    purged: true,
+    ...(purged.messages.length ? { warnings: purged.messages } : {})
+  });
 }

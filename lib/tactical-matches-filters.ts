@@ -1,7 +1,12 @@
+/** True se il calcio d’inizio è ancora nel futuro (kickoff dopo “adesso”). */
+export function matchKickoffIsStillFuture<T extends { startTimestamp: number }>(m: T): boolean {
+  const nowSec = Math.floor(Date.now() / 1000);
+  return m.startTimestamp > 0 && m.startTimestamp > nowSec;
+}
+
 /** Solo partite con calcio d’inizio ancora nel futuro (non giocate / non live / non finite). */
 export function filterMatchesKickoffInFuture<T extends { startTimestamp: number }>(list: T[]): T[] {
-  const nowSec = Math.floor(Date.now() / 1000);
-  return list.filter((m) => m.startTimestamp > 0 && m.startTimestamp > nowSec);
+  return list.filter((m) => matchKickoffIsStillFuture(m));
 }
 
 /** Stesso eventId può comparire più volte nel feed: mantieni una sola card per match. */
