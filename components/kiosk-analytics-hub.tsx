@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { buildMatchupDetailModel, MatchupDetailPage } from "@/components/matchup-detail";
 import { FoulCommittedRiskPanel } from "@/components/foul-committed-risk/foul-committed-risk-panel";
 import { FoulSufferedRiskPanel } from "@/components/foul-suffered-risk/foul-suffered-risk-panel";
@@ -12,7 +12,6 @@ import type { CompetitionScope, TacticalMetrics } from "@/lib/types";
 import {
   bumpAdminInsightsSnap,
   KIOSK_ADMIN_INSIGHTS_REFRESH_EVENT,
-  readAdminInsightsSnap,
   readKioskInsightsLocal,
   readKioskMatchesCache,
   writeKioskInsightsLocal,
@@ -404,8 +403,6 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
   const [selectedMatchId, setSelectedMatchId] = useState<number>(0);
   const [loadingMatchInsights, setLoadingMatchInsights] = useState(false);
   const [matchInsightsError, setMatchInsightsError] = useState<string | null>(null);
-  /** Ondata di refresh admin persistente su localStorage (`readAdminInsightsSnap`). */
-  const [adminInsightsSnap, setAdminInsightsSnap] = useState(0);
   /** Durante prefetch di massa tutte le viste leggono dalla cache locale appena disponibile senza rifetch paralleli. */
   const [adminBulkRefreshing, setAdminBulkRefreshing] = useState(false);
   /** Progress overlay durante “Aggiorna dati admin” (solo top 5 campionati). */
@@ -446,10 +443,6 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
       void reloadAccessSummary();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- allineamento contatore da server al mount
-  }, []);
-
-  useLayoutEffect(() => {
-    setAdminInsightsSnap(readAdminInsightsSnap());
   }, []);
 
   useEffect(() => {
@@ -1347,7 +1340,6 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
                       await prefetchAllMenuInsights(topFiveTargets, snap, (current, tot) => {
                         if (mountedRef.current) setAdminBulkProgress({ current, total: tot });
                       });
-                      if (mountedRef.current) setAdminInsightsSnap(snap);
                     } finally {
                       if (mountedRef.current) {
                         setAdminBulkRefreshing(false);

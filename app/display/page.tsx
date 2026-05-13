@@ -16,7 +16,7 @@ export default async function DisplayPage({
 }) {
   const session = await requireProtectedSession();
 
-  let program =
+  const program =
     session.organization.role === "admin"
       ? await getCachedSerieADisplayProgram()
       : (await loadDisplayProgramSnapshotForOrganization(session.organization.organizationId)) ??
