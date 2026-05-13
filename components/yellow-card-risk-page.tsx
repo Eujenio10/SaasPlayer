@@ -673,6 +673,92 @@ async function rebuildYellowCardFromPersistedKioskInsights(
   return { matches: topMatches, rows: ranked };
 }
 
+/**
+ * Top 10 da insight kiosk salvati sul server (`kiosk_organization_match_insights`).
+ * Pro/Member non hanno gli stessi record in localStorage dell’admin: senza questo passaggio
+ * lo snapshot offline restava vuoto.
+ */
+async function rebuildYellowCardFromOrganizationInsightsApi(
+  onProgress?: (completed: number, total: number) => void,
+  signal?: AbortSignal
+): Promise<{ matches: UpcomingMatchItem[]; rows: YellowCardRiskPlayer[] }> {
+  try {
+    const matchRes = await fetch("/api/tactical/matches", {
+      cache: "no-store",
+      credentials: "include",
+      signal
+    });
+    if (!matchRes.ok) return { matches: [], rows: [] };
+
+    const matchJson = (await matchRes.json()) as { matches?: UpcomingMatchItem[] };
+    const topMatches = narrowToEachTeamsNextScheduledMatch(
+      allTopFiveLeagueUpcomingMatches(matchJson.matches ?? [])
+    );
+    const totalMatches = Math.max(topMatches.length, 1);
+    onProgress?.(0, totalMatches);
+
+    const collected: YellowCardRiskPlayer[] = [];
+    let maxInsightsSnap = 0;
+    const matchesWithInsights: UpcomingMatchItem[] = [];
+    const seenEvent = new Set<number>();
+
+    for (let i = 0; i < topMatches.length; i += BATCH_SIZE) {
+      const batch = topMatches.slice(i, i + BATCH_SIZE);
+      const loaded = await Promise.all(
+        batch.map(async (match) => {
+          if (!matchKickoffIsStillFuture(match)) {
+            return { match, metrics: [] as TacticalMetrics[], snap: 0 };
+          }
+          try {
+            const res = await fetch(`/api/tactical/org-kiosk-match-insights?eventId=${match.eventId}`, {
+              cache: "no-store",
+              credentials: "include",
+              signal
+            });
+            if (!res.ok) return { match, metrics: [] as TacticalMetrics[], snap: 0 };
+            const json = (await res.json()) as {
+              metrics?: TacticalMetrics[];
+              insightsSnap?: number;
+            };
+            const snap =
+              typeof json.insightsSnap === "number" && Number.isFinite(json.insightsSnap)
+                ? json.insightsSnap
+                : 0;
+            const metrics = Array.isArray(json.metrics) ? json.metrics : [];
+            return { match, metrics, snap };
+          } catch {
+            return { match, metrics: [] as TacticalMetrics[], snap: 0 };
+          }
+        })
+      );
+
+      for (const item of loaded) {
+        if (item.metrics.length > 0) {
+          maxInsightsSnap = Math.max(maxInsightsSnap, item.snap);
+          if (!seenEvent.has(item.match.eventId)) {
+            seenEvent.add(item.match.eventId);
+            matchesWithInsights.push(item.match);
+          }
+          collected.push(...buildRowsFromMatch(item.match, item.metrics));
+        }
+      }
+
+      onProgress?.(Math.min(i + batch.length, topMatches.length), topMatches.length);
+    }
+
+    matchesWithInsights.sort((a, b) => a.startTimestamp - b.startTimestamp);
+    const ranked = pickTopTenUniqueMatches(collected);
+    const snapWrite = Math.max(readAdminInsightsSnap(), maxInsightsSnap);
+    if (ranked.length > 0) {
+      writeCachedSnapshot({ matches: matchesWithInsights, rows: ranked, insightsSnap: snapWrite });
+    }
+
+    return { matches: matchesWithInsights, rows: ranked };
+  } catch {
+    return { matches: [], rows: [] };
+  }
+}
+
 function writeCachedMetrics(match: UpcomingMatchItem, metrics: TacticalMetrics[]): void {
   if (!canUseStorage() || metrics.length === 0) return;
   try {
@@ -801,6 +887,11 @@ async function loadYellowCardRiskData(options?: {
         if (!best?.rows.length || rSnap >= lSnap) {
           best = { matches: remote.matches, rows: remote.rows };
         }
+      }
+
+      if (!best?.rows?.length) {
+        const fromOrg = await rebuildYellowCardFromOrganizationInsightsApi(onProgress);
+        if (fromOrg.rows.length) best = fromOrg;
       }
 
       if (!best?.rows?.length) {
@@ -1265,6 +1356,13 @@ export function YellowCardRiskPage({ userAccess }: { userAccess: UserAccessSumma
           "Nessun insight «Scontri in campo» disponibile allo snapshot aggiorna dati attuale. Apri il kiosk da admin, aggiorna e carica prima le metriche delle partite, poi riprova questo pulsante senza nuove richieste al server."
         );
       }
+      if (mountedRef.current && userAccess.canRefreshData && data.rows.length > 0) {
+        await persistOrgYellowCardSnapshotToApi({
+          insightsSnap: readAdminInsightsSnap(),
+          matches: data.matches,
+          rows: data.rows
+        });
+      }
     } catch {
       if (mountedRef.current) {
         setError("Lettura dati kiosk non riuscita: verifica il browser storage e riprova.");
@@ -1272,7 +1370,7 @@ export function YellowCardRiskPage({ userAccess }: { userAccess: UserAccessSumma
     } finally {
       if (mountedRef.current) setLoading(false);
     }
-  }, []);
+  }, [userAccess.canRefreshData]);
 
   useEffect(() => {
     const onAdminInsights = () => {
