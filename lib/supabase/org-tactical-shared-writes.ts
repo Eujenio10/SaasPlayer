@@ -20,6 +20,23 @@ export async function upsertMatchesMenuSnapshotForOrganization(params: {
   return { ok: true };
 }
 
+export async function upsertInternationalMatchesMenuSnapshotForOrganization(params: {
+  organizationId: string;
+  matches: UpcomingMatchItem[];
+}): Promise<{ ok: boolean; message?: string }> {
+  const sb = createSupabaseServiceClient();
+  const { error } = await sb.from("organization_international_matches_snapshot").upsert(
+    {
+      organization_id: params.organizationId,
+      matches: params.matches as unknown as Record<string, unknown>[],
+      updated_at: new Date().toISOString()
+    },
+    { onConflict: "organization_id" }
+  );
+  if (error) return { ok: false, message: error.message };
+  return { ok: true };
+}
+
 export async function upsertKioskMatchInsightsForOrganization(params: {
   organizationId: string;
   eventId: number;

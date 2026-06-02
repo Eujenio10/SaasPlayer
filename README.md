@@ -50,6 +50,8 @@ Seed iniziale organizzazione/admin in `supabase/seed.sql`.
 - `TACTICAL_SNAPSHOT_MAX_AGE_SECONDS` eta massima snapshot prima del refresh automatico.
 - `SPORTAPI_FOOTBALL_SCHEDULED_EVENTS_PATH` endpoint principale per eventi programmati calcio (con `{date}`) usato per calcolare la prossima giornata.
 - `TACTICAL_LOOKAHEAD_DAYS` finestra giorni per trovare la prossima giornata (default `14`).
+- `TACTICAL_INTL_LOOKAHEAD_DAYS` giorni consecutivi (uno `scheduled-events` per giorno, max impostabile `180`) per il pulsante admin **Aggiorna Mondiali** prima di fare fallback su `TACTICAL_LOOKAHEAD_DAYS` (default `60`). Aumentarlo se non ci sono gare **Coppa del Mondo maschile** nel tuo lookahead attuale.
+- `TACTICAL_INTL_TOURNAMENT_SLUG_INCLUDES` CSV di frammenti slug aggiuntivi (min 4 caratteri) per far riconoscere **solo** Mundial maschili quando il naming del provider differisce dall’euristica (le competizioni femminili restano escluse se lo slug riporta marcatori tipo `women` / `female` / ecc.).
 - `TACTICAL_TEAM_SEARCH_LOOKAHEAD_DAYS` finestra giorni usata per indicizzare i club ricercabili (default `14`).
 - `TACTICAL_TEAM_SEARCH_REFRESH_HOURS` frequenza refresh indice squadre ricerca (default `96`, cioe ogni 4 giorni).
 - `TACTICAL_TOP5_LEAGUE_IDS` lista League ID dei Top5 campionati consentiti (CSV).

@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { buildMatchupDetailModel, MatchupDetailPage } from "@/components/matchup-detail";
 import { FoulCommittedRiskPanel } from "@/components/foul-committed-risk/foul-committed-risk-panel";
 import { FoulSufferedRiskPanel } from "@/components/foul-suffered-risk/foul-suffered-risk-panel";
 import { analyzeFoulRisk } from "@/lib/foul-risk-analysis";
-import { filterMatchesKickoffInFuture, dedupeMatchesByEventId } from "@/lib/tactical-matches-filters";
+import { filterMatchesKickoffInFuture, dedupeMatchesByEventId, narrowMenuToEachTeamsNextMatch } from "@/lib/tactical-matches-filters";
 import type { FoulRiskAggressorBrief, FoulRiskEntry } from "@/lib/foul-risk-analysis";
 import type { UserAccessSummary } from "@/lib/auth/user-access";
 import type { CompetitionScope, TacticalMetrics } from "@/lib/types";
@@ -16,6 +16,7 @@ import {
   KIOSK_INSIGHTS_LOCAL_WRITE_EVENT,
   readKioskInsightsLocal,
   readKioskMatchesCache,
+  readAdminInsightsSnap,
   writeKioskInsightsLocal,
   writeKioskMatchesCache
 } from "@/lib/kiosk-persisted-insights";
@@ -25,6 +26,7 @@ import {
   foulsSufferedPerMatchForDisplay,
   sufferedFoulSignalForRisk
 } from "@/lib/tactical-fouls-signals";
+import { isInternationalTournamentSlug } from "@/lib/international-tournaments";
 
 type KioskView = "PLAYER_FRICTION" | "FOUL_RISK_SUFFERED" | "FOUL_RISK_COMMITTED";
 
@@ -157,6 +159,7 @@ const SINGLE_MATCH_COMPETITION =
   process.env.NEXT_PUBLIC_KIOSK_SINGLE_MATCH_COMPETITION?.trim() || "ligue-1";
 
 function scopeFromCompetitionSlug(slug: string): CompetitionScope {
+  if (isInternationalTournamentSlug(slug)) return "CUP";
   if (slug.includes("champions") || slug.includes("europa") || slug.includes("conference")) return "EUROPE";
   if (
     slug.includes("fa-cup") ||
@@ -195,7 +198,11 @@ function competitionLabel(slug: string): string {
     "serie-b": "Serie B",
     "italy-serie-b": "Serie B"
   };
-  return labels[key] ?? slug;
+  if (labels[key]) return labels[key];
+  if (isInternationalTournamentSlug(slug) || isInternationalTournamentSlug(key)) {
+    return "Coppa del Mondo maschile (Naz.)";
+  }
+  return slug;
 }
 
 function isTopFiveLeagueSlug(slug: string): boolean {
@@ -373,7 +380,7 @@ async function fetchMatchMetricsForBookingAlarm(params: {
       )}&awayTeamName=${encodeURIComponent(
         match.awayTeam.name
       )}&competitionSlug=${encodeURIComponent(match.competitionSlug)}&scope=${scope}${playerAnalyticsParam}`,
-      { cache: "no-store", signal: ac.signal }
+      { cache: "no-store", credentials: "include", signal: ac.signal }
     );
     if (!res.ok) return [];
     const json = (await res.json()) as { metrics?: TacticalMetrics[] };
@@ -428,6 +435,10 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
   const [adminBulkRefreshing, setAdminBulkRefreshing] = useState(false);
   /** Progress overlay durante “Aggiorna dati admin” (solo top 5 campionati). */
   const [adminBulkProgress, setAdminBulkProgress] = useState<{ current: number; total: number } | null>(null);
+  const [intlMenuRefreshing, setIntlMenuRefreshing] = useState(false);
+  /** "scan" = chiamata al provider in corso, "prefetch" = analisi partite in corso, null = idle */
+  const [intlPhase, setIntlPhase] = useState<"scan" | "prefetch" | null>(null);
+  const [intlBulkProgress, setIntlBulkProgress] = useState<{ current: number; total: number } | null>(null);
   const mountedRef = useRef(true);
   /** Indice scontro aperto quando ci sono più duello; `null` = elenco. */
   const [frictionDetailIndex, setFrictionDetailIndex] = useState<number | null>(null);
@@ -499,7 +510,7 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
         match.awayTeam.name
       )}&competitionSlug=${encodeURIComponent(match.competitionSlug)}&scope=${scope}&forceRefresh=1${playerAnalyticsParam}`;
       try {
-        const response = await fetch(query, { cache: "no-store" });
+        const response = await fetch(query, { cache: "no-store", credentials: "include" });
         if (!response.ok) return;
         const json = (await response.json()) as {
           metrics?: TacticalMetrics[];
@@ -533,6 +544,82 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
       onProgress?.(completed, total);
     }
   }
+
+  const reloadMenuMatchesFromApi = useCallback(async (): Promise<UpcomingMatchItem[]> => {
+    if (presetMatch) {
+      const presetUpcoming = filterMatchesKickoffInFuture([presetMatch]);
+      setMatches(presetUpcoming);
+      setSelectedMatchId(0);
+      setMatchesError(null);
+      return presetUpcoming;
+    }
+    {
+      const cached = readKioskMatchesCache(fixtureId);
+      if (cached.length > 0) {
+        setMatches(cached);
+        setSelectedMatchId(0);
+        setMatchesError(null);
+      }
+    }
+    const singleMatchFilter = testingMatch ?? (SINGLE_MATCH_MODE
+      ? {
+          home: SINGLE_MATCH_HOME,
+          away: SINGLE_MATCH_AWAY,
+          competition: SINGLE_MATCH_COMPETITION
+        }
+      : null);
+    const matchesUrl = singleMatchFilter
+      ? `/api/tactical/matches?home=${encodeURIComponent(singleMatchFilter.home)}&away=${encodeURIComponent(
+          singleMatchFilter.away
+        )}&competition=${encodeURIComponent(singleMatchFilter.competition)}`
+      : "/api/tactical/matches";
+    const response = await fetch(matchesUrl, { cache: "no-store", credentials: "include" });
+    if (!response.ok) {
+      setMatchesError("Impossibile caricare il menu partite.");
+      return [];
+    }
+    let json = (await response.json()) as {
+      matches?: UpcomingMatchItem[];
+      persistedSnapshotMissing?: boolean;
+    };
+    let list = json.matches ?? [];
+    if (singleMatchFilter && list.length === 0) {
+      const fallback = await fetch("/api/tactical/matches", {
+        cache: "no-store",
+        credentials: "include"
+      });
+      if (fallback.ok) {
+        json = (await fallback.json()) as {
+          matches?: UpcomingMatchItem[];
+          persistedSnapshotMissing?: boolean;
+        };
+        list = json.matches ?? [];
+      }
+    }
+    const normalized = dedupeMatchesByEventId(
+      list.map((m) => ({
+        ...m,
+        competitionSlug: normalizeKioskCompetitionSlug(m.competitionSlug)
+      }))
+    );
+    setMatches(normalized);
+    writeKioskMatchesCache(fixtureId, normalized);
+    setSelectedMatchId(0);
+    if (normalized.length === 0 && !presetMatch && !testingMatch) {
+      setMatchesError(
+        json.persistedSnapshotMissing
+          ? "Menù partite non ancora salvato dall’organizzazione. Un amministratore deve aprire il Tactical Hub una volta (caricamento menu completo) così anche i profili Pro usano solo i dati in database, senza consumare il piano API esterno."
+          : "Nessuna partita futura nel menù condiviso. Chiedi a un amministratore di aggiornare il Tactical Hub quando serve un refresh del calendario."
+      );
+      return normalized;
+    }
+    setMatchesError(null);
+    return normalized;
+  }, [fixtureId, presetMatch, testingMatch]);
+
+  useEffect(() => {
+    void reloadMenuMatchesFromApi();
+  }, [reloadMenuMatchesFromApi]);
 
   useEffect(() => {
     const id = window.setInterval(() => {
@@ -945,83 +1032,6 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
   }, [showBookingAlarm, bookingAlarmMatchKey, playerAnalyticsPolicy]);
 
   useEffect(() => {
-    async function loadMatches() {
-      if (presetMatch) {
-        const presetUpcoming = filterMatchesKickoffInFuture([presetMatch]);
-        setMatches(presetUpcoming);
-        // Non auto-selezionare match: prima l’utente deve scegliere il campionato.
-        setSelectedMatchId(0);
-        setMatchesError(null);
-        return;
-      }
-      {
-        const cached = readKioskMatchesCache(fixtureId);
-        if (cached.length > 0) {
-          setMatches(cached);
-          setSelectedMatchId(0);
-          setMatchesError(null);
-        }
-      }
-      const singleMatchFilter = testingMatch ?? (SINGLE_MATCH_MODE
-        ? {
-            home: SINGLE_MATCH_HOME,
-            away: SINGLE_MATCH_AWAY,
-            competition: SINGLE_MATCH_COMPETITION
-          }
-        : null);
-      const matchesUrl = singleMatchFilter
-        ? `/api/tactical/matches?home=${encodeURIComponent(singleMatchFilter.home)}&away=${encodeURIComponent(
-            singleMatchFilter.away
-          )}&competition=${encodeURIComponent(singleMatchFilter.competition)}`
-        : "/api/tactical/matches";
-      const response = await fetch(matchesUrl, { cache: "no-store" });
-      if (!response.ok) {
-        setMatchesError("Impossibile caricare il menu partite.");
-        return;
-      }
-      let json = (await response.json()) as {
-        matches?: UpcomingMatchItem[];
-        persistedSnapshotMissing?: boolean;
-      };
-      let list = json.matches ?? [];
-      if (singleMatchFilter && list.length === 0) {
-        const fallback = await fetch("/api/tactical/matches", { cache: "no-store" });
-        if (fallback.ok) {
-          json = (await fallback.json()) as {
-            matches?: UpcomingMatchItem[];
-            persistedSnapshotMissing?: boolean;
-          };
-          list = json.matches ?? [];
-        }
-      }
-      const normalized = dedupeMatchesByEventId(
-        list.map((m) => ({
-          ...m,
-          competitionSlug: normalizeKioskCompetitionSlug(m.competitionSlug)
-        }))
-      );
-      setMatches(normalized);
-      writeKioskMatchesCache(fixtureId, normalized);
-      // Non auto-selezionare match: prima l’utente deve scegliere il campionato.
-      setSelectedMatchId(0);
-      if (
-        normalized.length === 0 &&
-        !presetMatch &&
-        !testingMatch
-      ) {
-        setMatchesError(
-          json.persistedSnapshotMissing
-            ? "Menù partite non ancora salvato dall’organizzazione. Un amministratore deve aprire il Tactical Hub una volta (caricamento menu completo) così anche i profili Pro usano solo i dati in database, senza consumare il piano API esterno."
-            : "Nessuna partita futura nel menù condiviso. Chiedi a un amministratore di aggiornare il Tactical Hub quando serve un refresh del calendario."
-        );
-      } else {
-      setMatchesError(null);
-      }
-    }
-    void loadMatches();
-  }, [fixtureId, presetMatch, testingMatch]);
-
-  useEffect(() => {
     if (!selectedMatch) {
       setMetrics([]);
       setPlayerDetailLevel("full");
@@ -1317,6 +1327,142 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
         </article>
       ) : null}
 
+      {canRefreshData ? (
+        <div className="rounded-2xl border border-amber-300/25 bg-gradient-to-br from-amber-400/10 via-orange-400/6 to-yellow-300/5 p-5 shadow-lg shadow-orange-950/15">
+          <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
+            <div className="min-w-0">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-amber-300/80">
+                Gestione calendario internazionale · Solo admin
+              </p>
+              <p className="mt-1 text-base font-bold text-white">
+                Mondiali 2026 · Coppa del Mondo FIFA
+              </p>
+              <p className="mt-1 max-w-xl text-xs leading-relaxed text-slate-400">
+                Scarica dal provider le partite mondiali (maschile senior) e salva lo snapshot condiviso per tutti gli utenti.
+                Pre-calcola le analisi per la prossima partita di ogni nazionale coinvolta.
+              </p>
+            </div>
+            <button
+              type="button"
+              disabled={loadingMatchInsights || adminBulkRefreshing || intlMenuRefreshing}
+              onClick={async () => {
+                if (!canRefreshData) return;
+                setIntlMenuRefreshing(true);
+                setIntlPhase("scan");
+                setIntlBulkProgress(null);
+                setMatchInsightsError(null);
+                try {
+                  let res: Response;
+                  try {
+                    res = await fetch("/api/tactical/international-matches", {
+                      method: "POST",
+                      credentials: "include"
+                    });
+                  } catch {
+                    throw new Error("Connessione al server persa (timeout o rete). Riprova.");
+                  }
+                  let body: { error?: string; message?: string; savedCount?: number } = {};
+                  try {
+                    body = (await res.json()) as typeof body;
+                  } catch {
+                    if (!res.ok) {
+                      throw new Error(
+                        `Errore server ${res.status}: risposta non valida. Il provider potrebbe aver impiegato troppo tempo — riprova tra un momento.`
+                      );
+                    }
+                  }
+                  if (!res.ok) {
+                    const detail = body.message?.trim();
+                    throw new Error(
+                      detail
+                        ? `${body.error ?? "Errore server"}: ${detail}`
+                        : (body.error ?? `Errore server ${res.status}.`)
+                    );
+                  }
+                  setIntlPhase("prefetch");
+                  const listAfter = await reloadMenuMatchesFromApi();
+                  const intlMenuMatches = dedupeMatchesByEventId(
+                    listAfter.filter((m) => isInternationalTournamentSlug(m.competitionSlug))
+                  );
+                  const intlPrefetchTargets = narrowMenuToEachTeamsNextMatch(intlMenuMatches);
+                  const snap = readAdminInsightsSnap();
+                  if (intlPrefetchTargets.length > 0) {
+                    setIntlBulkProgress({ current: 0, total: intlPrefetchTargets.length });
+                    await prefetchAllMenuInsights(intlPrefetchTargets, snap, (current, tot) => {
+                      if (mountedRef.current) setIntlBulkProgress({ current, total: tot });
+                    });
+                  }
+                  const saved =
+                    typeof body.savedCount === "number" && Number.isFinite(body.savedCount)
+                      ? body.savedCount
+                      : null;
+                  if (mountedRef.current && saved === 0 && intlMenuMatches.length === 0) {
+                    setMatchInsightsError(
+                      "Nessuna partita Mondiali maschili trovata. Il torneo inizia l'11 giugno: riprova da quella data. Se il problema persiste controlla TACTICAL_INTL_TOURNAMENT_SLUG_INCLUDES nel .env."
+                    );
+                  }
+                } catch (err) {
+                  if (mountedRef.current) {
+                    setMatchInsightsError(
+                      err instanceof Error ? err.message : "Errore durante l'aggiornamento menu Mondiali."
+                    );
+                  }
+                } finally {
+                  if (mountedRef.current) {
+                    setIntlMenuRefreshing(false);
+                    setIntlPhase(null);
+                    setIntlBulkProgress(null);
+                  }
+                  void reloadAccessSummary();
+                }
+              }}
+              className="shrink-0 rounded-full border border-amber-200/55 bg-gradient-to-r from-amber-500 to-orange-600 px-6 py-3 text-sm font-bold text-white shadow-lg shadow-orange-950/30 transition hover:scale-[1.02] hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
+            >
+              {intlMenuRefreshing ? "Aggiornamento…" : "Aggiorna dati Mondiali"}
+            </button>
+          </div>
+
+          {/* Barra di avanzamento */}
+          {intlMenuRefreshing ? (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-xs text-amber-200/80">
+                {intlPhase === "scan" ? (
+                  <span>Scansione calendario provider in corso…</span>
+                ) : intlPhase === "prefetch" && intlBulkProgress ? (
+                  <span>Analisi partite: {intlBulkProgress.current}/{intlBulkProgress.total}</span>
+                ) : intlPhase === "prefetch" ? (
+                  <span>Calcolo analisi nazionali…</span>
+                ) : null}
+              </div>
+              {intlPhase === "scan" ? (
+                /* Barra indeterminata: shinning animata */
+                <div className="relative h-1.5 w-full overflow-hidden rounded-full bg-white/10">
+                  <div className="absolute inset-y-0 w-1/3 animate-[shimmer_1.4s_ease-in-out_infinite] rounded-full bg-gradient-to-r from-transparent via-amber-400 to-transparent" />
+                </div>
+              ) : intlPhase === "prefetch" && intlBulkProgress && intlBulkProgress.total > 0 ? (
+                /* Barra definitiva con percentuale */
+                <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/10">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-amber-400 to-orange-500 transition-all duration-300"
+                    style={{
+                      width: `${Math.round((intlBulkProgress.current / intlBulkProgress.total) * 100)}%`
+                    }}
+                  />
+                </div>
+              ) : (
+                <div className="relative h-1.5 w-full overflow-hidden rounded-full bg-white/10">
+                  <div className="absolute inset-y-0 w-1/3 animate-[shimmer_1.4s_ease-in-out_infinite] rounded-full bg-gradient-to-r from-transparent via-amber-400 to-transparent" />
+                </div>
+              )}
+            </div>
+          ) : null}
+
+          {matchInsightsError && !adminBulkRefreshing ? (
+            <p className="mt-3 text-xs text-rose-300">{matchInsightsError}</p>
+          ) : null}
+        </div>
+      ) : null}
+
       <div className="space-y-6" id="kiosk-fixture-picker">
         <div className={softPanelClass}>
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -1336,8 +1482,8 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
                 </div>
               )}
               {canRefreshData ? (
-            <button
-              type="button"
+                <button
+                  type="button"
                   onClick={async () => {
                     if (!canRefreshData) return;
                     setAdminBulkRefreshing(true);
@@ -1357,9 +1503,7 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
                         }
                         return;
                       }
-
                       clearKioskInsightsLocalKeys();
-
                       const snap = bumpAdminInsightsSnap();
                       window.dispatchEvent(
                         new CustomEvent<{ snap: number }>(KIOSK_ADMIN_INSIGHTS_REFRESH_EVENT, {
@@ -1376,8 +1520,8 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
                       await prefetchAllMenuInsights(topFiveTargets, snap, (current, tot) => {
                         if (mountedRef.current) setAdminBulkProgress({ current, total: tot });
                       });
-                      /** Riduce mismatch menu DB vs prefetch: ripersiste il calendario condiviso lato admin. */
                       await fetch("/api/tactical/matches", { cache: "no-store", credentials: "include" });
+                      await reloadMenuMatchesFromApi();
                     } finally {
                       if (mountedRef.current) {
                         setAdminBulkRefreshing(false);
@@ -1387,11 +1531,11 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
                       void reloadAccessSummary();
                     }
                   }}
-                  disabled={loadingMatchInsights || adminBulkRefreshing}
+                  disabled={loadingMatchInsights || adminBulkRefreshing || intlMenuRefreshing}
                   className={primaryButtonClass}
                 >
                   Aggiorna dati admin
-            </button>
+                </button>
               ) : null}
             </div>
           </div>

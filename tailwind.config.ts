@@ -16,6 +16,15 @@ const config: Config = {
       },
       boxShadow: {
         broadcast: "0 0 40px rgba(0, 191, 255, 0.2)"
+      },
+      keyframes: {
+        shimmer: {
+          "0%": { transform: "translateX(-150%)" },
+          "100%": { transform: "translateX(350%)" }
+        }
+      },
+      animation: {
+        shimmer: "shimmer 1.4s ease-in-out infinite"
       }
     }
   },

@@ -1,4 +1,5 @@
 import { env } from "@/lib/env";
+import { isInternationalTournamentSlug } from "@/lib/international-tournaments";
 import { createSupabaseServiceClient } from "@/lib/supabase/server";
 import type {
   CompetitionScope,
@@ -36,6 +37,8 @@ interface SportApiEvent {
     };
   };
   tournament?: {
+    /** Talvolta popolato anche senza uniqueTournament.slug (es. Coppa del Mondo maschile). */
+    slug?: string;
     category?: {
       slug?: string;
       country?: {
@@ -901,6 +904,9 @@ interface TeamDomesticLeagueContext {
 
 const teamDomesticLeagueContextCache = new Map<number, TeamDomesticLeagueContext | null>();
 
+/** Cache: nationalTeamId → torneo più recente con partite finite (qualificazioni, Nations League, Mondiali). */
+const nationalTeamRecentContextCache = new Map<number, TeamDomesticLeagueContext | null>();
+
 interface TeamCandidate {
   id: number;
   name: string;
@@ -1151,7 +1157,8 @@ function isFootballEvent(event: SportApiEvent): boolean {
 }
 
 function competitionSlug(event: SportApiEvent): string {
-  return normalizeCompetitionSlug(event.tournament?.uniqueTournament?.slug);
+  const fromUnique = normalizeCompetitionSlug(event.tournament?.uniqueTournament?.slug);
+  return fromUnique || normalizeCompetitionSlug(event.tournament?.slug);
 }
 
 function eventCountryTokens(event: SportApiEvent): Set<string> {
@@ -1294,6 +1301,58 @@ async function getTeamDomesticLeagueContext(
 }
 
 /**
+ * Per le nazionali che partecipano ai Mondiali, trova il torneo più recente con partite finite
+ * (qualificazioni WC, Nations League, amichevoli, o partite già giocate del Mondiale stesso).
+ * Non si vincola al torneo "attuale" del team (che prima dell'inizio del WC non ha match finiti):
+ * scorre tutti gli eventi recenti della squadra e restituisce il primo torneo utile.
+ */
+async function getNationalTeamRecentTournamentContext(
+  teamId: number,
+  bypassCache?: boolean
+): Promise<TeamDomesticLeagueContext | null> {
+  if (!bypassCache && nationalTeamRecentContextCache.has(teamId)) {
+    return nationalTeamRecentContextCache.get(teamId) ?? null;
+  }
+
+  const maxPages = 4;
+  for (let page = 0; page < maxPages; page += 1) {
+    const eventsResponse = await sportApiFetch(`/api/v1/team/${teamId}/events/last/${page}`, {
+      requestType: "snapshot",
+      teamId,
+      revalidateSeconds: 300,
+      bypassCache
+    });
+    if (!eventsResponse.ok) break;
+
+    let events: SportApiEvent[] = [];
+    try {
+      const payload = (await eventsResponse.json()) as SportApiTeamEventsResponse;
+      events = payload.events ?? [];
+    } catch {
+      break;
+    }
+
+    for (const event of events) {
+      if (eventStatusType(event) !== "finished") continue;
+      const evUt = event.tournament?.uniqueTournament?.id;
+      const sid = event.season?.id;
+      if (!evUt || Number(evUt) <= 0 || !sid || Number(sid) <= 0) continue;
+
+      const ctx: TeamDomesticLeagueContext = {
+        tournamentId: Number(evUt),
+        seasonId: Number(sid),
+        slug: competitionSlug(event)
+      };
+      if (!bypassCache) nationalTeamRecentContextCache.set(teamId, ctx);
+      return ctx;
+    }
+  }
+
+  if (!bypassCache) nationalTeamRecentContextCache.set(teamId, null);
+  return null;
+}
+
+/**
  * Serie B italiana nel menu kiosk.
  * Non richiediamo token paese: su scheduled-events molti match hanno slug `serie-b` senza `country` popolato;
  * il vincolo Italia era troppo stretto e lasciava poche partite (es. una sola fissata).
@@ -1317,6 +1376,54 @@ function eventStatusType(event: SportApiEvent): string {
 
 function isUpcomingEvent(event: SportApiEvent): boolean {
   return eventStatusType(event) === "notstarted";
+}
+
+/** Stati terminati da escludere dal menu discovery (solo calcio Mondiali usa filtri dedicati anche sotto). */
+function isTerminalMatchStatus(event: SportApiEvent): boolean {
+  const set = new Set([
+    "finished",
+    "ended",
+    "completed",
+    "cancelled",
+    "canceled",
+    "abandoned",
+    "awarded"
+  ]);
+  return set.has(eventStatusType(event));
+}
+
+/**
+ * Coppa del Mondo: alcuni provider non marciano `national` sugli roster in scheduled-events, o usano
+ * stati tipo `scheduled` invece di `notstarted`. Accettiamo kickoff nel futuro o stati chiaramente futuri/posticipati.
+ */
+function isWorldCupDiscoveryEligibleEvent(event: SportApiEvent): boolean {
+  if (isTerminalMatchStatus(event)) return false;
+  const t = eventStatusType(event);
+  if (t === "notstarted" || t === "scheduled" || t === "postponed") return true;
+  const kick = event.startTimestamp ?? 0;
+  const now = Math.floor(Date.now() / 1000);
+  return kick > now;
+}
+
+/** Partita Mondiali maschili: due squadre con id; nazionali se il provider lo dice, altrimenti slug torneo è già riconosciuto come Mundial maschile FIFA. */
+function worldCupScheduledEventSidesOk(event: SportApiEvent): boolean {
+  const h = event.homeTeam;
+  const a = event.awayTeam;
+  if (!h?.id || !a?.id) return false;
+  if (typeof h.id !== "number" || typeof a.id !== "number") return false;
+  /** Escludi match con nomi placeholder (es. "2A", "W41", "TBD") — fase eliminazione ancora non definita. */
+  if (!isRealTeamNameStr(h.name ?? "") || !isRealTeamNameStr(a.name ?? "")) return false;
+  if (h.national && a.national) return true;
+  return isInternationalTournamentSlug(competitionSlug(event));
+}
+
+function isRealTeamNameStr(name: string): boolean {
+  const t = name.trim();
+  if (t.length <= 3) return false;
+  if (/^[WwLl]\d+$/.test(t)) return false;
+  if (/^(winner|loser|runner.?up|qualified|tbd|tbc|to\s*be)/i.test(t)) return false;
+  if (/^\d[A-Z]$/.test(t) || /^[A-Z]\d$/.test(t)) return false;
+  return true;
 }
 
 function extractEvents(payload: unknown): SportApiEvent[] {
@@ -1745,6 +1852,130 @@ async function discoverUpcomingKioskMenuEvents(): Promise<SportApiEvent[]> {
   return discoverTargetEvents(isUpcomingEvent, "kiosk_top5_and_uefa_cups");
 }
 
+function isInternationalTournamentEvent(event: SportApiEvent): boolean {
+  return isInternationalTournamentSlug(competitionSlug(event));
+}
+
+/**
+ * Calendario Coppa del Mondo FIFA maschile (senior): squadre nazionali (`national`), nessuna auto-discovery nel menu club.
+ */
+async function discoverInternationalTournamentScheduledEvents(): Promise<SportApiEvent[]> {
+  /** Default più ampio: qualificazioni / calendario rado; capped per non esplodere le chiamate scheduled-events. */
+  const rawLookahead = Number(process.env.TACTICAL_INTL_LOOKAHEAD_DAYS ?? process.env.TACTICAL_LOOKAHEAD_DAYS ?? "60");
+  const safeLookaheadDays = Math.min(
+    180,
+    Math.max(1, Number.isFinite(rawLookahead) && rawLookahead >= 1 ? Math.floor(rawLookahead) : 60)
+  );
+  /**
+   * Early-stop: dopo aver trovato la prima giornata con partite mondiali,
+   * smette di cercare dopo N giorni consecutivi vuoti.
+   * Evita di fare 180 chiamate HTTP quando il torneo è a 10 giorni.
+   */
+  const rawBuffer = Number(process.env.TACTICAL_INTL_EMPTY_DAYS_STOP ?? "10");
+  const emptyDaysStopAfter = Math.max(
+    3,
+    Number.isFinite(rawBuffer) && rawBuffer >= 1 ? Math.floor(rawBuffer) : 10
+  );
+
+  const endpointTemplate =
+    process.env.SPORTAPI_FOOTBALL_SCHEDULED_EVENTS_PATH ??
+    "/api/v1/sport/football/scheduled-events/{date}";
+
+  const collected: SportApiEvent[] = [];
+  let foundAnyMatch = false;
+  let consecutiveEmptyDays = 0;
+
+  for (let dayOffset = 0; dayOffset <= safeLookaheadDays; dayOffset += 1) {
+    const endpoint = endpointTemplate.replaceAll("{date}", dateToken(dayOffset));
+    const response = await sportApiFetch(endpoint, {
+      requestType: "snapshot",
+      revalidateSeconds: 60
+    });
+    if (!response.ok) {
+      if (foundAnyMatch) consecutiveEmptyDays++;
+      if (foundAnyMatch && consecutiveEmptyDays >= emptyDaysStopAfter) break;
+      continue;
+    }
+
+    const payload = (await response.json()) as unknown;
+    const events = extractEvents(payload)
+      .filter((event) => Boolean(event.id))
+      .filter(isFootballEvent)
+      .filter(isWorldCupDiscoveryEligibleEvent)
+      .filter(isInternationalTournamentEvent)
+      .filter(worldCupScheduledEventSidesOk);
+
+    if (events.length > 0) {
+      collected.push(...events);
+      foundAnyMatch = true;
+      consecutiveEmptyDays = 0;
+    } else if (foundAnyMatch) {
+      consecutiveEmptyDays++;
+      if (consecutiveEmptyDays >= emptyDaysStopAfter) break;
+    }
+  }
+
+  if (collected.length === 0) {
+    return [];
+  }
+
+  const byCompetition = new Map<string, SportApiEvent[]>();
+  for (const event of collected) {
+    const slug = competitionSlug(event);
+    if (!slug) continue;
+    const list = byCompetition.get(slug) ?? [];
+    list.push(event);
+    byCompetition.set(slug, list);
+  }
+
+  const selected: SportApiEvent[] = [];
+  for (const [, events] of byCompetition) {
+    const validRoundEvents = events.filter((event) => typeof event.roundInfo?.round === "number");
+    const slugNorm = normalizeCompetitionSlug(competitionSlug(events[0]));
+    /** Coppa del Mondo: knockout / gruppi senza `roundInfo` affidabile come in lega. */
+    const skipRoundSlice =
+      slugNorm.includes("world-cup") ||
+      slugNorm.includes("worldcup") ||
+      slugNorm.includes("fifa-world") ||
+      (slugNorm.includes("world") && slugNorm.includes("championship")) ||
+      (slugNorm.includes("fifa") && slugNorm.includes("world"));
+
+    if (skipRoundSlice || validRoundEvents.length === 0) {
+      selected.push(...events);
+      continue;
+    }
+
+    const nextRound = Math.min(...validRoundEvents.map((event) => event.roundInfo?.round ?? 0));
+    const inRound = events.filter((event) => event.roundInfo?.round === nextRound);
+    const withoutRound = events.filter((event) => typeof event.roundInfo?.round !== "number");
+    if (withoutRound.length > inRound.length) {
+      selected.push(...events);
+    } else {
+      selected.push(...inRound);
+    }
+  }
+
+  const byEventId = new Map<number, SportApiEvent>();
+  for (const event of selected) {
+    const id = event.id;
+    if (typeof id !== "number") continue;
+    const existing = byEventId.get(id);
+    if (!existing) {
+      byEventId.set(id, event);
+      continue;
+    }
+    const tNew = event.startTimestamp ?? 0;
+    const tOld = existing.startTimestamp ?? 0;
+    if (tNew > 0 && (tOld === 0 || tNew < tOld)) {
+      byEventId.set(id, event);
+    }
+  }
+
+  return Array.from(byEventId.values()).sort(
+    (a, b) => (a.startTimestamp ?? 0) - (b.startTimestamp ?? 0)
+  );
+}
+
 function mapPositionToRole(position?: string): SportPerformanceInput["role"] {
   const value = position?.toUpperCase();
   if (value === "G") return "goalkeeper";
@@ -2129,6 +2360,24 @@ export async function fetchSportPerformanceForTeams(params: {
     seasonId: number;
     competitionSlugNorm: string;
   }> {
+    if (isInternationalTournamentSlug(normalizedCompetition)) {
+      /** Per le nazionali ai Mondiali, usiamo il torneo più recente con partite finite
+       *  (qualificazioni, Nations League, o partite WC già giocate).
+       *  Questo alimenta heatmap e statistiche con dati del giocatore in nazionale. */
+      const recentNational = await getNationalTeamRecentTournamentContext(teamId, params.bypassCache);
+      if (recentNational && recentNational.tournamentId > 0 && recentNational.seasonId > 0) {
+        return {
+          tournamentId: recentNational.tournamentId,
+          seasonId: recentNational.seasonId,
+          competitionSlugNorm: normalizeCompetitionSlug(recentNational.slug)
+        };
+      }
+      return {
+        tournamentId: cupTournamentId,
+        seasonId: cupSeasonId,
+        competitionSlugNorm: normalizedCompetition
+      };
+    }
     if (!isUefaClubCompetitionSlug(normalizedCompetition)) {
       return {
         tournamentId: cupTournamentId,
@@ -2330,6 +2579,10 @@ export async function fetchSportPerformanceForTeams(params: {
       const playerShots = new Map<string, number[]>();
       const playerSaves = new Map<string, number[]>();
       const playerAppearances = new Map<string, number>();
+      /** Quante volte il giocatore ha giocato da titolare (substitute === false). */
+      const playerStartCount = new Map<string, number>();
+      /** Timestamp dell'ultimo match dove il giocatore era titolare (per ordinamento). */
+      const playerLastStartTs = new Map<string, number>();
       const playerFoulsCommitted = new Map<string, number[]>();
       const playerFoulsSuffered = new Map<string, number[]>();
       const playerDribbles = new Map<string, number[]>();
@@ -2350,12 +2603,20 @@ export async function fetchSportPerformanceForTeams(params: {
         const isHome = event.homeTeam?.id === team.teamId;
         const conceded = isHome ? shotsOnTarget.away : shotsOnTarget.home;
         teamConcededShotsOnTarget.push(conceded);
+        const eventTs = event.startTimestamp ?? 0;
 
         const players = isHome ? lineups.home?.players ?? [] : lineups.away?.players ?? [];
         for (const player of players) {
           if (!lineupPlayerHasPlayed(player)) continue;
           const name = (player.player?.name ?? player.player?.shortName ?? "").toUpperCase().trim();
           if (!name) continue;
+
+          if (player.substitute === false) {
+            playerStartCount.set(name, (playerStartCount.get(name) ?? 0) + 1);
+            if (eventTs > (playerLastStartTs.get(name) ?? 0)) {
+              playerLastStartTs.set(name, eventTs);
+            }
+          }
 
           if (!playerShots.has(name)) playerShots.set(name, []);
           if (!playerSaves.has(name)) playerSaves.set(name, []);
@@ -2402,14 +2663,27 @@ export async function fetchSportPerformanceForTeams(params: {
           : 0;
       const leagueBaseline = leagueShotsOnTargetBaseline(normalizedCompetition);
 
+      /** Per le nazionali (Mondiali/contesto internazionale): limita ai soli titolari abituali (11 per squadra).
+       *  I giocatori sono ordinati per numero di presenze da titolare, poi per l'ultimo timestamp di partita. */
+      const isIntlContext = isInternationalTournamentSlug(normalizedCompetition);
+      const startersPool = isIntlContext
+        ? Array.from(playerStartCount.keys())
+            .filter((name) => (playerStartCount.get(name) ?? 0) > 0)
+            .sort((a, b) => {
+              const scDelta = (playerStartCount.get(b) ?? 0) - (playerStartCount.get(a) ?? 0);
+              if (scDelta !== 0) return scDelta;
+              return (playerLastStartTs.get(b) ?? 0) - (playerLastStartTs.get(a) ?? 0);
+            })
+        : null;
+
+      const basePool = startersPool ?? rosterOrder;
       const rosterCandidates =
         currentRosterNameSet.size > 0
-          ? rosterOrder.filter((name) => currentRosterNameSet.has(name))
-          : rosterOrder;
-      const rosterForOutput = (rosterCandidates.length > 0 ? rosterCandidates : rosterOrder).slice(
-        0,
-        maxPlayersPerTeam
-      );
+          ? basePool.filter((name) => currentRosterNameSet.has(name))
+          : basePool;
+      const effectivePool = rosterCandidates.length > 0 ? rosterCandidates : basePool;
+      const sizeLimit = isIntlContext ? 11 : maxPlayersPerTeam;
+      const rosterForOutput = effectivePool.slice(0, sizeLimit);
 
       return rosterForOutput.map((name) => {
         const shotsSeries = playerShots.get(name) ?? [0];
@@ -3461,6 +3735,12 @@ function mapEventsToUpcomingMatchItems(events: SportApiEvent[]): UpcomingMatchIt
 
 export async function fetchUpcomingTopCompetitionMatches(): Promise<UpcomingMatchItem[]> {
   const events = await discoverUpcomingKioskMenuEvents();
+  return mapEventsToUpcomingMatchItems(events);
+}
+
+/** Coppa del Mondo FIFA maschile: calendarizzazione dedicata (`discoverInternationalTournamentScheduledEvents`). */
+export async function fetchUpcomingInternationalTournamentMatches(): Promise<UpcomingMatchItem[]> {
+  const events = await discoverInternationalTournamentScheduledEvents();
   return mapEventsToUpcomingMatchItems(events);
 }
 

@@ -1,11 +1,56 @@
 import { NextResponse } from "next/server";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getOrganizationContextForUser } from "@/lib/auth/organization";
 import { getApiCache, setApiCache } from "@/lib/api-cache";
-import { filterMatchesKickoffInFuture } from "@/lib/tactical-matches-filters";
+import { filterMatchesKickoffInFuture, filterRealTeamMatches, narrowMenuToEachTeamsNextMatch } from "@/lib/tactical-matches-filters";
 import { getOrRefreshTacticalMatchesMenuFull } from "@/lib/tactical-matches-menu-cache";
 import { upsertMatchesMenuSnapshotForOrganization } from "@/lib/supabase/org-tactical-shared-writes";
 import type { UpcomingMatchItem } from "@/services/sportapi";
+
+
+function mergeInternationalMenuSlices(
+  domestic: UpcomingMatchItem[],
+  international: UpcomingMatchItem[]
+): UpcomingMatchItem[] {
+  const byId = new Map<number, UpcomingMatchItem>();
+  for (const m of domestic) {
+    byId.set(m.eventId, m);
+  }
+  for (const m of international) {
+    if (!byId.has(m.eventId)) byId.set(m.eventId, m);
+  }
+  return Array.from(byId.values()).sort((a, b) => a.startTimestamp - b.startTimestamp);
+}
+
+async function loadPersistedInternationalMenu(supabase: SupabaseClient, organizationId: string): Promise<{
+  matches: UpcomingMatchItem[];
+  rowExists: boolean;
+}> {
+  const { data, error } = await supabase
+    .from("organization_international_matches_snapshot")
+    .select("matches")
+    .eq("organization_id", organizationId)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[matches] organization_international_matches_snapshot read failed:", error.message);
+    return { matches: [], rowExists: false };
+  }
+
+  const rowExists = data != null;
+  const raw = Array.isArray(data?.matches) ? (data.matches as UpcomingMatchItem[]) : [];
+
+  /** Rimuovi match con nomi placeholder (es. "2A", "W41") — squadre non ancora determinate. */
+  const real = filterRealTeamMatches(filterMatchesKickoffInFuture(raw));
+  /** Solo la prossima partita per ogni nazionale: evita di riempire il menu con tutta la griglia del torneo. */
+  const narrowed = narrowMenuToEachTeamsNextMatch(real);
+
+  return {
+    matches: narrowed,
+    rowExists
+  };
+}
 
 function filterMatchesByTeamAndCompetition(
   baseList: UpcomingMatchItem[],
@@ -62,18 +107,22 @@ export async function GET(request: Request) {
       }
 
       const rawMatches = Array.isArray(row?.matches) ? (row.matches as UpcomingMatchItem[]) : [];
-      const futureBase = filterMatchesKickoffInFuture(rawMatches);
+      const intlPersisted = await loadPersistedInternationalMenu(supabase, organization.organizationId);
+      const mergedRaw = mergeInternationalMenuSlices(rawMatches, intlPersisted.matches);
+      const futureBase = filterMatchesKickoffInFuture(mergedRaw);
       const matchesOut =
         !home && !away && !competition
           ? futureBase
           : filterMatchesByTeamAndCompetition(futureBase, home, away, competition);
 
       const persistedSnapshotMissing = row == null;
+      const internationalPersistedMissing = !intlPersisted.rowExists;
 
       return NextResponse.json({
         matches: matchesOut,
         total: matchesOut.length,
         persistedSnapshotMissing,
+        internationalPersistedMissing,
         matchesSource: "organization_db"
       });
     } catch (e) {
@@ -84,10 +133,12 @@ export async function GET(request: Request) {
 
   try {
     if (!home && !away && !competition) {
-      const upcoming = await getOrRefreshTacticalMatchesMenuFull();
+      const upcomingDomestic = await getOrRefreshTacticalMatchesMenuFull();
+      const intlPersisted = await loadPersistedInternationalMenu(supabase, organization.organizationId);
+      const upcoming = mergeInternationalMenuSlices(upcomingDomestic, intlPersisted.matches);
       const persist = await upsertMatchesMenuSnapshotForOrganization({
         organizationId: organization.organizationId,
-        matches: upcoming
+        matches: upcomingDomestic
       });
       if (!persist.ok) {
         console.error("[matches] upsert organization_matches_menu_snapshot failed:", persist.message);
@@ -95,34 +146,40 @@ export async function GET(request: Request) {
       return NextResponse.json({
         matches: upcoming,
         total: upcoming.length,
+        internationalPersistedMissing: !intlPersisted.rowExists,
         matchesSource: "provider_or_cache"
       });
     }
 
     const cached = await getApiCache<{ matches: UpcomingMatchItem[]; total: number }>(menuCacheKey);
+    const intlPersisted = await loadPersistedInternationalMenu(supabase, organization.organizationId);
     if (cached) {
-      const upcoming = filterMatchesKickoffInFuture(cached.matches);
+      const upcomingDomestic = filterMatchesKickoffInFuture(cached.matches);
+      const upcoming = mergeInternationalMenuSlices(upcomingDomestic, intlPersisted.matches);
       return NextResponse.json({
         matches: upcoming,
         total: upcoming.length,
+        internationalPersistedMissing: !intlPersisted.rowExists,
         matchesSource: "provider_or_cache"
       });
     }
 
-    const baseList = await getOrRefreshTacticalMatchesMenuFull();
+    const baseListDomestic = await getOrRefreshTacticalMatchesMenuFull();
     const persist = await upsertMatchesMenuSnapshotForOrganization({
       organizationId: organization.organizationId,
-      matches: baseList
+      matches: baseListDomestic
     });
     if (!persist.ok) {
       console.error("[matches] upsert organization_matches_menu_snapshot failed:", persist.message);
     }
 
-    const filtered = filterMatchesByTeamAndCompetition(baseList, home, away, competition);
+    const baseListMerged = mergeInternationalMenuSlices(baseListDomestic, intlPersisted.matches);
+    const filtered = filterMatchesByTeamAndCompetition(baseListMerged, home, away, competition);
 
     const payload = {
       matches: filtered,
-      total: filtered.length
+      total: filtered.length,
+      internationalPersistedMissing: !intlPersisted.rowExists
     };
     if (payload.total > 0) {
       await setApiCache(menuCacheKey, payload, menuCacheHours);

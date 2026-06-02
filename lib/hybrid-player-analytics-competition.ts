@@ -1,3 +1,5 @@
+import { isInternationalTournamentSlug } from "@/lib/international-tournaments";
+
 /**
  * Competizioni per cui il kiosk ibrido (`playerAnalytics=serie_a_players`) carica
  * statistiche giocatori e heatmap (come per la Serie A). Allineato al filtro menu UEFA in sportapi.
@@ -17,6 +19,7 @@ const UEFA_CHAMPIONS_OR_EUROPA_SLUGS = new Set([
 
 export function isHybridFullPlayerAnalyticsCompetitionSlug(slug?: string): boolean {
   const s = normalizeSlug(slug);
+  if (isInternationalTournamentSlug(s)) return true;
   if (s === "serie-a") return true;
   if (!s) return false;
   if (s.includes("conference")) return false;
