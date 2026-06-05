@@ -904,8 +904,8 @@ interface TeamDomesticLeagueContext {
 
 const teamDomesticLeagueContextCache = new Map<number, TeamDomesticLeagueContext | null>();
 
-/** Cache: nationalTeamId → torneo più recente con partite finite (qualificazioni, Nations League, Mondiali). */
-const nationalTeamRecentContextCache = new Map<number, TeamDomesticLeagueContext | null>();
+/** Cache: nationalTeamId → lista ordinata di tornei recenti con partite finite (per cascata heatmap). */
+const nationalTeamRecentContextsCache = new Map<number, TeamDomesticLeagueContext[]>();
 
 interface TeamCandidate {
   id: number;
@@ -1301,21 +1301,24 @@ async function getTeamDomesticLeagueContext(
 }
 
 /**
- * Per le nazionali che partecipano ai Mondiali, trova il torneo più recente con partite finite
- * (qualificazioni WC, Nations League, amichevoli, o partite già giocate del Mondiale stesso).
- * Non si vincola al torneo "attuale" del team (che prima dell'inizio del WC non ha match finiti):
- * scorre tutti gli eventi recenti della squadra e restituisce il primo torneo utile.
+ * Per le nazionali ai Mondiali, raccoglie fino a `maxContexts` tornei distinti con partite finite
+ * (Mondiale stesso, qualificazioni, Nations League, amichevoli) ordinati per recenza.
+ * Usato sia per il binding principale (primo contesto) sia come cascata per le heatmap.
  */
-async function getNationalTeamRecentTournamentContext(
+async function getNationalTeamRecentTournamentContexts(
   teamId: number,
+  maxContexts = 5,
   bypassCache?: boolean
-): Promise<TeamDomesticLeagueContext | null> {
-  if (!bypassCache && nationalTeamRecentContextCache.has(teamId)) {
-    return nationalTeamRecentContextCache.get(teamId) ?? null;
+): Promise<TeamDomesticLeagueContext[]> {
+  if (!bypassCache && nationalTeamRecentContextsCache.has(teamId)) {
+    return nationalTeamRecentContextsCache.get(teamId) ?? [];
   }
 
-  const maxPages = 4;
-  for (let page = 0; page < maxPages; page += 1) {
+  const maxPages = 6;
+  const seenKey = new Set<string>();
+  const contexts: TeamDomesticLeagueContext[] = [];
+
+  outer: for (let page = 0; page < maxPages; page += 1) {
     const eventsResponse = await sportApiFetch(`/api/v1/team/${teamId}/events/last/${page}`, {
       requestType: "snapshot",
       teamId,
@@ -1338,18 +1341,30 @@ async function getNationalTeamRecentTournamentContext(
       const sid = event.season?.id;
       if (!evUt || Number(evUt) <= 0 || !sid || Number(sid) <= 0) continue;
 
-      const ctx: TeamDomesticLeagueContext = {
+      const key = `${evUt}:${sid}`;
+      if (seenKey.has(key)) continue;
+      seenKey.add(key);
+
+      contexts.push({
         tournamentId: Number(evUt),
         seasonId: Number(sid),
         slug: competitionSlug(event)
-      };
-      if (!bypassCache) nationalTeamRecentContextCache.set(teamId, ctx);
-      return ctx;
+      });
+      if (contexts.length >= maxContexts) break outer;
     }
   }
 
-  if (!bypassCache) nationalTeamRecentContextCache.set(teamId, null);
-  return null;
+  if (!bypassCache) nationalTeamRecentContextsCache.set(teamId, contexts);
+  return contexts;
+}
+
+/** Restituisce il contesto più recente (primo della lista), per la risoluzione del binding. */
+async function getNationalTeamRecentTournamentContext(
+  teamId: number,
+  bypassCache?: boolean
+): Promise<TeamDomesticLeagueContext | null> {
+  const all = await getNationalTeamRecentTournamentContexts(teamId, 5, bypassCache);
+  return all[0] ?? null;
 }
 
 /**
@@ -2466,6 +2481,15 @@ export async function fetchSportPerformanceForTeams(params: {
     const seasonId = binding.seasonId;
     const normalizedCompetition = binding.competitionSlugNorm;
 
+    /**
+     * Per le partite internazionali (Mondiali): lista di contesti nazionali ordinati per recenza
+     * (Mondiale già giocato → qualificazioni → Nations League → amichevoli).
+     * Usata come cascata in `fetchPlayerSeasonHeatmap` per trovare heatmap non vuote.
+     */
+    const intlHeatmapContexts: TeamDomesticLeagueContext[] = isInternationalTournamentSlug(normalizedCompetition)
+      ? await getNationalTeamRecentTournamentContexts(team.teamId, 5, params.bypassCache)
+      : [];
+
     async function fetchPlayerSeasonOverall(playerId: number): Promise<Record<string, number> | null> {
       if (!tournamentId || !seasonId) return null;
       const response = await sportApiFetch(
@@ -2491,23 +2515,30 @@ export async function fetchSportPerformanceForTeams(params: {
       if (!fetchSeasonHeatmaps || !tournamentId || !seasonId) {
         return [];
       }
-      const response = await sportApiFetch(
-        `/api/v1/player/${playerId}/unique-tournament/${tournamentId}/season/${seasonId}/heatmap`,
-        {
-          requestType: "snapshot",
-          revalidateSeconds: heatmapRevalidateSeconds,
-          bypassCache: params.bypassCache
-        }
-      );
-      if (!response.ok) {
-        return [];
+
+      async function heatmapFromContext(tId: number, sId: number): Promise<SportPerformanceInput["heatmapPoints"]> {
+        const resp = await sportApiFetch(
+          `/api/v1/player/${playerId}/unique-tournament/${tId}/season/${sId}/heatmap`,
+          { requestType: "snapshot", revalidateSeconds: heatmapRevalidateSeconds, bypassCache: params.bypassCache }
+        );
+        if (!resp.ok) return [];
+        try { return parsePlayerSeasonHeatmapPoints(await resp.json()); }
+        catch { return []; }
       }
-      try {
-        const json: unknown = await response.json();
-        return parsePlayerSeasonHeatmapPoints(json);
-      } catch {
-        return [];
+
+      /** 1. Prova il contesto del binding (può essere il più recente torneo nazionale). */
+      const primary = await heatmapFromContext(tournamentId, seasonId);
+      if (primary.length > 0) return primary;
+
+      /** 2. Per le nazionali: scorre i contesti alternativi (qualificazioni, NL, ecc.)
+       *     finché non trova dati — garantisce heatmap non vuote anche prima del WC. */
+      for (const ctx of intlHeatmapContexts) {
+        if (ctx.tournamentId === tournamentId && ctx.seasonId === seasonId) continue;
+        const pts = await heatmapFromContext(ctx.tournamentId, ctx.seasonId);
+        if (pts.length > 0) return pts;
       }
+
+      return [];
     }
 
     const startersFromSelectedMatch = (lineupsByTeam.get(team.teamId) ?? [])
@@ -2589,6 +2620,8 @@ export async function fetchSportPerformanceForTeams(params: {
       const playerRole = new Map<string, string>();
       const playerPositionCode = new Map<string, string>();
       const playerJersey = new Map<string, number>();
+      /** ID numerico del giocatore (per chiamare l'endpoint heatmap). */
+      const playerIdByName = new Map<string, number>();
       const teamConcededShotsOnTarget: number[] = [];
 
       for (const event of teamEvents) {
@@ -2633,6 +2666,8 @@ export async function fetchSportPerformanceForTeams(params: {
           playerRole.set(name, mapPositionToRole(player.position));
           if (player.position?.trim()) playerPositionCode.set(name, player.position.trim());
           playerJersey.set(name, player.jerseyNumber ?? player.shirtNumber ?? 0);
+          const pid = player.player?.id;
+          if (pid && !playerIdByName.has(name)) playerIdByName.set(name, pid);
         }
       }
 
@@ -2684,6 +2719,19 @@ export async function fetchSportPerformanceForTeams(params: {
       const effectivePool = rosterCandidates.length > 0 ? rosterCandidates : basePool;
       const sizeLimit = isIntlContext ? 11 : maxPlayersPerTeam;
       const rosterForOutput = effectivePool.slice(0, sizeLimit);
+
+      /** Recupera heatmap in parallelo per tutti i giocatori del roster (erano sempre [] nel fallback). */
+      const heatmapByName = new Map<string, SportPerformanceInput["heatmapPoints"]>();
+      if (fetchSeasonHeatmaps) {
+        await Promise.all(
+          rosterForOutput.map(async (name) => {
+            const pid = playerIdByName.get(name);
+            if (pid && pid > 0) {
+              heatmapByName.set(name, await fetchPlayerSeasonHeatmap(pid));
+            }
+          })
+        );
+      }
 
       return rosterForOutput.map((name) => {
         const shotsSeries = playerShots.get(name) ?? [0];
@@ -2757,7 +2805,7 @@ export async function fetchSportPerformanceForTeams(params: {
           opponentShotsOnTargetLeagueAvg: Math.max(leagueBaseline, 0.1),
           opponentShotsOnTargetLastTwoAvg: concededLastTwoAvg,
           opponentShotsOnTargetLastTwoLeagueAvg: Math.max(leagueBaseline, 0.1),
-          heatmapPoints: [],
+          heatmapPoints: heatmapByName.get(name) ?? [],
           shotsLastTwoSampleCount: Math.min(2, shotsSeries.length),
           savesLastTwoSampleCount: Math.min(2, savesSeries.length),
           foulsCommittedLastTwoSampleCount: Math.min(2, foulsCommittedSeries.length),
