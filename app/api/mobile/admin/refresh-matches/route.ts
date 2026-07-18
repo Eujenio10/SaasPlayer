@@ -5,7 +5,7 @@ import { resolveProductOrganizationId } from "@/lib/auth/product-organization";
 import { runAdminMatchesRefresh } from "@/lib/mobile/admin-refresh-matches";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 600;
+export const maxDuration = 300;
 
 export async function POST(request: Request) {
   const user = await getApiUser(request);
