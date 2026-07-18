@@ -2,7 +2,7 @@
   "crons": [
     {
       "path": "/api/internal/cron/daily-data-refresh",
-      "schedule": "0 6,7 * * *"
+      "schedule": "0 6 * * *"
     }
   ]
 }
