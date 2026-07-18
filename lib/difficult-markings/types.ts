@@ -27,6 +27,8 @@ export type ProbableZone =
   | "penalty_area"
   | "unknown";
 
+export type HeatmapPoint = { x: number; y: number; intensity?: number };
+
 export type MatchupReasonType =
   | "HIGH_FOULS_DRAWN"
   | "HIGH_DRIBBLE_VOLUME"

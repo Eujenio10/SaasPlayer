@@ -87,6 +87,7 @@ export function computeTeamIndices(
   central: number;
   setPiece: number;
 } {
+  void opponent;
   const empty = {
     realForm: 50,
     offensive: 50,

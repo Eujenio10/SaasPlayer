@@ -52,8 +52,9 @@ function resolveInsightKey(player: PlayerPerformanceItem): InsightKey | null {
 
 function insightParams(
   player: PlayerPerformanceItem,
-  key: InsightKey
+  _key: InsightKey
 ): Record<string, string | number> {
+  void _key;
   return {
     matchesWithShot: player.shooting?.matchesWithShot ?? player.recent.appearances,
     shotAccuracy: player.shooting?.shotAccuracy ?? 0,

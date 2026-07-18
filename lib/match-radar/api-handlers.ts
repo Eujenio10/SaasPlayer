@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { MATCH_RADAR_CONFIG, MATCH_RADAR_MODES, type MatchRadarMode } from "@/lib/match-radar/config";
-import { kickoffToRomeDateKey, romeTodayDateKey } from "@/lib/match-radar/date";
+import { romeTodayDateKey } from "@/lib/match-radar/date";
 import { areMatchRadarDatabaseTablesAvailable } from "@/lib/match-radar/db-tables";
 import {
   filterMatchRadarByRomeDate,
@@ -20,7 +20,6 @@ import {
   extractListHighlightsFromComputed
 } from "@/lib/match-radar/match-detail";
 import { resolveLocale, translateMatchRadarReason, MATCH_RADAR_UI_TEXT } from "@/lib/match-radar/text";
-import { isMatchRadarProAccess } from "@/lib/match-radar/access";
 import {
   refereeProfileToSummary,
   resolveRefereeProfileForMatch
@@ -29,8 +28,7 @@ import type {
   MatchRadarDetailResponse,
   MatchRadarEmptyReason,
   MatchRadarListItem,
-  MatchRadarResponse,
-  MatchRadarTeamDetail
+  MatchRadarResponse
 } from "@/lib/match-radar/types";
 import { translateTeamName } from "@/lib/italian-sports-display-core";
 
@@ -129,7 +127,7 @@ export async function buildMatchRadarListResponse(params: {
   }
 
   const range = romeDateRangeUtc(date);
-  let rows = await loadMatchRadarScores({
+  const rows = await loadMatchRadarScores({
     fromKickoff: range.from,
     toKickoff: range.to,
     competitionId: params.competitionId

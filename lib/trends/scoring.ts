@@ -18,8 +18,7 @@ import type {
   PlayerMatchTrendStats,
   TrendLevel,
   TrendMetric,
-  TrendMetricEvaluation,
-  TrendSampleMode
+  TrendMetricEvaluation
 } from "@/lib/trends/types";
 import { isGoalkeeperAppearance } from "@/lib/trends/sample";
 
@@ -224,7 +223,6 @@ export function evaluateTrendMetricShort(params: {
   if (params.overall.length < TREND_SHORT_SAMPLE.minValidAppearances) return null;
   if (params.recent.length !== TREND_SHORT_SAMPLE.recentMatches) return null;
 
-  const isGoalkeeper = params.metric === "saves" || params.recent.some(isGoalkeeperAppearance);
   if (params.metric !== "saves" && params.recent.some(isGoalkeeperAppearance)) return null;
   if (params.metric === "saves" && !params.recent.some(isGoalkeeperAppearance)) return null;
 
@@ -257,7 +255,7 @@ export function evaluateTrendMetricShort(params: {
   );
   trendScore = Math.min(trendScore, TREND_SHORT_SAMPLE.maxTrendScore);
 
-  let reliabilityScore = Math.min(
+  const reliabilityScore = Math.min(
     0.3 * sample + 0.25 * consistencyScore + 0.2 * role.roleStabilityScore + 0.15 * completeness + 0.1,
     TREND_SHORT_SAMPLE.maxReliabilityScore
   );

@@ -11,7 +11,6 @@ import {
   computeRadarScore,
   effectiveRadarWeights,
   normalizePercentile,
-  redistributeWeights,
   calculateSampleReliability,
   calculateVarianceScore
 } from "@/lib/match-radar/normalization";

@@ -4,7 +4,6 @@ import { calculateWeightedIndexedScore } from "@/lib/player-performance/indexed-
 import { percentageChange } from "@/lib/player-performance/offensive-trend";
 import { calculatePer90, round0, round1 } from "@/lib/player-performance/per90";
 import {
-  aggregatePlayerAppearances,
   type AggregatedOffensiveStats
 } from "@/lib/player-performance/aggregate";
 import type { PlayerPerformanceMetrics } from "@/lib/player-performance/types";

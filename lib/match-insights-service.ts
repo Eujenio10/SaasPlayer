@@ -1,4 +1,5 @@
 import { resolveCompetitionId } from "@/lib/competitions";
+import { env } from "@/lib/env";
 import {
   sportApiAbsoluteUrl,
   sportApiEventPath,

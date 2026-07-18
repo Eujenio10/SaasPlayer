@@ -59,6 +59,15 @@ function rowToSnapshot(row: Record<string, unknown>): TeamRadarSnapshotRow {
     cornersForScore: row.corners_for_score != null ? Number(row.corners_for_score) : null,
     cornersAgainstScore:
       row.corners_against_score != null ? Number(row.corners_against_score) : null,
+    offsidesForScore: row.offsides_for_score != null ? Number(row.offsides_for_score) : null,
+    offsidesAgainstScore:
+      row.offsides_against_score != null ? Number(row.offsides_against_score) : null,
+    shotsOutsideBoxForScore:
+      row.shots_outside_box_for_score != null ? Number(row.shots_outside_box_for_score) : null,
+    shotsOutsideBoxAgainstScore:
+      row.shots_outside_box_against_score != null
+        ? Number(row.shots_outside_box_against_score)
+        : null,
     formScore: row.form_score != null ? Number(row.form_score) : null,
     teamStrengthScore: row.team_strength_score != null ? Number(row.team_strength_score) : null,
     volatilityScore: row.volatility_score != null ? Number(row.volatility_score) : null,

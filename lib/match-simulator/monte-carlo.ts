@@ -415,7 +415,7 @@ export function runMonteCarloSimulation(input: MonteCarloInput): MatchSimulation
     lineupConsidered: Boolean(input.lineup?.home || input.lineup?.away),
     methodology,
     calibration,
-    historicalValidation
+    historicalValidation: historicalValidation ?? undefined
   };
 }
 

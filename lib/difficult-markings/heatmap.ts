@@ -5,9 +5,9 @@ import {
   GRID_COLUMNS,
   GRID_ROWS
 } from "@/lib/difficult-markings/roles";
-import type { ProbableZone } from "@/lib/difficult-markings/types";
+import type { HeatmapPoint, ProbableZone } from "@/lib/difficult-markings/types";
 
-export type HeatmapPoint = { x: number; y: number; intensity?: number };
+export type { HeatmapPoint };
 
 const HEATMAP_POINTS_RENDER_CAP = 72;
 

@@ -14,8 +14,6 @@ import {
 import { buildReasonsForMatchup } from "@/lib/difficult-markings/reasons";
 import {
   clamp,
-  isAttackerRole,
-  isDefenderRole,
   percentileGroupForRole,
   profileActsAsAttacker,
   profileActsAsDefender,
@@ -131,7 +129,8 @@ export function difficultMarkingLevelLabelIt(level: DifficultMarkingLevel): stri
   return map[level];
 }
 
-export function calibrateDifficultMarkingScore(rawScore: number, _competitionId?: string): number {
+export function calibrateDifficultMarkingScore(rawScore: number, competitionId?: string): number {
+  void competitionId;
   return clamp(rawScore, 0, 1);
 }
 

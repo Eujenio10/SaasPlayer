@@ -14,7 +14,6 @@ import {
 } from "@/lib/trends/snapshot";
 import { dedupeAndSelectTrends, filterTrends } from "@/lib/trends/publish";
 import {
-  filterUpcomingMenuMatches,
   loadOrganizationFixtureKickoffMap,
   pruneTrendsSnapshot
 } from "@/lib/trends/fixture-eligibility";

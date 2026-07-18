@@ -21,15 +21,10 @@ function duelMatchesSparkPair(player: TacticalMetrics, agg: TacticalMetrics): bo
 
   const friction = player.sparkFrictionHeatmap;
   if (friction) {
-    const idHit =
-      typeof agg.playerId === "number" &&
-      agg.playerId > 0 &&
-      typeof friction.playerBId === "number" &&
-      friction.playerBId === agg.playerId;
     const nameHit =
       friction.labelB.replace(/\s+/g, " ").trim().toUpperCase() ===
       agg.playerName.replace(/\s+/g, " ").trim().toUpperCase();
-    if (idHit || nameHit) return true;
+    if (nameHit) return true;
   }
 
   return false;

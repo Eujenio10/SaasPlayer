@@ -5264,12 +5264,14 @@ export async function fetchFootApiMatchTrendSourceBundle(
       players.push({
         playerId,
         playerName,
-        playerImageUrl:
-          typeof player.player?.image === "string"
-            ? player.player.image
-            : typeof (player.player as { photo?: string } | undefined)?.photo === "string"
-              ? (player.player as { photo: string }).photo
-              : undefined,
+        playerImageUrl: (() => {
+          const p = player.player as
+            | { image?: string; photo?: string }
+            | undefined;
+          if (typeof p?.image === "string") return p.image;
+          if (typeof p?.photo === "string") return p.photo;
+          return undefined;
+        })(),
         teamId,
         opponentId,
         opponentName,

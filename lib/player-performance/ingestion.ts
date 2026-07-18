@@ -1,4 +1,3 @@
-import { PLAYER_PERFORMANCE_CONFIG } from "@/lib/player-performance/config";
 import { ingestMatchPlayerTrendStatsIfNeeded } from "@/lib/trends/ingestion";
 
 export async function ensureFixturePlayerStatsCached(eventIds: number[]): Promise<{

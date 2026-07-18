@@ -25,8 +25,9 @@ export function buildBlueprintFromTacticalMetrics(
   teamId: number,
   teamName: string,
   scope: CompetitionScope,
-  _opponentTeamId: number
+  opponentTeamId: number
 ): TeamPerformanceBlueprint | null {
+  void opponentTeamId;
   const rows = teamRows(metrics, teamId);
   if (!rows.length) return null;
 

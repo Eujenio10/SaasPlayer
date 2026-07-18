@@ -176,6 +176,7 @@ export function keyZoneLabelItalian(
   homeName: string,
   awayName: string
 ): string {
+  void awayName;
   const map: Record<KeyZoneLabel, string> = {
     fascia_sinistra_casa: `Fascia sinistra ${homeName}`,
     fascia_destra_casa: `Fascia destra ${homeName}`,

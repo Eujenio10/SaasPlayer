@@ -33,12 +33,17 @@ export async function loadPersistedTeamBlueprint(
 /** Solo statistiche torneo da provider (FootApi). Nessun fallback da metriche giocatore. */
 export function resolveTeamBlueprint(
   persisted: TeamPerformanceBlueprint | null,
-  _metrics: TacticalMetrics[],
-  _teamId: number,
-  _teamName: string,
-  _opponentTeamId: number,
-  _scope: CompetitionScope
+  metrics: TacticalMetrics[],
+  teamId: number,
+  teamName: string,
+  opponentTeamId: number,
+  scope: CompetitionScope
 ): TeamPerformanceBlueprint | null {
+  void metrics;
+  void teamId;
+  void teamName;
+  void opponentTeamId;
+  void scope;
   if (persisted && isBlueprintPerMatchPlausible(persisted)) return persisted;
   return null;
 }

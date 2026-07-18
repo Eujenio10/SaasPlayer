@@ -142,7 +142,7 @@ export function buildTeamSignalBundle(params: {
   let cornersSeason = shotsForSeason > 0 ? shotsForSeason * 0.42 : 0;
   let cardsSeason = m.foulsCommittedSeason > 0 ? m.foulsCommittedSeason * 0.18 : 0;
   let foulsCommittedSeason = m.foulsCommittedSeason;
-  let foulsSufferedSeason = m.foulsSufferedSeason;
+  const foulsSufferedSeason = m.foulsSufferedSeason;
   let hasBlueprint = false;
 
   if (params.blueprint) {
@@ -182,7 +182,7 @@ export function buildTeamSignalBundle(params: {
     shotsForSeason,
     shotsOnTargetSeason
   });
-  let shotsAgainstSeason = against.season;
+  const shotsAgainstSeason = against.season;
   let shotsAgainstLast5 = against.last5;
   let shotsAgainstLast2 = against.last2;
 

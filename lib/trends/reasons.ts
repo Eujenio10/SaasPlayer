@@ -13,7 +13,6 @@ export function buildTrendReasons(params: {
   const unit = metricUnitIt(params.metric);
   const label = metricLabelIt(params.metric);
   const sampleMode = params.sampleMode ?? params.evaluation.sampleMode ?? "standard";
-  const recentCount = params.evaluation.recent.matches;
 
   if (sampleMode === "short") {
     reasons.push({

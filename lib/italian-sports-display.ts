@@ -4,15 +4,9 @@ import {
   localizeNamedTeam,
   localizeTacticalMetric as localizeTacticalMetricCore,
   localizeTacticalMetrics as localizeTacticalMetricsCore,
-  localizeUpcomingMatch,
-  localizeUpcomingMatches,
   replaceTeamNamesInText,
-  roleLabelSingular,
   translateCompetitionName,
-  translateCompetitionSlug,
-  translatePositionRole,
-  translateTeamName,
-  formatPlayerDisplayName
+  translateTeamName
 } from "./italian-sports-display-core";
 
 export {

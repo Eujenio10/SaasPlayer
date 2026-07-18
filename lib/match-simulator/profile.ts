@@ -75,7 +75,7 @@ function aggregateMetricProfile(rows: NormalizedTeamMatchStats[]): TeamMetricPro
       ? saves / shotsOnTargetAgainst
       : null;
   const yellowCardsPerFoul =
-    foulsCommitted > 0 && yellowCards != null ? yellowCards / foulsCommitted : null;
+    resolvedFouls > 0 && yellowCards != null ? yellowCards / resolvedFouls : null;
 
   return {
     matches,

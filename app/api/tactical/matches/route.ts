@@ -1,7 +1,5 @@
 import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { createApiSupabaseClient, getApiUser } from "@/lib/auth/get-api-user";
-import { getOrganizationContextForUser } from "@/lib/auth/organization";
 import { resolveApiAccessContext } from "@/lib/auth/resolve-api-access";
 import { getApiCache, setApiCache } from "@/lib/api-cache";
 import {

@@ -47,13 +47,8 @@ function duelMatchesSparkPair(player: TacticalMetrics, opp: TacticalMetrics): bo
 
   const friction = player.sparkFrictionHeatmap;
   if (friction) {
-    const idHit =
-      typeof opp.playerId === "number" &&
-      opp.playerId > 0 &&
-      typeof friction.playerBId === "number" &&
-      friction.playerBId === opp.playerId;
     const nameHit = normalizeName(friction.labelB) === normalizeName(opp.playerName);
-    if (idHit || nameHit) return true;
+    if (nameHit) return true;
   }
 
   return false;

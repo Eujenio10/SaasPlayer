@@ -8,7 +8,6 @@ import { normalizeCompetitionSlugForInsights } from "@/lib/match-insights-servic
 import { findOrganizationMatchByEventId } from "@/lib/organization-match-insights";
 import {
   localizePreMatchReport,
-  localizeTacticalMetrics,
   localizeUpcomingMatch,
   translateCompetitionSlug,
   translateTeamName
@@ -20,7 +19,6 @@ import {
 } from "@/lib/prematch-report/ensure-team-tournament-blueprints";
 import { scopeFromCompetitionSlugForInsights } from "@/lib/tactical-stats-eligible-matches";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
-import type { TacticalMetrics } from "@/lib/types";
 
 const querySchema = z.object({
   eventId: z.coerce.number().int().positive()
@@ -78,17 +76,6 @@ export async function GET(request: Request) {
   const supabase = createSupabaseServiceClient();
   const competitionSlug = normalizeCompetitionSlugForInsights(match.competitionSlug);
   const scope = scopeFromCompetitionSlugForInsights(match.competitionSlug);
-
-  const metricsRow = await supabase
-    .from("kiosk_organization_match_insights")
-    .select("metrics")
-    .eq("organization_id", productOrganizationId)
-    .eq("event_id", eventId)
-    .maybeSingle();
-
-  const metrics = Array.isArray(metricsRow.data?.metrics)
-    ? localizeTacticalMetrics(metricsRow.data.metrics as TacticalMetrics[])
-    : [];
 
   const tournamentBlueprints = await ensureTeamTournamentBlueprintsForMatch({
     supabase,

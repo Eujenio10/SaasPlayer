@@ -158,7 +158,16 @@ export async function computeMatchRadarForFixture(params: {
     totalDimensions: 6
   });
 
-  let radarScore = computeRadarScore(dimensions, MATCH_RADAR_CONFIG.weights);
+  let radarScore = computeRadarScore(
+    {
+      intensity: dimensions.intensity,
+      attackingPotential: dimensions.attackingPotential,
+      balance: dimensions.balance,
+      volatility: dimensions.volatility,
+      tacticalMismatch: dimensions.tacticalMismatch ?? null
+    },
+    MATCH_RADAR_CONFIG.weights
+  );
   radarScore = clampScore(Math.min(100, radarScore + refereeRadarBoost(dimensions.refereeStrictness ?? null)));
 
   const reasons = generateMatchRadarReasons({
