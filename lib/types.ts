@@ -257,6 +257,10 @@ export interface OffensiveBlueprintMetrics {
 export interface DefensiveBlueprintMetrics {
   cleanSheets: number;
   goalsConceded: number;
+  /** Tiri totali concessi agli avversari per partita. */
+  shotsConceded?: number;
+  /** Corner concessi agli avversari per partita. */
+  cornersConceded?: number;
   tackles: number;
   interceptions: number;
   clearances: number;

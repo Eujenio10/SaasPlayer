@@ -1,15 +1,12 @@
 import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getApiUser } from "@/lib/auth/get-api-user";
 import { getOrganizationContextForUser } from "@/lib/auth/organization";
 import { buildUserAccessSummary } from "@/lib/auth/user-access";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
-  const supabase = createSupabaseServerClient();
-  const {
-    data: { user }
-  } = await supabase.auth.getUser();
+export async function GET(request: Request) {
+  const user = await getApiUser(request);
 
   if (!user) {
     return NextResponse.json({ error: "not_authenticated" }, { status: 401 });

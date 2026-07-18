@@ -9,10 +9,11 @@ import {
   Gauge,
   Home,
   Menu,
+  Radar,
   Settings,
   ShieldAlert,
   Swords,
-  TriangleAlert,
+  TrendingUp,
   UserRound,
   X
 } from "lucide-react";
@@ -29,18 +30,83 @@ import {
   YELLOW_CARD_SNAPSHOT_UPDATED_EVENT
 } from "@/lib/kiosk-persisted-insights";
 import { ProfileDropdown } from "@/components/profile/profile-dropdown";
+import { MatchRadarHomeCta } from "@/components/match-radar/match-radar-home-cta";
+import { DataRefreshScheduleBanner } from "@/components/data-refresh/data-refresh-schedule-banner";
+import type { DataRefreshStatus } from "@/lib/data-refresh/status";
 
 interface DashboardHomePageProps {
   email?: string | null;
 }
 
+const navigationItems = [
+  {
+    label: "Analisi partita",
+    href: "/kiosk",
+    icon: Swords,
+    accent:
+      "border-sky-400/25 bg-sky-400/10 text-sky-100 hover:border-sky-300/40 hover:bg-sky-400/15"
+  },
+  {
+    label: "Rischio falli subiti",
+    href: "/kiosk",
+    icon: ShieldAlert,
+    accent:
+      "border-rose-400/25 bg-rose-400/10 text-rose-100 hover:border-rose-300/40 hover:bg-rose-400/15"
+  },
+  {
+    label: "Rischio falli commessi",
+    href: "/kiosk",
+    icon: Gauge,
+    accent:
+      "border-violet-400/25 bg-violet-400/10 text-violet-100 hover:border-violet-300/40 hover:bg-violet-400/15"
+  },
+  {
+    label: "Partite in programma",
+    href: "/kiosk#kiosk-fixture-picker",
+    icon: CalendarDays,
+    accent:
+      "border-sky-400/25 bg-sky-400/10 text-sky-100 hover:border-sky-300/40 hover:bg-sky-400/15"
+  },
+  {
+    label: "Partite di oggi",
+    href: "/kiosk/hybrid",
+    icon: CalendarDays,
+    accent:
+      "border-blue-400/25 bg-blue-400/10 text-blue-100 hover:border-blue-300/40 hover:bg-blue-400/15"
+  },
+  {
+    label: "Marcature difficili",
+    href: "/kiosk/marcature-difficili",
+    icon: ShieldAlert,
+    accent:
+      "border-orange-400/25 bg-orange-400/10 text-orange-100 hover:border-orange-300/40 hover:bg-orange-400/15"
+  },
+  {
+    label: "Trend",
+    href: "/kiosk/trend",
+    icon: TrendingUp,
+    accent:
+      "border-amber-400/25 bg-amber-400/10 text-amber-100 hover:border-amber-300/40 hover:bg-amber-400/15"
+  },
+  {
+    label: "Simulatore match",
+    href: "/kiosk/simulatore-match",
+    icon: Activity,
+    accent:
+      "border-emerald-400/25 bg-emerald-400/10 text-emerald-100 hover:border-emerald-300/40 hover:bg-emerald-400/15"
+  },
+  {
+    label: "Match Radar",
+    href: "/kiosk/match-radar",
+    icon: Gauge,
+    accent:
+      "border-cyan-400/25 bg-cyan-400/10 text-cyan-100 hover:border-cyan-300/40 hover:bg-cyan-400/15"
+  }
+] as const;
+
 const menuItems = [
   { label: "Dashboard", href: "/", icon: Home },
-  { label: "Scontri in campo", href: "/kiosk", icon: Swords },
-  { label: "Rischio falli", href: "/kiosk/hybrid", icon: ShieldAlert },
-  { label: "Allarme ammonizioni", href: "/kiosk/allarme-ammonizioni", icon: TriangleAlert },
-  { label: "Partite", href: "/kiosk", icon: CalendarDays },
-  { label: "Statistiche", href: "/kiosk/hybrid", icon: Gauge },
+  ...navigationItems.map(({ label, href, icon }) => ({ label, href, icon })),
   { label: "Il mio profilo", href: "/profilo", icon: UserRound },
   { label: "Impostazioni", href: "#settings", icon: Settings }
 ];
@@ -55,20 +121,52 @@ const featureCards = [
     glow: "shadow-[0_0_28px_rgba(56,189,248,0.14)]"
   },
   {
-    title: "Rischio falli",
-    description: "Scopri i giocatori più fallosi e i loro dati chiave.",
-    href: "/kiosk/hybrid",
+    title: "Rischio falli subiti",
+    description: "Individua i giocatori più esposti ai falli degli avversari diretti.",
+    href: "/kiosk",
     icon: ShieldAlert,
-    color: "text-amber-300",
-    glow: "shadow-[0_0_28px_rgba(250,204,21,0.12)]"
-  },
-  {
-    title: "Allarme ammonizioni",
-    description: "Individua i giocatori a maggior rischio cartellino.",
-    href: "/kiosk/allarme-ammonizioni",
-    icon: TriangleAlert,
     color: "text-rose-300",
     glow: "shadow-[0_0_28px_rgba(244,63,94,0.12)]"
+  },
+  {
+    title: "Rischio falli commessi",
+    description: "Valuta chi ha maggior probabilità di commettere fallo nel duello.",
+    href: "/kiosk",
+    icon: Gauge,
+    color: "text-violet-300",
+    glow: "shadow-[0_0_28px_rgba(167,139,250,0.12)]"
+  },
+  {
+    title: "Marcature difficili",
+    description: "Duelli individuali complessi con indice di esposizione alla marcatura.",
+    href: "/kiosk/marcature-difficili",
+    icon: ShieldAlert,
+    color: "text-orange-300",
+    glow: "shadow-[0_0_28px_rgba(251,146,60,0.12)]"
+  },
+  {
+    title: "Trend",
+    description: "Giocatori in crescita su tiri, tiri in porta e parate nelle ultime cinque presenze.",
+    href: "/kiosk/trend",
+    icon: TrendingUp,
+    color: "text-amber-300",
+    glow: "shadow-[0_0_28px_rgba(251,191,36,0.12)]"
+  },
+  {
+    title: "Simulatore match",
+    description: "Simula lo scenario statistico pre-partita con distribuzioni probabilistiche e incertezza modellistica.",
+    href: "/kiosk/simulatore-match",
+    icon: Activity,
+    color: "text-emerald-300",
+    glow: "shadow-[0_0_28px_rgba(52,211,153,0.12)]"
+  },
+  {
+    title: "Match Radar",
+    description: "Le partite future più interessanti con motivazioni su intensità, attacco, equilibrio e profilo arbitrale.",
+    href: "/kiosk/match-radar",
+    icon: Radar,
+    color: "text-cyan-300",
+    glow: "shadow-[0_0_28px_rgba(56,189,248,0.14)]"
   }
 ];
 
@@ -249,6 +347,40 @@ function MobileDrawerMenu({ open, onClose }: { open: boolean; onClose: () => voi
   );
 }
 
+function QuickAccessButton({
+  item
+}: {
+  item: (typeof navigationItems)[number];
+}) {
+  const Icon = item.icon;
+
+  return (
+    <Link
+      href={item.href}
+      className={`inline-flex min-h-[52px] items-center justify-center gap-2 rounded-2xl border px-4 py-3 text-sm font-black transition duration-300 ${item.accent}`}
+    >
+      <Icon className="h-4 w-4 shrink-0 opacity-90" />
+      <span className="text-center leading-tight">{item.label}</span>
+    </Link>
+  );
+}
+
+function QuickAccessSection() {
+  return (
+    <section className="mx-auto max-w-6xl px-4 pb-10">
+      <div className="mb-4 text-center sm:text-left">
+        <h2 className="text-xs font-black uppercase tracking-[0.26em] text-slate-400">Accesso rapido</h2>
+        <p className="mt-2 text-sm text-slate-500">Apri subito le funzioni del menu analitico.</p>
+      </div>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+        {navigationItems.map((item) => (
+          <QuickAccessButton key={item.label} item={item} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function HeroSection() {
   return (
     <section className="mx-auto flex max-w-[780px] flex-col items-center px-4 pb-14 pt-16 text-center sm:pb-20 sm:pt-24">
@@ -259,7 +391,7 @@ function HeroSection() {
         Studia i matchup <span className="block text-cyan-300">prima degli altri</span>
       </h1>
       <p className="mt-6 max-w-[750px] text-base leading-8 text-slate-300 sm:text-lg">
-        Analizza scontri diretti, falli commessi, falli subiti e rischio ammonizione con dati aggiornati.
+        Analizza scontri diretti, falli commessi e falli subiti con dati aggiornati.
       </p>
       <div className="mt-9 flex w-full flex-col justify-center gap-3 sm:w-auto sm:flex-row">
         <GlowButton href="/kiosk">Apri analisi</GlowButton>
@@ -322,9 +454,9 @@ function LiveOverview({
       icon: UserRound
     },
     {
-      label: "Alert ammonizione",
-      display: String(stats.yellowAlertsCount),
-      icon: TriangleAlert
+      label: "Partite monitorate",
+      display: String(stats.monitorMatches.length),
+      icon: Swords
     },
     {
       label: "Ultimo aggiornamento",
@@ -361,8 +493,8 @@ function LiveOverview({
           })}
         </div>
         <p className="mt-4 text-xs leading-relaxed text-slate-500">
-          Partite: calendario future dal menu dati (fuso Europe/Roma). Giocatori e alert: ultimo salvataggio nel browser
-          dopo analisi kiosk / Allarme ammonizioni (stessa ondata dell’aggiornamento admin).
+          Partite: calendario future dal menu dati (fuso Europe/Roma). Giocatori e insight: ultimo salvataggio nel browser
+          dopo analisi kiosk (stessa ondata dell’aggiornamento admin).
         </p>
       </CardShell>
     </section>
@@ -446,12 +578,33 @@ function HomePage({ email }: DashboardHomePageProps) {
   const [matches, setMatches] = useState<UpcomingMatchItem[]>([]);
   const [matchesLoading, setMatchesLoading] = useState(true);
   const [matchesError, setMatchesError] = useState<string | null>(null);
+  const [dataRefresh, setDataRefresh] = useState<DataRefreshStatus | null>(null);
   const [statsRevision, setStatsRevision] = useState(0);
   /** Dopo mount, abilita lettura localStorage (evita mismatch SSR/client). */
   const [browserCacheReady, setBrowserCacheReady] = useState(false);
 
   useEffect(() => {
     setBrowserCacheReady(true);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadDataRefreshSchedule() {
+      try {
+        const res = await fetch("/api/tactical/data-refresh-schedule", { cache: "no-store" });
+        if (!res.ok) return;
+        const json = (await res.json()) as DataRefreshStatus;
+        if (!cancelled) setDataRefresh(json);
+      } catch {
+        // banner opzionale: nessun errore bloccante in home
+      }
+    }
+    void loadDataRefreshSchedule();
+    const id = window.setInterval(() => void loadDataRefreshSchedule(), 5 * 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
   }, []);
 
   useEffect(() => {
@@ -522,6 +675,11 @@ function HomePage({ email }: DashboardHomePageProps) {
         <MobileDrawerMenu open={drawerOpen} onClose={() => setDrawerOpen(false)} />
         <main>
           <HeroSection />
+          <div className="mx-auto max-w-6xl space-y-4 px-4 pb-8">
+            <DataRefreshScheduleBanner status={dataRefresh} />
+            <MatchRadarHomeCta />
+          </div>
+          <QuickAccessSection />
           <FeatureCards />
           <LiveOverview stats={liveStats} matchesLoading={matchesLoading} />
           <MatchMonitorSection

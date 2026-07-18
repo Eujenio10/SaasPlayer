@@ -61,9 +61,30 @@ export async function upsertKioskMatchInsightsForOrganization(params: {
   return { ok: true };
 }
 
+const KIOSK_AUXILIARY_TABLES = [
+  "organization_team_performance_snapshot",
+  "organization_team_search_cache",
+  "organization_yellow_card_snapshot"
+] as const;
+
+/** Pulisce cache derivate (non gli insight match): team blueprint, ricerca squadre, cartellini. */
+export async function purgeOrganizationKioskAuxiliarySnapshots(
+  organizationId: string
+): Promise<{ ok: boolean; messages: string[] }> {
+  const sb = createSupabaseServiceClient();
+  const messages: string[] = [];
+
+  for (const table of KIOSK_AUXILIARY_TABLES) {
+    const { error } = await sb.from(table).delete().eq("organization_id", organizationId);
+    if (error) messages.push(`${table}: ${error.message}`);
+  }
+
+  return { ok: true, messages };
+}
+
 /**
- * Prima di una nuova ondata «Aggiorna dati admin»: rimuove insight match (obbligatorio) e tenta la pulizia delle
- * cache correlate (team blueprint / ricerca squadre). Fallisce solo se gli insight kiosk non sono stati rimossi.
+ * Prima di una nuova ondata «Aggiorna dati admin» (singola partita kiosk): rimuove tutti gli insight match
+ * e tenta la pulizia delle cache correlate. Fallisce solo se gli insight kiosk non sono stati rimossi.
  */
 export async function purgeOrganizationKioskDerivedSnapshots(
   organizationId: string
@@ -79,15 +100,40 @@ export async function purgeOrganizationKioskDerivedSnapshots(
     return { ok: false, messages: [`kiosk_organization_match_insights: ${e1.message}`] };
   }
 
-  const optionalTables = [
-    "organization_team_performance_snapshot",
-    "organization_team_search_cache",
-    "organization_yellow_card_snapshot"
-  ] as const;
-  for (const table of optionalTables) {
-    const { error } = await sb.from(table).delete().eq("organization_id", organizationId);
-    if (error) messages.push(`${table}: ${error.message}`);
+  const auxiliary = await purgeOrganizationKioskAuxiliarySnapshots(organizationId);
+  return { ok: true, messages: [...messages, ...auxiliary.messages] };
+}
+
+/** Rimuove insight salvati per eventi non più presenti nel menu corrente. */
+export async function pruneOrganizationMatchInsightsOutsideEventIds(
+  organizationId: string,
+  keepEventIds: number[]
+): Promise<{ ok: boolean; message?: string }> {
+  const keep = new Set(keepEventIds.filter((id) => id > 0));
+  const sb = createSupabaseServiceClient();
+  const { data, error } = await sb
+    .from("kiosk_organization_match_insights")
+    .select("event_id")
+    .eq("organization_id", organizationId);
+
+  if (error) return { ok: false, message: error.message };
+
+  const stale = (data ?? [])
+    .map((row) => (typeof row.event_id === "number" ? row.event_id : 0))
+    .filter((eventId) => eventId > 0 && !keep.has(eventId));
+
+  if (!stale.length) return { ok: true };
+
+  const chunkSize = 80;
+  for (let i = 0; i < stale.length; i += chunkSize) {
+    const slice = stale.slice(i, i + chunkSize);
+    const { error: deleteError } = await sb
+      .from("kiosk_organization_match_insights")
+      .delete()
+      .eq("organization_id", organizationId)
+      .in("event_id", slice);
+    if (deleteError) return { ok: false, message: deleteError.message };
   }
 
-  return { ok: true, messages };
+  return { ok: true };
 }

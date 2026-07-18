@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getApiUser } from "@/lib/auth/get-api-user";
 import { getOrganizationContextForUser } from "@/lib/auth/organization";
 import { appliesWeeklyMatchQuota, ensureMemberCanAnalyzeMatch } from "@/lib/auth/user-access";
 
@@ -9,10 +9,7 @@ const bodySchema = z.object({
 });
 
 export async function POST(request: Request) {
-  const supabase = createSupabaseServerClient();
-  const {
-    data: { user }
-  } = await supabase.auth.getUser();
+  const user = await getApiUser(request);
 
   if (!user) {
     return NextResponse.json({ error: "not_authenticated" }, { status: 401 });

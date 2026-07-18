@@ -1,10 +1,17 @@
 import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createApiSupabaseClient, getApiUser } from "@/lib/auth/get-api-user";
 import { getOrganizationContextForUser } from "@/lib/auth/organization";
+import { resolveApiAccessContext } from "@/lib/auth/resolve-api-access";
 import { getApiCache, setApiCache } from "@/lib/api-cache";
-import { filterMatchesKickoffInFuture, filterRealTeamMatches, narrowMenuToEachTeamsNextMatch } from "@/lib/tactical-matches-filters";
+import {
+  combinePersistedOrganizationMenuSnapshots,
+  filterMatchesKickoffInFuture,
+  mergeDomesticAndInternationalUpcomingMenus
+} from "@/lib/tactical-matches-filters";
+import { localizeUpcomingMatches } from "@/lib/italian-sports-display";
 import { getOrRefreshTacticalMatchesMenuFull } from "@/lib/tactical-matches-menu-cache";
+import { attachIntensityPreviewsToMatches } from "@/lib/match-intensity-preview";
 import { upsertMatchesMenuSnapshotForOrganization } from "@/lib/supabase/org-tactical-shared-writes";
 import type { UpcomingMatchItem } from "@/services/sportapi";
 
@@ -13,14 +20,42 @@ function mergeInternationalMenuSlices(
   domestic: UpcomingMatchItem[],
   international: UpcomingMatchItem[]
 ): UpcomingMatchItem[] {
-  const byId = new Map<number, UpcomingMatchItem>();
-  for (const m of domestic) {
-    byId.set(m.eventId, m);
+  return combinePersistedOrganizationMenuSnapshots(domestic, international);
+}
+
+function normalizePersistedMenuRows(raw: unknown): UpcomingMatchItem[] {
+  if (!Array.isArray(raw)) return [];
+  const out: UpcomingMatchItem[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const row = item as Record<string, unknown>;
+    const eventId = Number(row.eventId);
+    const startTimestamp = Number(row.startTimestamp);
+    const home = row.homeTeam as { id?: unknown; name?: unknown } | undefined;
+    const away = row.awayTeam as { id?: unknown; name?: unknown } | undefined;
+    const homeId = Number(home?.id);
+    const awayId = Number(away?.id);
+    const competitionSlug =
+      typeof row.competitionSlug === "string" ? row.competitionSlug : "";
+    if (!eventId || !homeId || !awayId || !competitionSlug) continue;
+    out.push({
+      eventId,
+      startTimestamp: Number.isFinite(startTimestamp) ? startTimestamp : 0,
+      competitionSlug,
+      competitionName:
+        typeof row.competitionName === "string" ? row.competitionName : competitionSlug,
+      statusType: typeof row.statusType === "string" ? row.statusType : undefined,
+      homeTeam: {
+        id: homeId,
+        name: typeof home?.name === "string" ? home.name : "HOME"
+      },
+      awayTeam: {
+        id: awayId,
+        name: typeof away?.name === "string" ? away.name : "AWAY"
+      }
+    });
   }
-  for (const m of international) {
-    if (!byId.has(m.eventId)) byId.set(m.eventId, m);
-  }
-  return Array.from(byId.values()).sort((a, b) => a.startTimestamp - b.startTimestamp);
+  return out;
 }
 
 async function loadPersistedInternationalMenu(supabase: SupabaseClient, organizationId: string): Promise<{
@@ -39,15 +74,10 @@ async function loadPersistedInternationalMenu(supabase: SupabaseClient, organiza
   }
 
   const rowExists = data != null;
-  const raw = Array.isArray(data?.matches) ? (data.matches as UpcomingMatchItem[]) : [];
-
-  /** Rimuovi match con nomi placeholder (es. "2A", "W41") — squadre non ancora determinate. */
-  const real = filterRealTeamMatches(filterMatchesKickoffInFuture(raw));
-  /** Solo la prossima partita per ogni nazionale: evita di riempire il menu con tutta la griglia del torneo. */
-  const narrowed = narrowMenuToEachTeamsNextMatch(real);
+  const raw = Array.isArray(data?.matches) ? normalizePersistedMenuRows(data.matches) : [];
 
   return {
-    matches: narrowed,
+    matches: raw,
     rowExists
   };
 }
@@ -72,19 +102,16 @@ function filterMatchesByTeamAndCompetition(
 }
 
 export async function GET(request: Request) {
-  const supabase = createSupabaseServerClient();
-  const {
-    data: { user }
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
+  const ctx = await resolveApiAccessContext(request);
+  if (!ctx) {
+    return NextResponse.json({ error: "public_access_unavailable" }, { status: 503 });
   }
 
-  const organization = await getOrganizationContextForUser(user.id);
-  if (!organization) {
-    return NextResponse.json({ error: "forbidden" }, { status: 403 });
-  }
+  const supabase = ctx.supabase;
+  const organization = {
+    organizationId: ctx.organizationId,
+    role: ctx.role === "guest" ? ("member" as const) : ctx.role
+  };
 
   const url = new URL(request.url);
   const home = url.searchParams.get("home")?.trim().toLowerCase() ?? "";
@@ -106,23 +133,31 @@ export async function GET(request: Request) {
         return NextResponse.json({ error: "persisted_matches_read_failed" }, { status: 500 });
       }
 
-      const rawMatches = Array.isArray(row?.matches) ? (row.matches as UpcomingMatchItem[]) : [];
+      const rawMatches = normalizePersistedMenuRows(row?.matches);
       const intlPersisted = await loadPersistedInternationalMenu(supabase, organization.organizationId);
-      const mergedRaw = mergeInternationalMenuSlices(rawMatches, intlPersisted.matches);
-      const futureBase = filterMatchesKickoffInFuture(mergedRaw);
+      const rawIntl = intlPersisted.matches;
+      const mergedRaw = combinePersistedOrganizationMenuSnapshots(rawMatches, rawIntl);
       const matchesOut =
         !home && !away && !competition
-          ? futureBase
-          : filterMatchesByTeamAndCompetition(futureBase, home, away, competition);
+          ? mergedRaw
+          : filterMatchesByTeamAndCompetition(mergedRaw, home, away, competition);
+
+      const matchesWithPreview = await attachIntensityPreviewsToMatches(
+        supabase,
+        organization.organizationId,
+        matchesOut
+      );
 
       const persistedSnapshotMissing = row == null;
       const internationalPersistedMissing = !intlPersisted.rowExists;
 
       return NextResponse.json({
-        matches: matchesOut,
-        total: matchesOut.length,
+        matches: localizeUpcomingMatches(matchesWithPreview),
+        total: matchesWithPreview.length,
         persistedSnapshotMissing,
         internationalPersistedMissing,
+        domesticPersistedCount: rawMatches.length,
+        internationalPersistedCount: rawIntl.length,
         matchesSource: "organization_db"
       });
     } catch (e) {
@@ -133,32 +168,51 @@ export async function GET(request: Request) {
 
   try {
     if (!home && !away && !competition) {
-      const upcomingDomestic = await getOrRefreshTacticalMatchesMenuFull();
-      const intlPersisted = await loadPersistedInternationalMenu(supabase, organization.organizationId);
-      const upcoming = mergeInternationalMenuSlices(upcomingDomestic, intlPersisted.matches);
-      const persist = await upsertMatchesMenuSnapshotForOrganization({
-        organizationId: organization.organizationId,
-        matches: upcomingDomestic
-      });
-      if (!persist.ok) {
-        console.error("[matches] upsert organization_matches_menu_snapshot failed:", persist.message);
+      /** Admin: stesso menu persistito dal refresh (domestic + internazionale in DB), non rifetch live. */
+      const { data: row, error } = await supabase
+        .from("organization_matches_menu_snapshot")
+        .select("matches")
+        .eq("organization_id", organization.organizationId)
+        .maybeSingle();
+
+      if (error) {
+        return NextResponse.json({ error: "persisted_matches_read_failed" }, { status: 500 });
       }
+
+      const rawDomestic = normalizePersistedMenuRows(row?.matches);
+      const intlPersisted = await loadPersistedInternationalMenu(supabase, organization.organizationId);
+      const upcoming = mergeInternationalMenuSlices(rawDomestic, intlPersisted.matches);
+      const upcomingWithPreview = await attachIntensityPreviewsToMatches(
+        supabase,
+        organization.organizationId,
+        upcoming
+      );
       return NextResponse.json({
-        matches: upcoming,
-        total: upcoming.length,
+        matches: localizeUpcomingMatches(upcomingWithPreview),
+        total: upcomingWithPreview.length,
+        persistedSnapshotMissing: row == null,
         internationalPersistedMissing: !intlPersisted.rowExists,
-        matchesSource: "provider_or_cache"
+        domesticPersistedCount: rawDomestic.length,
+        internationalPersistedCount: intlPersisted.matches.length,
+        matchesSource: "organization_db"
       });
     }
 
     const cached = await getApiCache<{ matches: UpcomingMatchItem[]; total: number }>(menuCacheKey);
     const intlPersisted = await loadPersistedInternationalMenu(supabase, organization.organizationId);
     if (cached) {
-      const upcomingDomestic = filterMatchesKickoffInFuture(cached.matches);
-      const upcoming = mergeInternationalMenuSlices(upcomingDomestic, intlPersisted.matches);
+      const upcoming = mergeDomesticAndInternationalUpcomingMenus(
+        cached.matches,
+        intlPersisted.matches
+      );
+      const upcomingWithPreview = await attachIntensityPreviewsToMatches(
+        supabase,
+        organization.organizationId,
+        upcoming
+      );
       return NextResponse.json({
-        matches: upcoming,
-        total: upcoming.length,
+        matches: localizeUpcomingMatches(upcomingWithPreview),
+        total: upcomingWithPreview.length,
         internationalPersistedMissing: !intlPersisted.rowExists,
         matchesSource: "provider_or_cache"
       });
@@ -175,10 +229,15 @@ export async function GET(request: Request) {
 
     const baseListMerged = mergeInternationalMenuSlices(baseListDomestic, intlPersisted.matches);
     const filtered = filterMatchesByTeamAndCompetition(baseListMerged, home, away, competition);
+    const filteredWithPreview = await attachIntensityPreviewsToMatches(
+      supabase,
+      organization.organizationId,
+      filtered
+    );
 
     const payload = {
-      matches: filtered,
-      total: filtered.length,
+      matches: filteredWithPreview,
+      total: filteredWithPreview.length,
       internationalPersistedMissing: !intlPersisted.rowExists
     };
     if (payload.total > 0) {
@@ -186,6 +245,7 @@ export async function GET(request: Request) {
     }
     return NextResponse.json({
       ...payload,
+      matches: localizeUpcomingMatches(payload.matches),
       matchesSource: "provider_or_cache"
     });
   } catch (error) {

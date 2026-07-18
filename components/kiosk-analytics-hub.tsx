@@ -4,8 +4,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { buildMatchupDetailModel, MatchupDetailPage } from "@/components/matchup-detail";
 import { FoulCommittedRiskPanel } from "@/components/foul-committed-risk/foul-committed-risk-panel";
 import { FoulSufferedRiskPanel } from "@/components/foul-suffered-risk/foul-suffered-risk-panel";
+import { FOULS_ANALYSIS_UI } from "@/lib/fouls-analysis-ui-text";
+import { PlayerPerformancePanel } from "@/components/player-performance/player-performance-panel";
+import { IntensityAnalysisPanel } from "@/components/intensity-analysis/intensity-analysis-panel";
 import { analyzeFoulRisk } from "@/lib/foul-risk-analysis";
-import { filterMatchesKickoffInFuture, dedupeMatchesByEventId, narrowMenuToEachTeamsNextMatch } from "@/lib/tactical-matches-filters";
+import {
+  buildEachTeamNextInternationalMatchesMenu,
+  filterMatchesKickoffInFuture,
+  dedupeMatchesByEventId
+} from "@/lib/tactical-matches-filters";
 import type { FoulRiskAggressorBrief, FoulRiskEntry } from "@/lib/foul-risk-analysis";
 import type { UserAccessSummary } from "@/lib/auth/user-access";
 import type { CompetitionScope, TacticalMetrics } from "@/lib/types";
@@ -26,9 +33,21 @@ import {
   foulsSufferedPerMatchForDisplay,
   sufferedFoulSignalForRisk
 } from "@/lib/tactical-fouls-signals";
-import { isInternationalTournamentSlug } from "@/lib/international-tournaments";
+import {
+  MONITORED_COMPETITIONS,
+  getCompetitionLabel,
+  isMonitoredInternationalCompetitionSlug,
+  isTop5DomesticCompetitionSlug,
+  resolveCompetitionId
+} from "@/lib/competitions";
+import type { MonitoredCompetitionId } from "@/lib/competitions";
 
-type KioskView = "PLAYER_FRICTION" | "FOUL_RISK_SUFFERED" | "FOUL_RISK_COMMITTED";
+type KioskView =
+  | "PLAYER_FRICTION"
+  | "FOUL_RISK_SUFFERED"
+  | "FOUL_RISK_COMMITTED"
+  | "MATCH_INTENSITY"
+  | "PLAYER_PERFORMANCE";
 
 interface RoundFoulLeaderEntry {
   entry: FoulRiskEntry;
@@ -159,7 +178,7 @@ const SINGLE_MATCH_COMPETITION =
   process.env.NEXT_PUBLIC_KIOSK_SINGLE_MATCH_COMPETITION?.trim() || "ligue-1";
 
 function scopeFromCompetitionSlug(slug: string): CompetitionScope {
-  if (isInternationalTournamentSlug(slug)) return "CUP";
+  if (isMonitoredInternationalCompetitionSlug(slug)) return "CUP";
   if (slug.includes("champions") || slug.includes("europa") || slug.includes("conference")) return "EUROPE";
   if (
     slug.includes("fa-cup") ||
@@ -173,42 +192,17 @@ function scopeFromCompetitionSlug(slug: string): CompetitionScope {
   return "DOMESTIC";
 }
 
-/** Allineato a `normalizeCompetitionSlug` in sportapi (client-safe). */
+/** Id competizione monitorata ("" se non riconosciuta) — usato per raggruppare/filtrare il menu. */
 function normalizeKioskCompetitionSlug(slug: string): string {
-  const s = slug?.toLowerCase().trim() ?? "";
-  if (s === "la-liga") return "laliga";
-  return s;
+  return resolveCompetitionId(slug) ?? "";
 }
 
 function competitionLabel(slug: string): string {
-  const key = normalizeKioskCompetitionSlug(slug);
-  const labels: Record<string, string> = {
-    "serie-a": "Serie A",
-    "premier-league": "Premier League",
-    laliga: "LaLiga",
-    bundesliga: "Bundesliga",
-    "ligue-1": "Ligue 1",
-    "uefa-champions-league": "Champions League",
-    "uefa-europa-league": "Europa League",
-    "uefa-europa-conference-league": "Conference League",
-    "champions-league": "Champions League",
-    "europa-league": "Europa League",
-    "europa-conference-league": "Conference League",
-    "conference-league": "Conference League",
-    "serie-b": "Serie B",
-    "italy-serie-b": "Serie B"
-  };
-  if (labels[key]) return labels[key];
-  if (isInternationalTournamentSlug(slug) || isInternationalTournamentSlug(key)) {
-    return "Coppa del Mondo maschile (Naz.)";
-  }
-  return slug;
+  return getCompetitionLabel(slug);
 }
 
 function isTopFiveLeagueSlug(slug: string): boolean {
-  return new Set(["serie-a", "premier-league", "laliga", "bundesliga", "ligue-1"]).has(
-    normalizeKioskCompetitionSlug(slug)
-  );
+  return isTop5DomesticCompetitionSlug(slug);
 }
 
 function formatKickoff(ts: number): string {
@@ -433,7 +427,7 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
   const [matchInsightsError, setMatchInsightsError] = useState<string | null>(null);
   /** Durante prefetch di massa tutte le viste leggono dalla cache locale appena disponibile senza rifetch paralleli. */
   const [adminBulkRefreshing, setAdminBulkRefreshing] = useState(false);
-  /** Progress overlay durante “Aggiorna dati admin” (solo top 5 campionati). */
+  /** Progress overlay durante “Aggiorna dati admin” (Top 5 + Mondiali). */
   const [adminBulkProgress, setAdminBulkProgress] = useState<{ current: number; total: number } | null>(null);
   const [intlMenuRefreshing, setIntlMenuRefreshing] = useState(false);
   /** "scan" = chiamata al provider in corso, "prefetch" = analisi partite in corso, null = idle */
@@ -632,7 +626,8 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
     () => {
       // Recompute time-based "future match" filtering every minute.
       void matchListTimeTick;
-      return filterMatchesKickoffInFuture(matches);
+      /** L'API restituisce già il menu filtrato (7 giorni, 1 partita/squadra): evita un secondo passaggio che può svuotare la lista. */
+      return filterMatchesKickoffInFuture(dedupeMatchesByEventId(matches));
     },
     [matches, matchListTimeTick]
   );
@@ -650,13 +645,23 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
   }, [upcomingMatches, selectedCompetition]);
 
   const leagueFilterSlugs = useMemo(() => {
-    const set = new Set<string>();
+    /** Pulsanti competizione in ordine di registro, mostrando solo quelle con partite nel menu. */
+    const present = new Set<MonitoredCompetitionId>();
     for (const m of upcomingMatches) {
-      const n = normalizeKioskCompetitionSlug(m.competitionSlug);
-      if (n) set.add(n);
+      const id = resolveCompetitionId(m.competitionSlug);
+      if (id) present.add(id);
     }
-    return Array.from(set).sort();
+    return MONITORED_COMPETITIONS.filter((c) => present.has(c.id)).map((c) => c.id);
   }, [upcomingMatches]);
+
+  useEffect(() => {
+    if (leagueFilterSlugs.length === 0) return;
+    setSelectedCompetition((prev) => {
+      const prevNorm = prev ? normalizeKioskCompetitionSlug(prev) : "";
+      if (prevNorm && leagueFilterSlugs.includes(prevNorm as MonitoredCompetitionId)) return prev;
+      return leagueFilterSlugs[0] ?? "";
+    });
+  }, [leagueFilterSlugs]);
   const bookingAlarmMatchKey = useMemo(
     () => upcomingMatches.map((m) => `${m.eventId}:${m.startTimestamp}`).join("|"),
     [upcomingMatches]
@@ -808,7 +813,11 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
   }, [selectedMatch?.eventId]);
 
   const playerAnalyticsView: KioskView | null =
-    view === "PLAYER_FRICTION" || view === "FOUL_RISK_SUFFERED" || view === "FOUL_RISK_COMMITTED"
+    view === "PLAYER_FRICTION" ||
+    view === "FOUL_RISK_SUFFERED" ||
+    view === "FOUL_RISK_COMMITTED" ||
+    view === "MATCH_INTENSITY" ||
+    view === "PLAYER_PERFORMANCE"
       ? view
       : null;
 
@@ -1189,12 +1198,28 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
           >
             Rischio falli commessi
           </button>
-          <a
-            href="/kiosk/allarme-ammonizioni"
-            className="rounded-full border border-yellow-300/35 bg-yellow-300/12 px-6 py-3 text-sm font-bold text-yellow-100 transition hover:border-yellow-200 hover:bg-yellow-300/20"
+          <button
+            type="button"
+            onClick={() => setView("PLAYER_PERFORMANCE")}
+            className={`rounded-full px-6 py-3 text-sm font-bold transition ${
+              view === "PLAYER_PERFORMANCE"
+                ? "bg-gradient-to-r from-sky-300 to-cyan-300 text-slate-950 shadow-lg shadow-cyan-950/25"
+                : "text-slate-300 hover:bg-cyan-300/12 hover:text-cyan-50"
+            }`}
           >
-            Allarme ammonizioni
-          </a>
+            Player Performance
+          </button>
+          <button
+            type="button"
+            onClick={() => setView("MATCH_INTENSITY")}
+            className={`rounded-full px-6 py-3 text-sm font-bold transition ${
+              view === "MATCH_INTENSITY"
+                ? "bg-gradient-to-r from-teal-300 to-emerald-300 text-slate-950 shadow-lg shadow-emerald-950/25"
+                : "text-slate-300 hover:bg-emerald-300/12 hover:text-emerald-50"
+            }`}
+          >
+            {FOULS_ANALYSIS_UI.title}
+          </button>
         </div>
       </header>
 
@@ -1338,8 +1363,8 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
                 Mondiali 2026 · Coppa del Mondo FIFA
               </p>
               <p className="mt-1 max-w-xl text-xs leading-relaxed text-slate-400">
-                Scarica dal provider le partite mondiali (maschile senior) e salva lo snapshot condiviso per tutti gli utenti.
-                Pre-calcola le analisi per la prossima partita di ogni nazionale coinvolta.
+                Incluso in «Aggiorna dati admin»: calendario Mondiali maschili (senior) e prefetch statistiche
+                per la prossima partita di ogni nazionale. Puoi anche forzare solo il calendario mondiale qui sotto.
               </p>
             </div>
             <button
@@ -1382,9 +1407,11 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
                   setIntlPhase("prefetch");
                   const listAfter = await reloadMenuMatchesFromApi();
                   const intlMenuMatches = dedupeMatchesByEventId(
-                    listAfter.filter((m) => isInternationalTournamentSlug(m.competitionSlug))
+                    listAfter.filter((m) => isMonitoredInternationalCompetitionSlug(m.competitionSlug))
                   );
-                  const intlPrefetchTargets = narrowMenuToEachTeamsNextMatch(intlMenuMatches);
+                  const intlPrefetchTargets = buildEachTeamNextInternationalMatchesMenu(
+                    listAfter.filter((m) => isMonitoredInternationalCompetitionSlug(m.competitionSlug))
+                  );
                   const snap = readAdminInsightsSnap();
                   if (intlPrefetchTargets.length > 0) {
                     setIntlBulkProgress({ current: 0, total: intlPrefetchTargets.length });
@@ -1491,18 +1518,6 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
                     setMatchInsightsError(null);
                     setAdminBulkProgress({ current: 0, total: 0 });
                     try {
-                      const purgeRes = await fetch("/api/tactical/org-kiosk-match-insights", {
-                        method: "DELETE",
-                        credentials: "include"
-                      });
-                      if (!purgeRes.ok) {
-                        if (mountedRef.current) {
-                          setMatchInsightsError(
-                            "Impossibile azzerare gli snapshot precedenti sul server (permessi o connessione). Riprova."
-                          );
-                        }
-                        return;
-                      }
                       clearKioskInsightsLocalKeys();
                       const snap = bumpAdminInsightsSnap();
                       window.dispatchEvent(
@@ -1510,18 +1525,67 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
                           detail: { snap }
                         })
                       );
-                      const topFiveTargets = dedupeMatchesByEventId(upcomingMatches).filter((m) =>
-                        isTopFiveLeagueSlug(m.competitionSlug)
-                      );
-                      const total = topFiveTargets.length;
-                      if (mountedRef.current) {
-                        setAdminBulkProgress(total > 0 ? { current: 0, total } : { current: 0, total: 0 });
+                      let res: Response;
+                      const controller = new AbortController();
+                      const refreshTimeout = setTimeout(() => controller.abort(), 8 * 60 * 1000);
+                      try {
+                        res = await fetch("/api/tactical/admin-refresh-matches", {
+                          method: "POST",
+                          credentials: "include",
+                          signal: controller.signal
+                        });
+                      } catch (error) {
+                        if (
+                          error instanceof DOMException &&
+                          error.name === "AbortError"
+                        ) {
+                          throw new Error(
+                            "Operazione troppo lunga (timeout). Menu e statistiche potrebbero essere comunque in aggiornamento: attendi qualche minuto e ricarica."
+                          );
+                        }
+                        throw new Error("Connessione al server persa (timeout o rete). Riprova.");
+                      } finally {
+                        clearTimeout(refreshTimeout);
                       }
-                      await prefetchAllMenuInsights(topFiveTargets, snap, (current, tot) => {
-                        if (mountedRef.current) setAdminBulkProgress({ current, total: tot });
-                      });
+                      const body = (await res.json().catch(() => ({}))) as {
+                        error?: string;
+                        insightsProcessed?: number;
+                        insightsTotal?: number;
+                        internationalMatchesCount?: number;
+                        internationalDiscoveryCount?: number;
+                        domesticMatchesCount?: number;
+                        matchesCount?: number;
+                      };
+                      if (!res.ok) {
+                        throw new Error(body.error ?? `Errore server ${res.status}.`);
+                      }
+                      if (mountedRef.current) {
+                        const total = body.insightsTotal ?? 0;
+                        const done = body.insightsProcessed ?? 0;
+                        setAdminBulkProgress({ current: done, total });
+                        if (
+                          (body.internationalMatchesCount ?? 0) === 0 &&
+                          (body.internationalDiscoveryCount ?? 0) === 0
+                        ) {
+                          setMatchInsightsError(
+                            "Menu aggiornato ma nessuna partita Mondiali trovata. Controlla TACTICAL_WORLD_CUP_TOURNAMENT_ID/SEASON_ID e il provider FootApi."
+                          );
+                        } else if ((body.matchesCount ?? 0) > 0) {
+                          setMatchesError(null);
+                        } else if (total > 0 && done === 0) {
+                          setMatchInsightsError(
+                            "Menu aggiornato ma nessun insight precaricato. Controlla i limiti RapidAPI o riprova."
+                          );
+                        }
+                      }
                       await fetch("/api/tactical/matches", { cache: "no-store", credentials: "include" });
                       await reloadMenuMatchesFromApi();
+                    } catch (err) {
+                      if (mountedRef.current) {
+                        setMatchInsightsError(
+                          err instanceof Error ? err.message : "Aggiornamento admin non riuscito."
+                        );
+                      }
                     } finally {
                       if (mountedRef.current) {
                         setAdminBulkRefreshing(false);
@@ -1541,7 +1605,11 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
           </div>
           <div className="space-y-4">
             <div className="flex flex-wrap gap-3">
-            {leagueFilterSlugs.map((slug) => (
+            {leagueFilterSlugs.map((slug) => {
+              const count = upcomingMatches.filter(
+                (m) => normalizeKioskCompetitionSlug(m.competitionSlug) === slug
+              ).length;
+              return (
               <button
                 key={slug}
                 type="button"
@@ -1556,8 +1624,10 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
                 }`}
               >
                 {competitionLabel(slug)}
+                {count > 0 ? ` (${count})` : ""}
               </button>
-            ))}
+            );
+            })}
           </div>
 
             <div className="grid gap-4 lg:grid-cols-2">
@@ -1755,6 +1825,32 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
                 ) : (
                   <p className="text-sm text-slate-400">
                     Seleziona una partita per consultare il rischio falli commessi.
+                  </p>
+                )
+              ) : playerAnalyticsView === "PLAYER_PERFORMANCE" ? (
+                selectedMatch ? (
+                  <PlayerPerformancePanel
+                    eventId={selectedMatch.eventId}
+                    homeTeamId={selectedMatch.homeTeam.id}
+                    awayTeamId={selectedMatch.awayTeam.id}
+                    homeTeamName={selectedMatch.homeTeam.name}
+                    awayTeamName={selectedMatch.awayTeam.name}
+                    startTimestamp={selectedMatch.startTimestamp}
+                  />
+                ) : (
+                  <p className="text-sm text-slate-400">
+                    Seleziona una partita per consultare Player Performance.
+                  </p>
+                )
+              ) : playerAnalyticsView === "MATCH_INTENSITY" ? (
+                selectedMatch ? (
+                  <IntensityAnalysisPanel
+                    metrics={selectedMatchMetrics}
+                    homeTeamId={selectedMatch.homeTeam.id}
+                  />
+                ) : (
+                  <p className="text-sm text-slate-400">
+                    {FOULS_ANALYSIS_UI.selectMatch}
                   </p>
                 )
               ) : null}

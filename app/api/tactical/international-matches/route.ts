@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getOrganizationContextForUser } from "@/lib/auth/organization";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { filterMatchesKickoffInFuture } from "@/lib/tactical-matches-filters";
+import { buildEachTeamNextInternationalMatchesMenu } from "@/lib/tactical-matches-filters";
 import { upsertInternationalMatchesMenuSnapshotForOrganization } from "@/lib/supabase/org-tactical-shared-writes";
 import { fetchUpcomingInternationalTournamentMatches } from "@/services/sportapi";
 
@@ -26,7 +26,7 @@ export async function POST() {
 
   try {
     const raw = await fetchUpcomingInternationalTournamentMatches();
-    const future = filterMatchesKickoffInFuture(raw);
+    const future = buildEachTeamNextInternationalMatchesMenu(raw);
     const persist = await upsertInternationalMatchesMenuSnapshotForOrganization({
       organizationId: organization.organizationId,
       matches: future

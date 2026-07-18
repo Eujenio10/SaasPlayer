@@ -6,8 +6,7 @@ import {
   RefreshCw,
   Shield,
   Swords,
-  Table2,
-  TriangleAlert
+  Table2
 } from "lucide-react";
 
 export interface ProfileFeatureItem {
@@ -32,14 +31,6 @@ export function profileFeaturesForRole(role: UserAccessRole): ProfileFeatureItem
       icon: Gauge,
       title: "Rischio falli (commessi e subiti)",
       description: "Ranking e indicatori di rischio basati su medie stagionali e incrocio posizioni."
-    },
-    {
-      icon: TriangleAlert,
-      title: "Allarme ammonizioni",
-      description:
-        role === "member"
-          ? "Classifiche con visibilità parziale alcune righe, come da policy del canale."
-          : "Top profili e contesto partita sui campionati supportati."
     },
     {
       icon: Table2,

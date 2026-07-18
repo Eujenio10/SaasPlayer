@@ -1,12 +1,21 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getApiUser } from "@/lib/auth/get-api-user";
 import { getOrganizationContextForUser } from "@/lib/auth/organization";
+import { resolveProductOrganizationId } from "@/lib/auth/product-organization";
+import { resolveApiAccessContext } from "@/lib/auth/resolve-api-access";
+import { requestHasMatchUnlock, resolveRequestEntitlements } from "@/lib/entitlements/request";
 import {
   purgeOrganizationKioskDerivedSnapshots,
   upsertKioskMatchInsightsForOrganization
 } from "@/lib/supabase/org-tactical-shared-writes";
 import type { TacticalMetrics } from "@/lib/types";
+import { localizeTacticalMetrics } from "@/lib/italian-sports-display";
+import {
+  computeAndPersistOrganizationMatchInsights,
+  findOrganizationMatchByEventId
+} from "@/lib/organization-match-insights";
+import { buildTeamFormSignalsForOrganizationMatch } from "@/lib/team-form-signals";
 
 const getSchema = z.object({
   eventId: z.coerce.number().int().positive()
@@ -20,19 +29,16 @@ const putSchema = z.object({
 });
 
 export async function GET(request: Request) {
-  const supabase = createSupabaseServerClient();
-  const {
-    data: { user }
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
+  const ctx = await resolveApiAccessContext(request);
+  if (!ctx) {
+    return NextResponse.json({ error: "public_access_unavailable" }, { status: 503 });
   }
 
-  const organization = await getOrganizationContextForUser(user.id);
-  if (!organization) {
-    return NextResponse.json({ error: "forbidden" }, { status: 403 });
-  }
+  const supabase = ctx.supabase;
+  const organization = {
+    organizationId: ctx.organizationId,
+    role: ctx.role === "guest" ? ("member" as const) : ctx.role
+  };
 
   const url = new URL(request.url);
   const parsed = getSchema.safeParse({ eventId: url.searchParams.get("eventId") });
@@ -41,6 +47,7 @@ export async function GET(request: Request) {
   }
 
   const eventId = parsed.data.eventId;
+  const forceRefresh = url.searchParams.get("refresh") === "1";
 
   const { data, error } = await supabase
     .from("kiosk_organization_match_insights")
@@ -55,33 +62,79 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "read_failed" }, { status: 500 });
   }
 
-  if (!data) {
-    return NextResponse.json({
-      eventId,
-      insightsSnap: 0,
-      playerDetailLevel: "full",
-      metrics: [] as TacticalMetrics[],
-      updatedAt: null as string | null
-    });
+  let metricsRaw = Array.isArray(data?.metrics) ? data.metrics : [];
+  let playerDetailLevel = data?.player_detail_level === "team_only" ? "team_only" : "full";
+  let insightsSnap = typeof data?.insights_snap === "number" ? data.insights_snap : 0;
+  let updatedAt = typeof data?.updated_at === "string" ? data.updated_at : null;
+
+  const entitlements = await resolveRequestEntitlements(ctx, request);
+  const matchUnlocked = requestHasMatchUnlock(entitlements, eventId);
+  const insightsMissing = !data || metricsRaw.length === 0;
+
+  // Admin può sempre ricalcolare; utente free/guest solo se ha sbloccato la partita (rADS/Pro)
+  // e lo snapshot manca — altrimenti resterebbe solo Player Performance popolato.
+  const shouldCompute =
+    (organization.role === "admin" && (forceRefresh || insightsMissing)) ||
+    (matchUnlocked && insightsMissing);
+
+  if (shouldCompute) {
+    try {
+      const match = await findOrganizationMatchByEventId(organization.organizationId, eventId);
+      if (match) {
+        const computed = await computeAndPersistOrganizationMatchInsights(
+          organization.organizationId,
+          match
+        );
+        if (computed.ok) {
+          metricsRaw = computed.metrics;
+          playerDetailLevel = computed.playerDetailLevel;
+          insightsSnap = Math.floor(Date.now() / 1000);
+          updatedAt = new Date().toISOString();
+        }
+      }
+    } catch (computeError) {
+      console.warn(
+        "[org-kiosk-match-insights] on_demand_compute_failed:",
+        computeError instanceof Error ? computeError.message : String(computeError)
+      );
+    }
   }
 
-  const metricsRaw = Array.isArray(data.metrics) ? data.metrics : [];
-  const playerDetailLevel = data.player_detail_level === "team_only" ? "team_only" : "full";
+  const metrics = localizeTacticalMetrics(metricsRaw as TacticalMetrics[]);
+
+  const allowProviderFetch =
+    (organization.role === "admin" && forceRefresh) || (matchUnlocked && insightsMissing);
+  let teamFormSignals = null;
+  try {
+    teamFormSignals = await buildTeamFormSignalsForOrganizationMatch({
+      supabase,
+      organizationId: organization.organizationId,
+      eventId,
+      metrics,
+      forceRefresh: allowProviderFetch,
+      allowProviderFetch
+    });
+  } catch (signalsError) {
+    console.warn(
+      "[org-kiosk-match-insights] team_form_signals_failed:",
+      signalsError instanceof Error ? signalsError.message : String(signalsError)
+    );
+  }
 
   return NextResponse.json({
-    eventId: data.event_id,
-    insightsSnap: typeof data.insights_snap === "number" ? data.insights_snap : 0,
+    eventId,
+    insightsSnap,
     playerDetailLevel,
-    metrics: metricsRaw as TacticalMetrics[],
-    updatedAt: typeof data.updated_at === "string" ? data.updated_at : null
+    metrics,
+    teamFormSignals,
+    updatedAt,
+    matchUnlocked,
+    accessMode: matchUnlocked || entitlements.subscriptionTier === "pro" ? "full" : "preview"
   });
 }
 
 export async function PUT(request: Request) {
-  const supabase = createSupabaseServerClient();
-  const {
-    data: { user }
-  } = await supabase.auth.getUser();
+  const user = await getApiUser(request);
 
   if (!user) {
     return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
@@ -90,6 +143,11 @@ export async function PUT(request: Request) {
   const organization = await getOrganizationContextForUser(user.id);
   if (!organization || organization.role !== "admin") {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
+
+  const productOrganizationId = await resolveProductOrganizationId();
+  if (!productOrganizationId) {
+    return NextResponse.json({ error: "public_access_unavailable" }, { status: 503 });
   }
 
   let body: unknown;
@@ -110,7 +168,7 @@ export async function PUT(request: Request) {
   const metricsRows = metrics as TacticalMetrics[];
 
   const persist = await upsertKioskMatchInsightsForOrganization({
-    organizationId: organization.organizationId,
+    organizationId: productOrganizationId,
     eventId,
     insightsSnap,
     playerDetailLevel,
@@ -129,11 +187,8 @@ export async function PUT(request: Request) {
 }
 
 /** Prima di ricaricare i dati: elimina gli snapshot derivati dall’organizzazione (solo admin). */
-export async function DELETE() {
-  const supabase = createSupabaseServerClient();
-  const {
-    data: { user }
-  } = await supabase.auth.getUser();
+export async function DELETE(request: Request) {
+  const user = await getApiUser(request);
 
   if (!user) {
     return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
@@ -144,7 +199,12 @@ export async function DELETE() {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
-  const purged = await purgeOrganizationKioskDerivedSnapshots(organization.organizationId);
+  const productOrganizationId = await resolveProductOrganizationId();
+  if (!productOrganizationId) {
+    return NextResponse.json({ error: "public_access_unavailable" }, { status: 503 });
+  }
+
+  const purged = await purgeOrganizationKioskDerivedSnapshots(productOrganizationId);
 
   if (!purged.ok) {
     return NextResponse.json({ error: "purge_failed", details: purged.messages }, { status: 500 });

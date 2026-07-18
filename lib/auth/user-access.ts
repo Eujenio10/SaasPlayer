@@ -109,20 +109,26 @@ export async function buildUserAccessSummary(
   role: UserAccessRole
 ): Promise<UserAccessSummary> {
   const isAdmin = role === "admin";
-  const isPro = role === "pro";
-  const isMember = role === "member";
-  const matchUsage = appliesWeeklyMatchQuota(role)
+  let isPro = role === "pro";
+  if (!isPro && !isAdmin) {
+    const { loadUserProSubscription } = await import("@/lib/entitlements/repository");
+    const proSub = await loadUserProSubscription(userId);
+    if (proSub.active) isPro = true;
+  }
+  const isMember = role === "member" && !isPro;
+  const effectiveRole: UserAccessRole = isAdmin ? "admin" : isPro ? "pro" : "member";
+  const matchUsage = appliesWeeklyMatchQuota(effectiveRole)
     ? await getMemberWeeklyMatchUsage(userId)
     : buildUnlimitedMatchUsage();
 
   return {
-    role,
+    role: effectiveRole,
     isAdmin,
-    isPro,
+    isPro: isPro || isAdmin,
     isMember,
     canRefreshData: isAdmin,
     matchUsage,
-    yellowCardVisibleRows: appliesWeeklyMatchQuota(role) ? 3 : null
+    yellowCardVisibleRows: appliesWeeklyMatchQuota(effectiveRole) ? 3 : null
   };
 }
 

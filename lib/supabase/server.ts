@@ -1,8 +1,8 @@
 import { cookies } from "next/headers";
 import type { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
-import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { env } from "@/lib/env";
+import { createSupabaseServiceClient as createServiceClient } from "@/lib/supabase/service-client";
 
 /**
  * Client per Route Handlers / Server Actions: scrive sulla cookie jar di Next.
@@ -50,13 +50,5 @@ export function createSupabaseResponseClient(response: NextResponse, request: Ne
 }
 
 export function createSupabaseServiceClient() {
-  return createSupabaseClient(
-    env.NEXT_PUBLIC_SUPABASE_URL,
-    env.SUPABASE_SERVICE_ROLE_KEY,
-    {
-      auth: {
-        persistSession: false
-      }
-    }
-  );
+  return createServiceClient();
 }

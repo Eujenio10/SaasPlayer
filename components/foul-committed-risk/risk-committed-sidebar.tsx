@@ -9,7 +9,6 @@ import {
   Settings,
   Shield,
   Sword,
-  TriangleAlert,
   UserRound
 } from "lucide-react";
 
@@ -48,10 +47,6 @@ export function RiskCommittedSidebar({
           <BarChart3 className="h-4 w-4 text-cyan-300" />
           Rischio falli subiti
         </button>
-        <Link href="/kiosk/allarme-ammonizioni" prefetch={false} className={cardCls}>
-          <TriangleAlert className="h-4 w-4 text-amber-300" />
-          Allarme ammonizioni
-        </Link>
         <Link href={`${kioskHref}#kiosk-fixture-picker`} prefetch={false} className={`${cardCls}`}>
           <CalendarDays className="h-4 w-4 text-cyan-300" />
           Partite in programma

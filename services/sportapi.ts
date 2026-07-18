@@ -1,5 +1,27 @@
 import { env } from "@/lib/env";
-import { isInternationalTournamentSlug } from "@/lib/international-tournaments";
+import {
+  detectSportApiProvider,
+  isBulkScheduledEventsEndpoint,
+  sportApiEventLineupsPath,
+  sportApiEventPath,
+  sportApiEventStatisticsPath,
+  sportApiPlayerSeasonHeatmapPath,
+  sportApiPlayerSeasonStatisticsPath,
+  sportApiScheduledEventsPath,
+  sportApiSearchPath,
+  sportApiTeamEventsLastPath,
+  sportApiTeamEventsNextPath,
+  sportApiTeamPath,
+  sportApiTeamPlayersPath,
+  sportApiTeamSeasonStatisticsPath,
+  sportApiTournamentSeasonEventsPath
+} from "@/lib/sportapi-endpoints";
+import {
+  eventEligibleForPlayerSeasonFallback,
+  resolveTeamSeasonFallback,
+  type TeamSeasonFallbackResolution
+} from "@/lib/season-fallback";
+import { isMonitoredInternationalCompetitionSlug, resolveCompetitionId } from "@/lib/competitions";
 import { createSupabaseServiceClient } from "@/lib/supabase/server";
 import type {
   CompetitionScope,
@@ -358,15 +380,110 @@ function appearanceCountFromOverall(overall: Record<string, number> | null): num
     "matches",
     "gamesPlayed",
     "matchesPlayed",
-    "matchesAppearance"
+    "matchesAppearance",
+    "appearancesCount",
+    "gamesCount"
   ] as const;
   for (const k of keys) {
     const n = coerceFiniteNumber(wide[k]);
     if (n !== undefined && n >= 1) return Math.max(1, Math.round(n));
   }
+  const deepApps = deepFindNumericForStatKeys(overall, keys);
+  if (deepApps !== undefined && deepApps >= 1) return Math.max(1, Math.round(deepApps));
   const started = coerceFiniteNumber(wide.matchesStarted ?? wide.gamesStarted);
   if (started !== undefined && started >= 1) return Math.max(1, Math.round(started));
+  const countRating = coerceFiniteNumber(wide.countRating);
+  if (countRating !== undefined && countRating >= 1) return Math.max(1, Math.round(countRating));
+  const minutes = coerceFiniteNumber(wide.minutesPlayed ?? wide.minutes ?? wide.timePlayed);
+  if (minutes !== undefined && minutes >= 45) {
+    return Math.max(1, Math.round(minutes / 90));
+  }
   return 1;
+}
+
+function appearancesTrustworthyForOverall(overall: Record<string, number> | null): boolean {
+  return appearanceCountFromOverall(overall) > 1;
+}
+
+function seasonFoulPerMatchFromOverall(
+  overall: Record<string, number> | null,
+  kind: "committed" | "suffered"
+): number | null {
+  if (!appearancesTrustworthyForOverall(overall)) return null;
+  const apps = appearanceCountFromOverall(overall);
+  const wide = overall as unknown as Record<string, unknown>;
+  const averageKeys =
+    kind === "committed"
+      ? ([
+          "foulsCommittedAverage",
+          "foulsPerGame",
+          "averageFouls",
+          "foulsAverage",
+          "foulsPerMatch",
+          "fouls_committed_average"
+        ] as const)
+      : ([
+          "foulsSufferedAverage",
+          "foulsDrawnPerGame",
+          "wasFouledPerGame",
+          "foulsDrawnAverage",
+          "fouls_suffered_average"
+        ] as const);
+  const explicitPerMatch = readNumericByAliases(wide, averageKeys);
+  if (explicitPerMatch !== undefined && explicitPerMatch >= 0) {
+    return explicitPerMatch;
+  }
+
+  const total =
+    kind === "committed"
+      ? foulsCommittedSeasonTotalFromOverall(overall)
+      : foulsSufferedSeasonTotalFromOverall(overall);
+  if (total === undefined) return null;
+
+  /** Alcune risposte API salvano già la media a partita sotto la chiave "fouls". */
+  if (apps >= 2 && total <= 8 && total / apps < 0.35) {
+    return total;
+  }
+
+  return total / apps;
+}
+
+function meanFromSeries(series: number[], minSamples = 1): number | null {
+  if (series.length < minSamples) return null;
+  return series.reduce((a, b) => a + b, 0) / Math.max(1, series.length);
+}
+
+/** Media falli nel torneo analizzato: preferisce overall torneo se copre almeno tante partite quanto la serie eventi. */
+function seasonFoulPerMatchFromSources(
+  series: number[],
+  overall: Record<string, number> | null,
+  kind: "committed" | "suffered"
+): number {
+  const fromOverall = seasonFoulPerMatchFromOverall(overall, kind);
+  const seriesCount = series.length;
+  const overallApps =
+    overall && appearancesTrustworthyForOverall(overall) ? appearanceCountFromOverall(overall) : 0;
+
+  if (fromOverall != null && overallApps >= 2) {
+    if (seriesCount < 2 || overallApps >= seriesCount) {
+      return fromOverall;
+    }
+  }
+
+  const fromSeries = meanFromSeries(series, 2);
+  if (fromSeries != null) return fromSeries;
+  if (fromOverall != null) return fromOverall;
+  const single = meanFromSeries(series, 1);
+  return single ?? 0;
+}
+
+function normalizePlayerNameKey(name: string): string {
+  return (name ?? "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toUpperCase();
 }
 
 /**
@@ -504,6 +621,21 @@ const FOULS_COMMITTED_STAT_KEYS = [
   "fouls_committed"
 ] as const;
 
+const KEY_PASSES_STAT_KEYS = [
+  "keyPass",
+  "keyPasses",
+  "key_pass",
+  "key_passes",
+  "bigChanceCreated",
+  "bigChancesCreated"
+] as const;
+
+const ASSISTS_STAT_KEYS = ["goalAssist", "assists", "assist", "goal_assist"] as const;
+
+const GOALS_STAT_KEYS = ["goals", "goal", "scoredGoals"] as const;
+
+const RATING_STAT_KEYS = ["rating", "playerRating", "matchRating"] as const;
+
 const DRIBBLES_STAT_KEYS = [
   "successfulDribbles",
   "successfulDribble",
@@ -618,7 +750,7 @@ function foulsSufferedFromLineupStats(
 ): number {
   if (!stats) return 0;
   const s = stats as Record<string, unknown>;
-  const n = readNumericByAliases(s, FOULS_SUFFERED_STAT_KEYS);
+  const n = readNumericMaxByAliases(s, FOULS_SUFFERED_STAT_KEYS);
   return n ?? 0;
 }
 
@@ -626,7 +758,7 @@ function foulsSufferedFromLineupStats(
 function foulsSufferedSeasonTotalFromOverall(overall: Record<string, number> | null): number | undefined {
   if (!overall) return undefined;
   const wide = overall as unknown as Record<string, unknown>;
-  const flat = readNumericByAliases(wide, FOULS_SUFFERED_STAT_KEYS);
+  const flat = readNumericMaxByAliases(wide, FOULS_SUFFERED_STAT_KEYS);
   if (flat !== undefined) return flat;
   const deep = deepFindFoulsSuffered(overall);
   return deep;
@@ -710,15 +842,16 @@ async function collectUniqueTournamentSeasonEventPool(
   for (const dir of ["next", "last"] as const) {
     for (let page = 0; page < 18; page += 1) {
       const response = await sportApiFetch(
-        `/api/v1/unique-tournament/${uniqueTournamentId}/season/${seasonId}/events/${dir}/${page}`,
+        sportApiTournamentSeasonEventsPath(uniqueTournamentId, seasonId, dir, page),
         {
           requestType: "snapshot",
           revalidateSeconds: 300
         }
       );
       if (!response.ok) break;
-      const data = (await response.json()) as SportApiTeamEventsResponse;
-      const list = data.events ?? [];
+      /** FootApi risponde spesso 204 con body vuoto alla pagina successiva: non usare `.json()` diretto. */
+      const payload = await readSportApiJson(response);
+      const list = extractEvents(payload);
       if (!list.length) break;
       for (const ev of list) {
         const id = ev.id;
@@ -740,7 +873,7 @@ export async function fetchCompetitionRoundPlayerPerformances(params: {
   competitionSlug?: string;
 }): Promise<SportPerformanceInput[]> {
   const { anchorEventId, competitionSlug: requestedCompetitionSlug } = params;
-  const eventResponse = await sportApiFetch(`/api/v1/event/${anchorEventId}`, {
+  const eventResponse = await sportApiFetch(sportApiEventPath(anchorEventId), {
     requestType: "snapshot",
     revalidateSeconds: 120
   });
@@ -840,13 +973,121 @@ export async function fetchSerieARoundPlayerPerformances(anchorEventId: number):
 }
 
 export async function fetchEventSeasonContextForInsights(eventId: number): Promise<SeasonContext | null> {
-  const eventResponse = await sportApiFetch(`/api/v1/event/${eventId}`, {
+  const eventResponse = await sportApiFetch(sportApiEventPath(eventId), {
     requestType: "snapshot",
     revalidateSeconds: 300
   });
   if (!eventResponse.ok) return null;
-  const payload: unknown = await eventResponse.json();
+  const payload = await readSportApiJson(eventResponse);
+  if (!payload) return null;
   return parseSeasonContextFromEventJson(payload);
+}
+
+/**
+ * Contesto stagione effettivo per analisi di una squadra: a inizio annata (meno di 3
+ * partite finite nel torneo corrente) usa la stagione precedente; altrimenti la corrente.
+ */
+export async function resolveEffectiveSeasonContextForTeam(params: {
+  teamId: number;
+  eventId?: number;
+  tournamentId?: number;
+  seasonId?: number;
+  bypassCache?: boolean;
+}): Promise<{
+  current: SeasonContext | null;
+  effective: SeasonContext | null;
+  mode: "previous_season" | "current_season" | "unknown";
+  matchesPlayedInCurrentSeason: number;
+  playerUseAnyCompetition: boolean;
+}> {
+  let current: SeasonContext | null = null;
+  if (
+    params.tournamentId != null &&
+    params.tournamentId > 0 &&
+    params.seasonId != null &&
+    params.seasonId > 0
+  ) {
+    current = { tournamentId: params.tournamentId, seasonId: params.seasonId };
+  } else if (params.eventId && params.eventId > 0) {
+    current = await fetchEventSeasonContextForInsights(params.eventId).catch(() => null);
+  }
+
+  if (!current || params.teamId <= 0) {
+    return {
+      current,
+      effective: current,
+      mode: "unknown",
+      matchesPlayedInCurrentSeason: 0,
+      playerUseAnyCompetition: false
+    };
+  }
+
+  const fallback = await resolveTeamSeasonFallback({
+    teamId: params.teamId,
+    current,
+    bypassCache: params.bypassCache,
+    sportApiFetch: sportApiFetch as (
+      endpoint: string,
+      options?: Record<string, unknown>
+    ) => Promise<Response>
+  });
+
+  return {
+    current,
+    effective: fallback.teamContext,
+    mode: fallback.mode,
+    matchesPlayedInCurrentSeason: fallback.matchesPlayedInCurrentSeason,
+    playerUseAnyCompetition: fallback.playerUseAnyCompetition
+  };
+}
+
+export interface EventMatchTeamsContext {
+  eventId: number;
+  startTimestamp: number;
+  tournamentId: number;
+  seasonId: number;
+  homeTeam: { id: number; name: string };
+  awayTeam: { id: number; name: string };
+}
+
+/** Contesto partita leggero: 1 sola chiamata FootAPI (event), senza lineups/statistics. */
+export async function fetchEventMatchTeamsContext(
+  eventId: number
+): Promise<EventMatchTeamsContext | null> {
+  const eventResponse = await sportApiFetch(sportApiEventPath(eventId), {
+    requestType: "snapshot",
+    revalidateSeconds: 600
+  });
+  if (!eventResponse.ok) {
+    console.warn("[sportapi] event_match_teams_failed", { eventId, status: eventResponse.status });
+    return null;
+  }
+
+  const payload = await readSportApiJson(eventResponse);
+  if (!payload) return null;
+
+  const ctx = parseSeasonContextFromEventJson(payload);
+  const anchorNode = extractEventNodeFromPayload(payload as Record<string, unknown>);
+  if (!ctx || !anchorNode) return null;
+
+  const homeTeam = anchorNode.homeTeam as SportApiEvent["homeTeam"] | undefined;
+  const awayTeam = anchorNode.awayTeam as SportApiEvent["awayTeam"] | undefined;
+  const homeTeamId = coerceFiniteNumber(homeTeam?.id as number | undefined);
+  const awayTeamId = coerceFiniteNumber(awayTeam?.id as number | undefined);
+  if (!homeTeamId || !awayTeamId) return null;
+
+  const startTimestamp =
+    coerceFiniteNumber((anchorNode as Record<string, unknown>).startTimestamp as number | undefined) ??
+    Math.floor(Date.now() / 1000);
+
+  return {
+    eventId,
+    startTimestamp,
+    tournamentId: ctx.tournamentId,
+    seasonId: ctx.seasonId,
+    homeTeam: { id: homeTeamId, name: homeTeam?.name ?? "Home" },
+    awayTeam: { id: awayTeamId, name: awayTeam?.name ?? "Away" }
+  };
 }
 
 interface SeasonContextResult {
@@ -1073,7 +1314,7 @@ export interface TeamBlueprintDebugMeta {
 
 // Bump this timestamp whenever blueprint mapping/logic changes significantly.
 // Cached rows older than this are treated as stale and recomputed once.
-const BLUEPRINT_CACHE_MIN_VALID_UPDATED_AT = "2026-03-29T00:00:00.000Z";
+const BLUEPRINT_CACHE_MIN_VALID_UPDATED_AT = "2026-07-01T00:00:00.000Z";
 
 let teamSearchUniverseCache: TeamSearchUniverseCacheEntry | null = null;
 const teamLeagueCache = new Map<number, number | null>();
@@ -1249,7 +1490,7 @@ async function getTeamDomesticLeagueContext(
     return teamDomesticLeagueContextCache.get(teamId) ?? null;
   }
 
-  const response = await sportApiFetch(`/api/v1/team/${teamId}`, {
+  const response = await sportApiFetch(sportApiTeamPath(teamId), {
     requestType: "blueprint",
     teamId,
     revalidateSeconds: 3600,
@@ -1270,7 +1511,7 @@ async function getTeamDomesticLeagueContext(
 
   const maxPages = 6;
   for (let page = 0; page < maxPages; page += 1) {
-    const eventsResponse = await sportApiFetch(`/api/v1/team/${teamId}/events/last/${page}`, {
+    const eventsResponse = await sportApiFetch(sportApiTeamEventsLastPath(teamId, page), {
       requestType: "snapshot",
       teamId,
       revalidateSeconds: 300,
@@ -1319,7 +1560,7 @@ async function getNationalTeamRecentTournamentContexts(
   const contexts: TeamDomesticLeagueContext[] = [];
 
   outer: for (let page = 0; page < maxPages; page += 1) {
-    const eventsResponse = await sportApiFetch(`/api/v1/team/${teamId}/events/last/${page}`, {
+    const eventsResponse = await sportApiFetch(sportApiTeamEventsLastPath(teamId, page), {
       requestType: "snapshot",
       teamId,
       revalidateSeconds: 300,
@@ -1367,22 +1608,6 @@ async function getNationalTeamRecentTournamentContext(
   return all[0] ?? null;
 }
 
-/**
- * Serie B italiana nel menu kiosk.
- * Non richiediamo token paese: su scheduled-events molti match hanno slug `serie-b` senza `country` popolato;
- * il vincolo Italia era troppo stretto e lasciava poche partite (es. una sola fissata).
- */
-function isSerieBDomesticEvent(event: SportApiEvent): boolean {
-  const slug = normalizeCompetitionSlug(competitionSlug(event));
-  if (slug === "serie-b" || slug === "italy-serie-b") return true;
-  if (!slug.includes("serie-b")) return false;
-  const countries = eventCountryTokens(event);
-  for (const token of countries) {
-    if (token === "italy" || token === "it") return true;
-  }
-  return false;
-}
-
 type DiscoverCompetitionFilter = "domestic_top5_only" | "kiosk_top5_and_uefa_cups";
 
 function eventStatusType(event: SportApiEvent): string {
@@ -1420,16 +1645,18 @@ function isWorldCupDiscoveryEligibleEvent(event: SportApiEvent): boolean {
   return kick > now;
 }
 
-/** Partita Mondiali maschili: due squadre con id; nazionali se il provider lo dice, altrimenti slug torneo è già riconosciuto come Mundial maschile FIFA. */
-function worldCupScheduledEventSidesOk(event: SportApiEvent): boolean {
+/**
+ * Partita tra nazionali **monitorata** (Coppa del Mondo o UEFA Nations League): due squadre con id,
+ * nomi reali (niente placeholder tabellone) e slug riconosciuto tra le competizioni gestite.
+ */
+function isMonitoredInternationalEvent(event: SportApiEvent): boolean {
   const h = event.homeTeam;
   const a = event.awayTeam;
   if (!h?.id || !a?.id) return false;
   if (typeof h.id !== "number" || typeof a.id !== "number") return false;
   /** Escludi match con nomi placeholder (es. "2A", "W41", "TBD") — fase eliminazione ancora non definita. */
   if (!isRealTeamNameStr(h.name ?? "") || !isRealTeamNameStr(a.name ?? "")) return false;
-  if (h.national && a.national) return true;
-  return isInternationalTournamentSlug(competitionSlug(event));
+  return isMonitoredInternationalCompetitionSlug(competitionSlug(event));
 }
 
 function isRealTeamNameStr(name: string): boolean {
@@ -1448,11 +1675,53 @@ function extractEvents(payload: unknown): SportApiEvent[] {
   if (!payload || typeof payload !== "object") {
     return [];
   }
-  const objectPayload = payload as SportApiEventsResponse;
-  return Array.isArray(objectPayload.events) ? objectPayload.events : [];
+  const objectPayload = payload as Record<string, unknown>;
+  if (Array.isArray(objectPayload.events)) {
+    return objectPayload.events as SportApiEvent[];
+  }
+  if (Array.isArray(objectPayload.matches)) {
+    return objectPayload.matches as SportApiEvent[];
+  }
+
+  const nested: SportApiEvent[] = [];
+  const ingest = (list: unknown) => {
+    if (!Array.isArray(list)) return;
+    for (const item of list) {
+      if (item && typeof item === "object" && typeof (item as SportApiEvent).id === "number") {
+        nested.push(item as SportApiEvent);
+      }
+    }
+  };
+
+  ingest(objectPayload.data);
+  if (objectPayload.data && typeof objectPayload.data === "object") {
+    const data = objectPayload.data as Record<string, unknown>;
+    ingest(data.events);
+    ingest(data.matches);
+  }
+
+  for (const value of Object.values(objectPayload)) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+    const group = value as Record<string, unknown>;
+    ingest(group.events);
+    ingest(group.matches);
+  }
+
+  if (nested.length > 0) {
+    const byId = new Map<number, SportApiEvent>();
+    for (const event of nested) {
+      const id = event.id;
+      if (typeof id === "number") byId.set(id, event);
+    }
+    return Array.from(byId.values());
+  }
+
+  return [];
 }
 
 function normalizeCompetitionSlug(raw?: string): string {
+  const resolved = resolveCompetitionId(raw);
+  if (resolved) return resolved;
   const slug = raw?.toLowerCase().trim() ?? "";
   if (slug === "la-liga") return "laliga";
   /** La Liga: spesso `spain-laliga` o prefisso `spain-` + laliga (non in STRICT_TOP5 keys). */
@@ -1491,7 +1760,25 @@ function normalizeCompetitionSlug(raw?: string): string {
 
 function isAllowedCompetitionSlug(slug: string, allowed: Set<string>): boolean {
   const normalized = normalizeCompetitionSlug(slug);
-  return normalized.length > 0 && allowed.has(normalized);
+  const resolved = resolveCompetitionId(normalized) ?? normalized;
+  for (const allowedSlug of allowed) {
+    const allowedNormalized = normalizeCompetitionSlug(allowedSlug);
+    const allowedResolved = resolveCompetitionId(allowedNormalized) ?? allowedNormalized;
+    if (resolved === allowedResolved) return true;
+    if (normalized === allowedNormalized || normalized === allowedResolved) return true;
+  }
+  return false;
+}
+
+/** FootApi + competizioni monitorate: niente gate «solo top 5 domestico». */
+function shouldSkipTop5CheckForBlueprint(competitionSlug?: string): boolean {
+  if (detectSportApiProvider() === "footapi") return true;
+  if (!competitionSlug) return false;
+  if (resolveCompetitionId(competitionSlug)) return true;
+  if (isUefaChampionsOrEuropaBlueprintCompetitionSlug(competitionSlug)) return true;
+  if (isSerieBBlueprintCompetitionSlug(competitionSlug)) return true;
+  if (isMonitoredInternationalCompetitionSlug(competitionSlug)) return true;
+  return false;
 }
 
 function statValue(
@@ -1533,6 +1820,118 @@ function top5LeagueIds(): Set<number> {
   return parseIdSet(process.env.TACTICAL_TOP5_LEAGUE_IDS, [17, 23, 8, 35, 34]);
 }
 
+/** Squadre rappresentative Top5 usate quando FootApi non popola il calendario per data. */
+const FOOTAPI_DISCOVERY_ANCHOR_TEAM_IDS = [
+  2697, 2692, 2687, // Serie A: Inter, Milan, Juventus
+  17, 42, 44, // Premier: Man City, Arsenal, Liverpool
+  2829, 2817, // La Liga: Real Madrid, Barcelona
+  2672, // Bundesliga: Bayern
+  1644 // Ligue 1: PSG
+];
+
+function footApiDiscoveryAnchorTeamIds(): number[] {
+  return Array.from(
+    parseIdSet(process.env.TACTICAL_DISCOVERY_ANCHOR_TEAM_IDS, FOOTAPI_DISCOVERY_ANCHOR_TEAM_IDS)
+  );
+}
+
+/** Nazionali rappresentative per discovery Mondiali quando il calendario FootApi per data è vuoto. */
+const FOOTAPI_INTL_DISCOVERY_ANCHOR_TEAM_IDS = [
+  4477, // Italia
+  4713, // Inghilterra
+  4480, // Francia
+  4711, // Germania
+  4698, // Spagna
+  4748, // Brasile
+  4819, // Argentina
+  4720, // Portogallo
+  4704 // Paesi Bassi
+];
+
+function footApiIntlDiscoveryAnchorTeamIds(): number[] {
+  return Array.from(
+    parseIdSet(process.env.TACTICAL_INTL_DISCOVERY_ANCHOR_TEAM_IDS, FOOTAPI_INTL_DISCOVERY_ANCHOR_TEAM_IDS)
+  );
+}
+
+/** Coppa del Mondo su FootApi (SofaScore): uniqueTournament 16, season 2026 = 58210 (verificato via probe). */
+const FOOTAPI_WORLD_CUP_TOURNAMENT_ID = 16;
+const FOOTAPI_WORLD_CUP_SEASON_ID = 58210;
+
+/**
+ * Id torneo/stagione Mondiali: env esplicita oppure default FootApi (16 / 58210).
+ * Su SportAPI7 imposta sempre `TACTICAL_WORLD_CUP_TOURNAMENT_ID` e `TACTICAL_WORLD_CUP_SEASON_ID`.
+ */
+function resolveWorldCupTournamentSeasonIds(): { tournamentId: number; seasonId: number } | null {
+  const envTournament = Number(process.env.TACTICAL_WORLD_CUP_TOURNAMENT_ID ?? "");
+  const envSeason = Number(process.env.TACTICAL_WORLD_CUP_SEASON_ID ?? "");
+
+  const tournamentId =
+    Number.isFinite(envTournament) && envTournament > 0
+      ? Math.floor(envTournament)
+      : detectSportApiProvider() === "footapi"
+        ? FOOTAPI_WORLD_CUP_TOURNAMENT_ID
+        : 0;
+
+  const seasonId =
+    Number.isFinite(envSeason) && envSeason > 0
+      ? Math.floor(envSeason)
+      : detectSportApiProvider() === "footapi"
+        ? FOOTAPI_WORLD_CUP_SEASON_ID
+        : 0;
+
+  if (tournamentId <= 0 || seasonId <= 0) return null;
+  return { tournamentId, seasonId };
+}
+
+/**
+ * FootApi: calendario completo Mondiali via `/api/tournament/{id}/season/{id}/matches/...`.
+ * Copre **tutte** le nazionali del torneo (non solo le 9 anchor) — preferibile agli anchor team.
+ */
+async function discoverInternationalTournamentEventsViaWorldCupCalendar(): Promise<SportApiEvent[]> {
+  const ctx = resolveWorldCupTournamentSeasonIds();
+  if (!ctx) return [];
+
+  const rawLookahead = Number(process.env.TACTICAL_INTL_LOOKAHEAD_DAYS ?? process.env.TACTICAL_LOOKAHEAD_DAYS ?? "60");
+  const safeLookaheadDays = Math.min(
+    180,
+    Math.max(1, Number.isFinite(rawLookahead) && rawLookahead >= 1 ? Math.floor(rawLookahead) : 60)
+  );
+  const maxKickoff = Math.floor(Date.now() / 1000) + safeLookaheadDays * 24 * 60 * 60;
+  const nowSec = Math.floor(Date.now() / 1000);
+
+  try {
+    const pool = await collectUniqueTournamentSeasonEventPool(ctx.tournamentId, ctx.seasonId);
+    if (!pool.length) {
+      console.warn(
+        "[sportapi] world_cup_calendar_empty:",
+        `tournament=${ctx.tournamentId} season=${ctx.seasonId}`
+      );
+      return [];
+    }
+    const filtered = pool.filter((event) => {
+      if (!event.id || !isFootballEvent(event)) return false;
+      if (!isWorldCupDiscoveryEligibleEvent(event)) return false;
+      if (!isMonitoredInternationalEvent(event)) return false;
+      const kickoff = event.startTimestamp ?? 0;
+      if (kickoff > 0 && kickoff < nowSec - 6 * 60 * 60) return false;
+      if (kickoff > 0 && kickoff > maxKickoff) return false;
+      return true;
+    });
+    console.info(
+      "[sportapi] world_cup_calendar:",
+      `pool=${pool.length} filtered=${filtered.length} tournament=${ctx.tournamentId} season=${ctx.seasonId}`
+    );
+    return selectDiscoveredEventsByCompetition(filtered);
+  } catch (error) {
+    console.warn(
+      "[sportapi] world_cup_calendar_failed:",
+      error instanceof Error ? error.message : String(error)
+    );
+    return [];
+  }
+}
+
 function utcDateKey(): string {
   const now = new Date();
   return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}-${String(
@@ -1572,7 +1971,7 @@ async function logApiUsage(entry: ApiUsageLogInput): Promise<void> {
   try {
     const supabase = createSupabaseServiceClient();
     await supabase.from("api_usage").insert({
-      provider: "sportapi7",
+      provider: detectSportApiProvider(),
       endpoint: entry.endpoint,
       method: entry.method,
       status_code: entry.statusCode,
@@ -1587,11 +1986,6 @@ async function logApiUsage(entry: ApiUsageLogInput): Promise<void> {
   }
 }
 
-function isBulkScheduledEventsEndpoint(endpoint: string): boolean {
-  const lower = endpoint.toLowerCase();
-  return lower.includes("scheduled-events") || lower.includes("scheduled_events");
-}
-
 async function sportApiFetch(
   endpoint: string,
   options?: {
@@ -1603,15 +1997,8 @@ async function sportApiFetch(
     bypassCache?: boolean;
   }
 ): Promise<Response> {
-  /** Il calendario globale supera spesso 2MB: Next.js non può metterlo in Data Cache → errori e risposta instabile. */
-  const fetchInit: RequestInit = isBulkScheduledEventsEndpoint(endpoint)
-    ? { headers: sportApiHeaders(), cache: "no-store" }
-    : options?.bypassCache
-      ? { headers: sportApiHeaders(), cache: "no-store" }
-      : {
-          headers: sportApiHeaders(),
-          next: { revalidate: options?.revalidateSeconds ?? 60 }
-        };
+  /** RapidAPI: sempre `no-store` — la Data Cache Next può congelare risposte 204/vuote e svuotare il menu. */
+  const fetchInit: RequestInit = { headers: sportApiHeaders(), cache: "no-store" };
 
   const response = await fetch(`https://${env.SPORTAPI_RAPIDAPI_HOST}${endpoint}`, fetchInit);
 
@@ -1625,6 +2012,17 @@ async function sportApiFetch(
   });
 
   return response;
+}
+
+/** Evita crash `Unexpected end of JSON input` quando RapidAPI risponde 200 con body vuoto o troncato. */
+async function readSportApiJson(response: Response): Promise<unknown> {
+  const text = await response.text();
+  if (!text.trim()) return null;
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return null;
+  }
 }
 
 async function getTodayApiUsageCount(): Promise<number> {
@@ -1715,7 +2113,7 @@ async function getTeamLeagueId(teamId: number): Promise<number | null> {
     return teamLeagueCache.get(teamId) ?? null;
   }
 
-  const response = await sportApiFetch(`/api/v1/team/${teamId}`, {
+  const response = await sportApiFetch(sportApiTeamPath(teamId), {
     requestType: "blueprint",
     teamId,
     revalidateSeconds: 3600
@@ -1746,46 +2144,13 @@ function eventMatchesDiscoverCompetitionFilter(
     return (
       isStrictTop5DomesticEvent(event) ||
       isUefaChampionsOrEuropaLeagueEvent(event) ||
-      isUefaConferenceLeagueEvent(event) ||
-      isSerieBDomesticEvent(event)
+      isUefaConferenceLeagueEvent(event)
     );
   }
   return isStrictTop5DomesticEvent(event);
 }
 
-async function discoverTargetEvents(
-  statusPredicate: (event: SportApiEvent) => boolean,
-  competitionFilter: DiscoverCompetitionFilter = "domestic_top5_only"
-): Promise<SportApiEvent[]> {
-  const lookaheadDays = Number(process.env.TACTICAL_LOOKAHEAD_DAYS ?? "14");
-  const safeLookaheadDays =
-    Number.isFinite(lookaheadDays) && lookaheadDays >= 1 ? Math.floor(lookaheadDays) : 14;
-  const endpointTemplate =
-    process.env.SPORTAPI_FOOTBALL_SCHEDULED_EVENTS_PATH ??
-    "/api/v1/sport/football/scheduled-events/{date}";
-
-  const collected: SportApiEvent[] = [];
-  for (let dayOffset = 0; dayOffset <= safeLookaheadDays; dayOffset += 1) {
-    const endpoint = endpointTemplate.replaceAll("{date}", dateToken(dayOffset));
-    const response = await sportApiFetch(endpoint, {
-      requestType: "snapshot",
-      revalidateSeconds: 60
-    });
-    if (!response.ok) {
-      continue;
-    }
-
-    const payload = (await response.json()) as unknown;
-    const events = extractEvents(payload)
-      .filter((event) => Boolean(event.id))
-      .filter(isFootballEvent)
-      .filter(statusPredicate)
-      .filter((event) => eventMatchesDiscoverCompetitionFilter(event, competitionFilter))
-      .filter((event) => !event.homeTeam?.national && !event.awayTeam?.national);
-
-    collected.push(...events);
-  }
-
+function selectDiscoveredEventsByCompetition(collected: SportApiEvent[]): SportApiEvent[] {
   if (collected.length === 0) {
     return [];
   }
@@ -1802,7 +2167,7 @@ async function discoverTargetEvents(
   const selected: SportApiEvent[] = [];
   for (const [competitionKey, events] of byCompetition) {
     const slugNorm = normalizeCompetitionSlug(competitionKey);
-    /** Top domestic + Serie B: `roundInfo` spesso assente o incoerente → il filtro “solo min round” svuotava il menu. */
+    /** Top domestic + Serie B + Mondiali: `roundInfo` spesso assente o incoerente → il filtro “solo min round” svuotava il menu. */
     const skipRoundSlice =
       slugNorm === "serie-a" ||
       slugNorm === "laliga" ||
@@ -1811,7 +2176,8 @@ async function discoverTargetEvents(
       slugNorm === "ligue-1" ||
       slugNorm === "serie-b" ||
       slugNorm === "italy-serie-b" ||
-      (slugNorm.includes("serie-b") && slugNorm.includes("italy"));
+      (slugNorm.includes("serie-b") && slugNorm.includes("italy")) ||
+      isMonitoredInternationalCompetitionSlug(slugNorm);
 
     if (skipRoundSlice) {
       selected.push(...events);
@@ -1858,50 +2224,138 @@ async function discoverTargetEvents(
   );
 }
 
-async function discoverUpcomingTargetEvents(): Promise<SportApiEvent[]> {
-  return discoverTargetEvents(isUpcomingEvent, "domestic_top5_only");
+function filterDiscoverableFootballEvents(
+  events: SportApiEvent[],
+  statusPredicate: (event: SportApiEvent) => boolean,
+  competitionFilter: DiscoverCompetitionFilter,
+  maxKickoffTimestamp?: number
+): SportApiEvent[] {
+  const nowSec = Math.floor(Date.now() / 1000);
+  return events
+    .filter((event) => Boolean(event.id))
+    .filter(isFootballEvent)
+    .filter(statusPredicate)
+    .filter((event) => eventMatchesDiscoverCompetitionFilter(event, competitionFilter))
+    .filter((event) => !event.homeTeam?.national && !event.awayTeam?.national)
+    .filter((event) => {
+      const kickoff = event.startTimestamp ?? 0;
+      if (kickoff <= 0) return true;
+      if (kickoff < nowSec - 6 * 60 * 60) return false;
+      if (typeof maxKickoffTimestamp === "number" && kickoff > maxKickoffTimestamp) return false;
+      return true;
+    });
 }
 
-/** Menu kiosk/API tactical: top 5 domestic + Champions League + Europa League. */
-async function discoverUpcomingKioskMenuEvents(): Promise<SportApiEvent[]> {
-  return discoverTargetEvents(isUpcomingEvent, "kiosk_top5_and_uefa_cups");
+async function fetchTeamScheduleEvents(
+  teamId: number,
+  direction: "next" | "last",
+  page = 0
+): Promise<SportApiEvent[]> {
+  const endpoint =
+    direction === "next"
+      ? sportApiTeamEventsNextPath(teamId, page)
+      : sportApiTeamEventsLastPath(teamId, page);
+  const response = await sportApiFetch(endpoint, {
+    requestType: direction === "next" ? "snapshot" : "search",
+    teamId,
+    revalidateSeconds: direction === "next" ? 60 : 600
+  });
+  if (!response.ok) return [];
+  const payload = await readSportApiJson(response);
+  return extractEvents(payload);
 }
 
-function isInternationalTournamentEvent(event: SportApiEvent): boolean {
-  return isInternationalTournamentSlug(competitionSlug(event));
+/** FootApi: il calendario `/api/matches/d/m/y` risponde spesso `[]`; discovery via prossime partite squadre anchor. */
+async function discoverTargetEventsViaTeamAnchors(
+  statusPredicate: (event: SportApiEvent) => boolean,
+  competitionFilter: DiscoverCompetitionFilter = "domestic_top5_only"
+): Promise<SportApiEvent[]> {
+  const lookaheadDays = Number(process.env.TACTICAL_LOOKAHEAD_DAYS ?? "14");
+  const safeLookaheadDays =
+    Number.isFinite(lookaheadDays) && lookaheadDays >= 1 ? Math.floor(lookaheadDays) : 14;
+  const maxKickoff = Math.floor(Date.now() / 1000) + safeLookaheadDays * 24 * 60 * 60;
+  const byEventId = new Map<number, SportApiEvent>();
+
+  for (const teamId of footApiDiscoveryAnchorTeamIds()) {
+    try {
+      const events = filterDiscoverableFootballEvents(
+        await fetchTeamScheduleEvents(teamId, "next", 0),
+        statusPredicate,
+        competitionFilter,
+        maxKickoff
+      );
+      for (const event of events) {
+        const id = event.id;
+        if (typeof id !== "number") continue;
+        byEventId.set(id, event);
+      }
+    } catch {
+      // Best-effort per squadra anchor: non bloccare l'intero menu.
+    }
+  }
+
+  return selectDiscoveredEventsByCompetition(Array.from(byEventId.values()));
 }
 
-/**
- * Calendario Coppa del Mondo FIFA maschile (senior): squadre nazionali (`national`), nessuna auto-discovery nel menu club.
- */
-async function discoverInternationalTournamentScheduledEvents(): Promise<SportApiEvent[]> {
-  /** Default più ampio: qualificazioni / calendario rado; capped per non esplodere le chiamate scheduled-events. */
+/** FootApi: calendario per data vuoto → prossime partite delle nazionali anchor (filtrate su Mundial maschile). */
+async function discoverInternationalTournamentEventsViaNationalTeamAnchors(): Promise<SportApiEvent[]> {
   const rawLookahead = Number(process.env.TACTICAL_INTL_LOOKAHEAD_DAYS ?? process.env.TACTICAL_LOOKAHEAD_DAYS ?? "60");
   const safeLookaheadDays = Math.min(
     180,
     Math.max(1, Number.isFinite(rawLookahead) && rawLookahead >= 1 ? Math.floor(rawLookahead) : 60)
   );
-  /**
-   * Early-stop: dopo aver trovato la prima giornata con partite mondiali,
-   * smette di cercare dopo N giorni consecutivi vuoti.
-   * Evita di fare 180 chiamate HTTP quando il torneo è a 10 giorni.
-   */
+  const maxKickoff = Math.floor(Date.now() / 1000) + safeLookaheadDays * 24 * 60 * 60;
+  const nowSec = Math.floor(Date.now() / 1000);
+  const byEventId = new Map<number, SportApiEvent>();
+  const maxPagesPerTeam = parsePositiveInt(process.env.TACTICAL_INTL_ANCHOR_NEXT_PAGES, 6);
+
+  for (const teamId of footApiIntlDiscoveryAnchorTeamIds()) {
+    try {
+      for (let page = 0; page < maxPagesPerTeam; page += 1) {
+        const events = await fetchTeamScheduleEvents(teamId, "next", page);
+        if (!events.length) break;
+
+        let addedOnPage = 0;
+        for (const event of events) {
+          if (!event.id || !isFootballEvent(event)) continue;
+          if (!isWorldCupDiscoveryEligibleEvent(event)) continue;
+          if (!isMonitoredInternationalEvent(event)) continue;
+          const kickoff = event.startTimestamp ?? 0;
+          if (kickoff > 0 && kickoff < nowSec - 6 * 60 * 60) continue;
+          if (kickoff > 0 && kickoff > maxKickoff) continue;
+          if (!byEventId.has(event.id)) addedOnPage += 1;
+          byEventId.set(event.id, event);
+        }
+
+        if (addedOnPage === 0) break;
+      }
+    } catch {
+      // Best-effort per nazionale anchor.
+    }
+  }
+
+  return selectDiscoveredEventsByCompetition(Array.from(byEventId.values()));
+}
+
+/** Calendario Mondiali via scheduled-events giorno per giorno (SportAPI7 e fallback FootApi). */
+async function discoverInternationalTournamentScheduledEventsByDay(): Promise<SportApiEvent[]> {
+  const rawLookahead = Number(process.env.TACTICAL_INTL_LOOKAHEAD_DAYS ?? process.env.TACTICAL_LOOKAHEAD_DAYS ?? "60");
+  const safeLookaheadDays = Math.min(
+    180,
+    Math.max(1, Number.isFinite(rawLookahead) && rawLookahead >= 1 ? Math.floor(rawLookahead) : 60)
+  );
   const rawBuffer = Number(process.env.TACTICAL_INTL_EMPTY_DAYS_STOP ?? "10");
   const emptyDaysStopAfter = Math.max(
     3,
     Number.isFinite(rawBuffer) && rawBuffer >= 1 ? Math.floor(rawBuffer) : 10
   );
 
-  const endpointTemplate =
-    process.env.SPORTAPI_FOOTBALL_SCHEDULED_EVENTS_PATH ??
-    "/api/v1/sport/football/scheduled-events/{date}";
-
   const collected: SportApiEvent[] = [];
   let foundAnyMatch = false;
   let consecutiveEmptyDays = 0;
 
   for (let dayOffset = 0; dayOffset <= safeLookaheadDays; dayOffset += 1) {
-    const endpoint = endpointTemplate.replaceAll("{date}", dateToken(dayOffset));
+    const endpoint = sportApiScheduledEventsPath(dateToken(dayOffset));
     const response = await sportApiFetch(endpoint, {
       requestType: "snapshot",
       revalidateSeconds: 60
@@ -1912,13 +2366,12 @@ async function discoverInternationalTournamentScheduledEvents(): Promise<SportAp
       continue;
     }
 
-    const payload = (await response.json()) as unknown;
+    const payload = await readSportApiJson(response);
     const events = extractEvents(payload)
       .filter((event) => Boolean(event.id))
       .filter(isFootballEvent)
       .filter(isWorldCupDiscoveryEligibleEvent)
-      .filter(isInternationalTournamentEvent)
-      .filter(worldCupScheduledEventSidesOk);
+      .filter(isMonitoredInternationalEvent);
 
     if (events.length > 0) {
       collected.push(...events);
@@ -1947,13 +2400,8 @@ async function discoverInternationalTournamentScheduledEvents(): Promise<SportAp
   for (const [, events] of byCompetition) {
     const validRoundEvents = events.filter((event) => typeof event.roundInfo?.round === "number");
     const slugNorm = normalizeCompetitionSlug(competitionSlug(events[0]));
-    /** Coppa del Mondo: knockout / gruppi senza `roundInfo` affidabile come in lega. */
-    const skipRoundSlice =
-      slugNorm.includes("world-cup") ||
-      slugNorm.includes("worldcup") ||
-      slugNorm.includes("fifa-world") ||
-      (slugNorm.includes("world") && slugNorm.includes("championship")) ||
-      (slugNorm.includes("fifa") && slugNorm.includes("world"));
+    /** Mondiali/amichevoli/Nations League tra nazionali: niente “solo min round” (svuoterebbe il menu). */
+    const skipRoundSlice = isMonitoredInternationalCompetitionSlug(slugNorm);
 
     if (skipRoundSlice || validRoundEvents.length === 0) {
       selected.push(...events);
@@ -1989,6 +2437,94 @@ async function discoverInternationalTournamentScheduledEvents(): Promise<SportAp
   return Array.from(byEventId.values()).sort(
     (a, b) => (a.startTimestamp ?? 0) - (b.startTimestamp ?? 0)
   );
+}
+
+function mergeInternationalDiscoverySlices(...slices: SportApiEvent[][]): SportApiEvent[] {
+  const byEventId = new Map<number, SportApiEvent>();
+  for (const slice of slices) {
+    for (const event of slice) {
+      const id = event.id;
+      if (typeof id !== "number") continue;
+      byEventId.set(id, event);
+    }
+  }
+  return Array.from(byEventId.values()).sort(
+    (a, b) => (a.startTimestamp ?? 0) - (b.startTimestamp ?? 0)
+  );
+}
+
+async function discoverTargetEvents(
+  statusPredicate: (event: SportApiEvent) => boolean,
+  competitionFilter: DiscoverCompetitionFilter = "domestic_top5_only"
+): Promise<SportApiEvent[]> {
+  if (detectSportApiProvider() === "footapi") {
+    return discoverTargetEventsViaTeamAnchors(statusPredicate, competitionFilter);
+  }
+
+  const lookaheadDays = Number(process.env.TACTICAL_LOOKAHEAD_DAYS ?? "14");
+  const safeLookaheadDays =
+    Number.isFinite(lookaheadDays) && lookaheadDays >= 1 ? Math.floor(lookaheadDays) : 14;
+  const collected: SportApiEvent[] = [];
+  for (let dayOffset = 0; dayOffset <= safeLookaheadDays; dayOffset += 1) {
+    const endpoint = sportApiScheduledEventsPath(dateToken(dayOffset));
+    const response = await sportApiFetch(endpoint, {
+      requestType: "snapshot",
+      revalidateSeconds: 60
+    });
+    if (!response.ok) {
+      continue;
+    }
+
+    const payload = await readSportApiJson(response);
+    const events = extractEvents(payload)
+      .filter((event) => Boolean(event.id))
+      .filter(isFootballEvent)
+      .filter(statusPredicate)
+      .filter((event) => eventMatchesDiscoverCompetitionFilter(event, competitionFilter))
+      .filter((event) => !event.homeTeam?.national && !event.awayTeam?.national);
+
+    collected.push(...events);
+  }
+
+  return selectDiscoveredEventsByCompetition(collected);
+}
+
+async function discoverUpcomingTargetEvents(): Promise<SportApiEvent[]> {
+  return discoverTargetEvents(isUpcomingEvent, "domestic_top5_only");
+}
+
+/** Menu kiosk/API tactical: top 5 domestic + Champions League + Europa League. */
+async function discoverUpcomingKioskMenuEvents(): Promise<SportApiEvent[]> {
+  return discoverTargetEvents(isUpcomingEvent, "kiosk_top5_and_uefa_cups");
+}
+
+/**
+ * Calendario Coppa del Mondo FIFA maschile (senior): squadre nazionali (`national`), nessuna auto-discovery nel menu club.
+ */
+async function discoverInternationalTournamentScheduledEvents(): Promise<SportApiEvent[]> {
+  const byWorldCupCalendar = await discoverInternationalTournamentEventsViaWorldCupCalendar();
+
+  if (detectSportApiProvider() === "footapi") {
+    const byAnchors = await discoverInternationalTournamentEventsViaNationalTeamAnchors();
+    if (byWorldCupCalendar.length > 0) {
+      /** FootApi: calendario torneo (16/58210) è completo — evita 60+ chiamate/day vuote. */
+      return selectDiscoveredEventsByCompetition(
+        mergeInternationalDiscoverySlices(byWorldCupCalendar, byAnchors)
+      );
+    }
+    const byDay = await discoverInternationalTournamentScheduledEventsByDay();
+    return selectDiscoveredEventsByCompetition(
+      mergeInternationalDiscoverySlices(byDay, byWorldCupCalendar, byAnchors)
+    );
+  }
+
+  const byDay = await discoverInternationalTournamentScheduledEventsByDay();
+  if (byWorldCupCalendar.length > 0) {
+    return selectDiscoveredEventsByCompetition(
+      mergeInternationalDiscoverySlices(byDay, byWorldCupCalendar)
+    );
+  }
+  return byDay;
 }
 
 function mapPositionToRole(position?: string): SportPerformanceInput["role"] {
@@ -2113,15 +2649,15 @@ function extractShotsOnTargetByTeam(stats: SportApiEventStatisticsResponse): {
 
 async function fetchPlayersByFixtureId(fixtureId: string): Promise<SportPerformanceInput[]> {
   const [eventResponse, lineupsResponse, statsResponse] = await Promise.all([
-    sportApiFetch(`/api/v1/event/${fixtureId}`, {
+    sportApiFetch(sportApiEventPath(fixtureId), {
       requestType: "snapshot",
       revalidateSeconds: 20
     }),
-    sportApiFetch(`/api/v1/event/${fixtureId}/lineups`, {
+    sportApiFetch(sportApiEventLineupsPath(fixtureId), {
       requestType: "snapshot",
       revalidateSeconds: 20
     }),
-    sportApiFetch(`/api/v1/event/${fixtureId}/statistics`, {
+    sportApiFetch(sportApiEventStatisticsPath(fixtureId), {
       requestType: "snapshot",
       revalidateSeconds: 60
     })
@@ -2189,7 +2725,7 @@ async function fetchFallbackPlayersForTeam(params: {
   teamName: string;
   clubColor: string;
 }): Promise<SportPerformanceInput[]> {
-  const response = await sportApiFetch(`/api/v1/team/${params.teamId}/players`, {
+  const response = await sportApiFetch(sportApiTeamPlayersPath(params.teamId), {
     requestType: "snapshot",
     teamId: params.teamId,
     revalidateSeconds: 300
@@ -2249,7 +2785,7 @@ async function fetchRecentPlayersForTeam(params: {
   teamName: string;
   clubColor: string;
 }): Promise<SportPerformanceInput[]> {
-  const teamEventsResponse = await sportApiFetch(`/api/v1/team/${params.teamId}/events/last/0`, {
+  const teamEventsResponse = await sportApiFetch(sportApiTeamEventsLastPath(params.teamId, 0), {
     requestType: "snapshot",
     teamId: params.teamId,
     revalidateSeconds: 300
@@ -2286,6 +2822,49 @@ async function fetchRecentPlayersForTeam(params: {
   return fetchFallbackPlayersForTeam(params);
 }
 
+function mapLineupsToNationalTeams(params: {
+  lineups: SportApiLineupsResponse | null;
+  eventHomeTeamId: number;
+  eventAwayTeamId: number;
+  menuHomeTeamId: number;
+  menuAwayTeamId: number;
+}): Map<number, SportApiLineupPlayer[]> {
+  const map = new Map<number, SportApiLineupPlayer[]>();
+  if (!params.lineups) return map;
+
+  const homeSide = params.lineups.home?.players ?? [];
+  const awaySide = params.lineups.away?.players ?? [];
+  const sideByEventTeamId = new Map<number, SportApiLineupPlayer[]>();
+  if (homeSide.length) sideByEventTeamId.set(params.eventHomeTeamId, homeSide);
+  if (awaySide.length) sideByEventTeamId.set(params.eventAwayTeamId, awaySide);
+
+  for (const menuTeamId of [params.menuHomeTeamId, params.menuAwayTeamId]) {
+    const players = sideByEventTeamId.get(menuTeamId);
+    if (players?.length) map.set(menuTeamId, players);
+  }
+
+  if (!map.has(params.menuHomeTeamId)) {
+    const swapped =
+      params.menuHomeTeamId === params.eventAwayTeamId
+        ? awaySide
+        : params.menuHomeTeamId === params.eventHomeTeamId
+          ? homeSide
+          : [];
+    if (swapped.length) map.set(params.menuHomeTeamId, swapped);
+  }
+  if (!map.has(params.menuAwayTeamId)) {
+    const swapped =
+      params.menuAwayTeamId === params.eventHomeTeamId
+        ? homeSide
+        : params.menuAwayTeamId === params.eventAwayTeamId
+          ? awaySide
+          : [];
+    if (swapped.length) map.set(params.menuAwayTeamId, swapped);
+  }
+
+  return map;
+}
+
 export async function fetchSportPerformanceForTeams(params: {
   homeTeamId: number;
   homeTeamName: string;
@@ -2302,6 +2881,7 @@ export async function fetchSportPerformanceForTeams(params: {
   const normalizedCompetition = normalizeCompetitionSlug(params.competitionSlug);
   const maxSeasonMatches = parsePositiveInt(process.env.TACTICAL_PLAYER_AVG_MATCHES, 60);
   const maxEventPages = parsePositiveInt(process.env.TACTICAL_PLAYER_SEASON_PAGES, 10);
+  const intlStarterEventCap = parsePositiveInt(process.env.TACTICAL_INTL_STARTER_EVENT_CAP, 4);
   const starterLastTwoMatches = parsePositiveInt(process.env.TACTICAL_PLAYER_LAST_TWO_MATCHES, 2);
   const starterLastFiveMatches = parsePositiveInt(process.env.TACTICAL_PLAYER_LAST_FIVE_MATCHES, 5);
   const maxPlayersPerTeam = parsePositiveInt(process.env.TACTICAL_PLAYER_ROSTER_LIMIT, 40);
@@ -2329,31 +2909,89 @@ export async function fetchSportPerformanceForTeams(params: {
     }
   }
 
-  const selectedEventLineups =
+  const selectedEventBundle =
     params.eventId && params.eventId > 0
-      ? await sportApiFetch(`/api/v1/event/${params.eventId}/lineups`, {
-          requestType: "snapshot",
-          revalidateSeconds: 120,
-          bypassCache: params.bypassCache
-        })
-          .then(async (response) =>
-            response.ok ? ((await response.json()) as SportApiLineupsResponse) : null
-          )
-          .catch(() => null)
+      ? await Promise.all([
+          sportApiFetch(sportApiEventLineupsPath(params.eventId), {
+            requestType: "snapshot",
+            revalidateSeconds: 120,
+            bypassCache: params.bypassCache
+          })
+            .then(async (response) =>
+              response.ok ? ((await response.json()) as SportApiLineupsResponse) : null
+            )
+            .catch(() => null),
+          sportApiFetch(sportApiEventPath(params.eventId), {
+            requestType: "snapshot",
+            revalidateSeconds: 120,
+            bypassCache: params.bypassCache
+          })
+            .then(async (response) =>
+              response.ok ? ((await response.json()) as SportApiEventDetailsResponse) : null
+            )
+            .catch(() => null)
+        ])
       : null;
 
-  const lineupsByTeam = new Map<number, SportApiLineupPlayer[]>();
-  if (selectedEventLineups?.home?.players?.length) {
-    const teamId = selectedEventLineups.home.players[0]?.teamId;
-    if (teamId) {
-      lineupsByTeam.set(teamId, selectedEventLineups.home.players);
-    }
+  const selectedEventLineups = selectedEventBundle?.[0] ?? null;
+  const selectedEventDetails = selectedEventBundle?.[1] ?? null;
+  const eventHomeTeamId =
+    coerceFiniteNumber(selectedEventDetails?.event?.homeTeam?.id) ?? params.homeTeamId;
+  const eventAwayTeamId =
+    coerceFiniteNumber(selectedEventDetails?.event?.awayTeam?.id) ?? params.awayTeamId;
+
+  const lineupsByTeam = mapLineupsToNationalTeams({
+    lineups: selectedEventLineups,
+    eventHomeTeamId,
+    eventAwayTeamId,
+    menuHomeTeamId: params.homeTeamId,
+    menuAwayTeamId: params.awayTeamId
+  });
+
+  function buildLineupBaselineRows(
+    teamId: number,
+    teamName: string,
+    clubColor: string
+  ): SportPerformanceInput[] {
+    const starters = (lineupsByTeam.get(teamId) ?? [])
+      .filter((player) => player.substitute !== true)
+      .filter((player) => Boolean(player.player?.id))
+      .slice(0, 11);
+    if (!starters.length) return [];
+    const leagueBaseline = leagueShotsOnTargetBaseline(normalizedCompetition);
+    return starters.map((player) =>
+      mapLineupPlayerToPerformance({
+        player,
+        teamName,
+        teamId,
+        clubColor,
+        opponentShotsOnTarget: 0,
+        leagueShotsOnTargetAvg: leagueBaseline
+      })
+    );
   }
-    if (selectedEventLineups?.away?.players?.length) {
-    const teamId = selectedEventLineups.away.players[0]?.teamId;
-    if (teamId) {
-      lineupsByTeam.set(teamId, selectedEventLineups.away.players);
-    }
+
+  function performancePlayerKey(row: SportPerformanceInput): string {
+    const id = row.athleteId ?? 0;
+    if (id > 0) return `id:${id}`;
+    return `name:${normalizePlayerNameKey(row.athleteName)}`;
+  }
+
+  function mergeEnrichedWithBaseline(
+    enriched: SportPerformanceInput[],
+    baseline: SportPerformanceInput[],
+    teamId: number
+  ): SportPerformanceInput[] {
+    const teamRows = enriched.filter((row) => row.teamId === teamId);
+    if (!baseline.length) return teamRows;
+    const byKey = new Map<string, SportPerformanceInput>();
+    for (const row of baseline) byKey.set(performancePlayerKey(row), row);
+    for (const row of teamRows) byKey.set(performancePlayerKey(row), row);
+    return Array.from(byKey.values());
+  }
+
+  async function sleepBetweenTeams(ms: number): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   if (
@@ -2374,44 +3012,43 @@ export async function fetchSportPerformanceForTeams(params: {
     tournamentId: number;
     seasonId: number;
     competitionSlugNorm: string;
+    seasonFallback: TeamSeasonFallbackResolution;
+    /** Stagione corrente del torneo analizzato (prima del fallback). */
+    currentTournamentId: number;
+    currentSeasonId: number;
   }> {
-    if (isInternationalTournamentSlug(normalizedCompetition)) {
-      /** Per le nazionali ai Mondiali, usiamo il torneo più recente con partite finite
-       *  (qualificazioni, Nations League, o partite WC già giocate).
-       *  Questo alimenta heatmap e statistiche con dati del giocatore in nazionale. */
-      const recentNational = await getNationalTeamRecentTournamentContext(teamId, params.bypassCache);
-      if (recentNational && recentNational.tournamentId > 0 && recentNational.seasonId > 0) {
-        return {
-          tournamentId: recentNational.tournamentId,
-          seasonId: recentNational.seasonId,
-          competitionSlugNorm: normalizeCompetitionSlug(recentNational.slug)
-        };
+    let baseTournamentId = cupTournamentId;
+    let baseSeasonId = cupSeasonId;
+    let competitionSlugNorm = normalizedCompetition;
+
+    if (isMonitoredInternationalCompetitionSlug(normalizedCompetition)) {
+      /** Statistiche falli/heatmap nel torneo analizzato (es. Mondiali), non in qualificazioni/NL più recenti. */
+    } else if (isUefaClubCompetitionSlug(normalizedCompetition)) {
+      const domestic = await getTeamDomesticLeagueContext(teamId, params.bypassCache);
+      if (domestic && domestic.tournamentId > 0 && domestic.seasonId > 0) {
+        baseTournamentId = domestic.tournamentId;
+        baseSeasonId = domestic.seasonId;
+        competitionSlugNorm = normalizeCompetitionSlug(domestic.slug);
       }
-      return {
-        tournamentId: cupTournamentId,
-        seasonId: cupSeasonId,
-        competitionSlugNorm: normalizedCompetition
-      };
     }
-    if (!isUefaClubCompetitionSlug(normalizedCompetition)) {
-      return {
-        tournamentId: cupTournamentId,
-        seasonId: cupSeasonId,
-        competitionSlugNorm: normalizedCompetition
-      };
-    }
-    const domestic = await getTeamDomesticLeagueContext(teamId, params.bypassCache);
-    if (domestic && domestic.tournamentId > 0 && domestic.seasonId > 0) {
-      return {
-        tournamentId: domestic.tournamentId,
-        seasonId: domestic.seasonId,
-        competitionSlugNorm: normalizeCompetitionSlug(domestic.slug)
-      };
-    }
+
+    const seasonFallback = await resolveTeamSeasonFallback({
+      teamId,
+      current: { tournamentId: baseTournamentId, seasonId: baseSeasonId },
+      bypassCache: params.bypassCache,
+      sportApiFetch: sportApiFetch as (
+        endpoint: string,
+        options?: Record<string, unknown>
+      ) => Promise<Response>
+    });
+
     return {
-      tournamentId: cupTournamentId,
-      seasonId: cupSeasonId,
-      competitionSlugNorm: normalizedCompetition
+      tournamentId: seasonFallback.playerPreferredContext.tournamentId,
+      seasonId: seasonFallback.playerPreferredContext.seasonId,
+      competitionSlugNorm,
+      seasonFallback,
+      currentTournamentId: baseTournamentId,
+      currentSeasonId: baseSeasonId
     };
   }
 
@@ -2440,7 +3077,7 @@ export async function fetchSportPerformanceForTeams(params: {
       if (params.eventId && eventId === params.eventId && selectedEventLineups) {
         lineups = selectedEventLineups;
       } else {
-        const lineupsResp = await sportApiFetch(`/api/v1/event/${eventId}/lineups`, {
+        const lineupsResp = await sportApiFetch(sportApiEventLineupsPath(eventId), {
           requestType: "snapshot",
           teamId: logTeamId,
           revalidateSeconds: 600,
@@ -2452,7 +3089,7 @@ export async function fetchSportPerformanceForTeams(params: {
         lineups = (await lineupsResp.json()) as SportApiLineupsResponse;
       }
 
-      const statsResp = await sportApiFetch(`/api/v1/event/${eventId}/statistics`, {
+      const statsResp = await sportApiFetch(sportApiEventStatisticsPath(eventId), {
         requestType: "snapshot",
         teamId: logTeamId,
         revalidateSeconds: 600,
@@ -2475,25 +3112,66 @@ export async function fetchSportPerformanceForTeams(params: {
       teamName: string;
       clubColor: string;
     },
-    binding: { tournamentId: number; seasonId: number; competitionSlugNorm: string }
+    binding: {
+      tournamentId: number;
+      seasonId: number;
+      competitionSlugNorm: string;
+      seasonFallback: TeamSeasonFallbackResolution;
+      currentTournamentId: number;
+      currentSeasonId: number;
+    }
   ): Promise<SportPerformanceInput[]> {
     const tournamentId = binding.tournamentId;
     const seasonId = binding.seasonId;
     const normalizedCompetition = binding.competitionSlugNorm;
+    const playerUseAnyCompetition = binding.seasonFallback.playerUseAnyCompetition;
+    const previousSeasonId = binding.seasonFallback.previousSeasonId;
 
     /**
      * Per le partite internazionali (Mondiali): lista di contesti nazionali ordinati per recenza
      * (Mondiale già giocato → qualificazioni → Nations League → amichevoli).
      * Usata come cascata in `fetchPlayerSeasonHeatmap` per trovare heatmap non vuote.
      */
-    const intlHeatmapContexts: TeamDomesticLeagueContext[] = isInternationalTournamentSlug(normalizedCompetition)
+    const intlHeatmapContexts: TeamDomesticLeagueContext[] = isMonitoredInternationalCompetitionSlug(normalizedCompetition)
       ? await getNationalTeamRecentTournamentContexts(team.teamId, 5, params.bypassCache)
       : [];
 
-    async function fetchPlayerSeasonOverall(playerId: number): Promise<Record<string, number> | null> {
-      if (!tournamentId || !seasonId) return null;
+    function eventBelongsToTournamentContext(
+      event: SportApiEvent,
+      ctxTournamentId: number,
+      ctxSeasonId: number
+    ): boolean {
+      const evUt = event.tournament?.uniqueTournament?.id;
+      const evSid = event.season?.id;
+      if (!evUt || Number(evUt) !== Number(ctxTournamentId)) return false;
+      return Number(evSid) === Number(ctxSeasonId);
+    }
+
+    function eventEligibleForPlayerHistory(event: SportApiEvent): boolean {
+      if (playerUseAnyCompetition) {
+        return eventEligibleForPlayerSeasonFallback({
+          event,
+          currentTournamentId: binding.currentTournamentId,
+          currentSeasonId: binding.currentSeasonId,
+          previousSeasonId,
+          playerUseAnyCompetition: true
+        });
+      }
+      return eventBelongsToTournamentContext(event, tournamentId, seasonId);
+    }
+
+    async function sleepMs(ms: number): Promise<void> {
+      await new Promise((resolve) => setTimeout(resolve, ms));
+    }
+
+    async function fetchPlayerSeasonOverall(
+      playerId: number,
+      ctxTournamentId = tournamentId,
+      ctxSeasonId = seasonId
+    ): Promise<Record<string, number> | null> {
+      if (!ctxTournamentId || !ctxSeasonId) return null;
       const response = await sportApiFetch(
-        `/api/v1/player/${playerId}/unique-tournament/${tournamentId}/season/${seasonId}/statistics/overall`,
+        sportApiPlayerSeasonStatisticsPath(playerId, ctxTournamentId, ctxSeasonId),
         {
           requestType: "snapshot",
           revalidateSeconds: 600,
@@ -2510,15 +3188,17 @@ export async function fetchSportPerformanceForTeams(params: {
     }
 
     async function fetchPlayerSeasonHeatmap(
-      playerId: number
+      playerId: number,
+      ctxTournamentId = tournamentId,
+      ctxSeasonId = seasonId
     ): Promise<SportPerformanceInput["heatmapPoints"]> {
-      if (!fetchSeasonHeatmaps || !tournamentId || !seasonId) {
+      if (!fetchSeasonHeatmaps || !ctxTournamentId || !ctxSeasonId) {
         return [];
       }
 
       async function heatmapFromContext(tId: number, sId: number): Promise<SportPerformanceInput["heatmapPoints"]> {
         const resp = await sportApiFetch(
-          `/api/v1/player/${playerId}/unique-tournament/${tId}/season/${sId}/heatmap`,
+          sportApiPlayerSeasonHeatmapPath(playerId, tId, sId),
           { requestType: "snapshot", revalidateSeconds: heatmapRevalidateSeconds, bypassCache: params.bypassCache }
         );
         if (!resp.ok) return [];
@@ -2526,36 +3206,177 @@ export async function fetchSportPerformanceForTeams(params: {
         catch { return []; }
       }
 
-      /** 1. Prova il contesto del binding (può essere il più recente torneo nazionale). */
-      const primary = await heatmapFromContext(tournamentId, seasonId);
-      if (primary.length > 0) return primary;
+      return heatmapFromContext(ctxTournamentId, ctxSeasonId);
+    }
 
-      /** 2. Per le nazionali: scorre i contesti alternativi (qualificazioni, NL, ecc.)
-       *     finché non trova dati — garantisce heatmap non vuote anche prima del WC. */
+    async function resolvePlayerSeasonHeatmapOnly(
+      playerId: number
+    ): Promise<SportPerformanceInput["heatmapPoints"]> {
+      const primary = await fetchPlayerSeasonHeatmap(playerId, tournamentId, seasonId);
+      if (primary.length >= 3) return primary;
+
       for (const ctx of intlHeatmapContexts) {
         if (ctx.tournamentId === tournamentId && ctx.seasonId === seasonId) continue;
-        const pts = await heatmapFromContext(ctx.tournamentId, ctx.seasonId);
-        if (pts.length > 0) return pts;
+        const points = await fetchPlayerSeasonHeatmap(playerId, ctx.tournamentId, ctx.seasonId);
+        if (points.length >= 3) return points;
       }
 
-      return [];
+      const domesticClub = await getTeamDomesticLeagueContext(team.teamId, params.bypassCache);
+      if (domesticClub && domesticClub.tournamentId > 0 && domesticClub.seasonId > 0) {
+        const clubHeatmap = await fetchPlayerSeasonHeatmap(
+          playerId,
+          domesticClub.tournamentId,
+          domesticClub.seasonId
+        );
+        if (clubHeatmap.length >= 3) return clubHeatmap;
+      }
+
+      return primary;
+    }
+
+  async function resolvePlayerSeasonBundle(playerId: number): Promise<{
+    overall: Record<string, number> | null;
+    heatmapPoints: SportPerformanceInput["heatmapPoints"];
+    tournamentId: number;
+    seasonId: number;
+  }> {
+    const [overall, heatmapPoints] = await Promise.all([
+      fetchPlayerSeasonOverall(playerId, tournamentId, seasonId),
+      resolvePlayerSeasonHeatmapOnly(playerId)
+    ]);
+
+    return {
+      overall,
+      heatmapPoints,
+      tournamentId,
+      seasonId
+    };
+  }
+
+    async function finalizeTeamRows(rows: SportPerformanceInput[]): Promise<SportPerformanceInput[]> {
+      if (rows.length > 0) return rows;
+
+      const lineupStarters = (lineupsByTeam.get(team.teamId) ?? [])
+        .filter((player) => player.substitute !== true)
+        .filter((player) => Boolean(player.player?.id))
+        .slice(0, 11);
+      if (!lineupStarters.length) {
+        return fetchFallbackPlayersForTeam(team);
+      }
+
+      const leagueBaseline = leagueShotsOnTargetBaseline(normalizedCompetition);
+      const quickRows: SportPerformanceInput[] = [];
+      for (const starter of lineupStarters) {
+        const playerId = starter.player?.id as number;
+        const [overall, heatmapPoints] = await Promise.all([
+          fetchPlayerSeasonOverall(playerId, tournamentId, seasonId),
+          resolvePlayerSeasonHeatmapOnly(playerId)
+        ]);
+        const foulsCommittedSeasonAvg = seasonFoulPerMatchFromSources(
+          [foulsCommittedFromLineupStats(starter.statistics)],
+          overall,
+          "committed"
+        );
+        const foulsSufferedSeasonAvg = seasonFoulPerMatchFromSources(
+          [foulsSufferedFromLineupStats(starter.statistics)],
+          overall,
+          "suffered"
+        );
+
+        quickRows.push({
+          athleteId: playerId,
+          athleteName:
+            starter.player?.name ?? starter.player?.shortName ?? `PLAYER_${playerId ?? "UNK"}`,
+          team: team.teamName,
+          teamId: team.teamId,
+          jerseyNumber: starter.jerseyNumber ?? starter.shirtNumber ?? 0,
+          role: mapPositionToRole(starter.position),
+          positionCode: starter.position?.trim() || undefined,
+          clubColor: team.clubColor,
+          shotsTotal: starter.statistics?.totalShots ?? 0,
+          shotsLastTwoAvg: starter.statistics?.totalShots ?? 0,
+          shotsLastFiveAvg: starter.statistics?.totalShots ?? 0,
+          shotsSeasonAvg: Math.max(starter.statistics?.totalShots ?? 0, 0.1),
+          opponentShotsConcededTotal: 0,
+          leagueAvgShotsConceded: Math.max(leagueBaseline, 0.1),
+          foulsCommitted: foulsCommittedSeasonAvg,
+          foulsSuffered: foulsSufferedSeasonAvg,
+          foulsCommittedSeasonAvg,
+          foulsCommittedLastTwoAvg: foulsCommittedSeasonAvg,
+          foulsCommittedLastFiveAvg: foulsCommittedSeasonAvg,
+          foulsSufferedSeasonAvg,
+          foulsSufferedLastTwoAvg: foulsSufferedSeasonAvg,
+          foulsSufferedLastFiveAvg: foulsSufferedSeasonAvg,
+          dribblesSeasonAvg: dribblesFromLineupStats(starter.statistics),
+          opponentExpectedGoalsCreated: 0,
+          savePercentage: 65,
+          savesSeasonAvg: savesFromLineupStats(starter.statistics),
+          savesLastTwoAvg: savesFromLineupStats(starter.statistics),
+          savesLastFiveAvg: savesFromLineupStats(starter.statistics),
+          opponentShotsOnTargetSeasonAvg: 0,
+          opponentShotsOnTargetLeagueAvg: Math.max(leagueBaseline, 0.1),
+          opponentShotsOnTargetLastTwoAvg: 0,
+          opponentShotsOnTargetLastTwoLeagueAvg: Math.max(leagueBaseline, 0.1),
+          heatmapPoints,
+          shotsLastTwoSampleCount: 1,
+          savesLastTwoSampleCount: 1,
+          foulsCommittedLastTwoSampleCount: 1,
+          foulsSufferedLastTwoSampleCount: 1,
+          shotsLastFiveSampleCount: 1,
+          savesLastFiveSampleCount: 1,
+          foulsCommittedLastFiveSampleCount: 1,
+          foulsSufferedLastFiveSampleCount: 1
+        });
+      }
+      return quickRows.length ? quickRows : fetchFallbackPlayersForTeam(team);
+    }
+
+    async function fetchHeatmapsBatched(
+      names: string[],
+      resolvePlayerId: (name: string) => number | undefined
+    ): Promise<Map<string, SportPerformanceInput["heatmapPoints"]>> {
+      const heatmapByName = new Map<string, SportPerformanceInput["heatmapPoints"]>();
+      if (!fetchSeasonHeatmaps) return heatmapByName;
+      const concurrency = 2;
+      for (let i = 0; i < names.length; i += concurrency) {
+        const batch = names.slice(i, i + concurrency);
+        const results = await Promise.all(
+          batch.map(async (name) => {
+            const pid = resolvePlayerId(name);
+            if (!pid || pid <= 0) return null;
+            const points = await resolvePlayerSeasonHeatmapOnly(pid);
+            return { name, points };
+          })
+        );
+        for (const result of results) {
+          if (result) heatmapByName.set(result.name, result.points);
+        }
+        if (i + concurrency < names.length) {
+          await sleepMs(150);
+        }
+      }
+      return heatmapByName;
     }
 
     const startersFromSelectedMatch = (lineupsByTeam.get(team.teamId) ?? [])
-      .filter((player) => player.substitute === false)
+      .filter((player) => player.substitute !== true)
       .filter((player) => Boolean(player.player?.id))
       .slice(0, 11);
     const useStarterMode = Boolean(startersFromSelectedMatch.length > 0 && tournamentId && seasonId);
     const currentRosterNameSet = new Set<string>();
     for (const starter of startersFromSelectedMatch) {
-      const n = (starter.player?.name ?? starter.player?.shortName ?? "").toUpperCase().trim();
+      const n = normalizePlayerNameKey(starter.player?.name ?? starter.player?.shortName ?? "");
       if (n) currentRosterNameSet.add(n);
     }
     const fallbackCurrentRoster = await fetchFallbackPlayersForTeam(team);
     for (const row of fallbackCurrentRoster) {
-      const n = row.athleteName.toUpperCase().trim();
+      const n = normalizePlayerNameKey(row.athleteName);
       if (n) currentRosterNameSet.add(n);
     }
+
+    const seasonEventCap = isMonitoredInternationalCompetitionSlug(normalizedCompetition)
+      ? Math.min(maxSeasonMatches, intlStarterEventCap)
+      : maxSeasonMatches;
 
     /** Aggregazione da partite giocate (max 18 nomi). Usata da sola senza formazione oppure come supplemento titolari. */
     async function rowsFromTeamMatchAggregates(
@@ -2563,7 +3384,7 @@ export async function fetchSportPerformanceForTeams(params: {
     ): Promise<SportPerformanceInput[]> {
       const collectedEvents: SportApiEvent[] = [];
       for (let page = 0; page < maxEventPages; page += 1) {
-        const eventsResponse = await sportApiFetch(`/api/v1/team/${team.teamId}/events/last/${page}`, {
+        const eventsResponse = await sportApiFetch(sportApiTeamEventsLastPath(team.teamId, page), {
           requestType: "snapshot",
           teamId: team.teamId,
           revalidateSeconds: 300,
@@ -2577,14 +3398,7 @@ export async function fetchSportPerformanceForTeams(params: {
         const pageEvents = (eventsPayload.events ?? [])
           .filter((event) => Boolean(event.id))
           .filter((event) => eventStatusType(event) === "finished")
-          .filter((event) => {
-            if (!normalizedCompetition) return true;
-            return normalizeCompetitionSlug(competitionSlug(event)) === normalizedCompetition;
-          })
-          .filter((event) => {
-            if (seasonId == null) return true;
-            return Number(event.season?.id) === Number(seasonId);
-          });
+          .filter((event) => eventEligibleForPlayerHistory(event));
 
         if (!pageEvents.length) {
           if (page > 0) {
@@ -2601,7 +3415,7 @@ export async function fetchSportPerformanceForTeams(params: {
 
       const teamEvents = collectedEvents
         .sort((a, b) => (b.startTimestamp ?? 0) - (a.startTimestamp ?? 0))
-        .slice(0, maxSeasonMatches);
+        .slice(0, seasonEventCap);
 
       if (!teamEvents.length) {
         return allowFallback ? fetchFallbackPlayersForTeam(team) : [];
@@ -2641,7 +3455,9 @@ export async function fetchSportPerformanceForTeams(params: {
         const players = isHome ? lineups.home?.players ?? [] : lineups.away?.players ?? [];
         for (const player of players) {
           if (!lineupPlayerHasPlayed(player)) continue;
-          const name = (player.player?.name ?? player.player?.shortName ?? "").toUpperCase().trim();
+          const name = normalizePlayerNameKey(
+            player.player?.name ?? player.player?.shortName ?? ""
+          );
           if (!name) continue;
 
           if (player.substitute === false) {
@@ -2700,7 +3516,7 @@ export async function fetchSportPerformanceForTeams(params: {
 
       /** Per le nazionali (Mondiali/contesto internazionale): limita ai soli titolari abituali (11 per squadra).
        *  I giocatori sono ordinati per numero di presenze da titolare, poi per l'ultimo timestamp di partita. */
-      const isIntlContext = isInternationalTournamentSlug(normalizedCompetition);
+      const isIntlContext = isMonitoredInternationalCompetitionSlug(normalizedCompetition);
       const startersPool = isIntlContext
         ? Array.from(playerStartCount.keys())
             .filter((name) => (playerStartCount.get(name) ?? 0) > 0)
@@ -2720,18 +3536,9 @@ export async function fetchSportPerformanceForTeams(params: {
       const sizeLimit = isIntlContext ? 11 : maxPlayersPerTeam;
       const rosterForOutput = effectivePool.slice(0, sizeLimit);
 
-      /** Recupera heatmap in parallelo per tutti i giocatori del roster (erano sempre [] nel fallback). */
-      const heatmapByName = new Map<string, SportPerformanceInput["heatmapPoints"]>();
-      if (fetchSeasonHeatmaps) {
-        await Promise.all(
-          rosterForOutput.map(async (name) => {
-            const pid = playerIdByName.get(name);
-            if (pid && pid > 0) {
-              heatmapByName.set(name, await fetchPlayerSeasonHeatmap(pid));
-            }
-          })
-        );
-      }
+      const heatmapByName = await fetchHeatmapsBatched(rosterForOutput, (name) =>
+        playerIdByName.get(name)
+      );
 
       return rosterForOutput.map((name) => {
         const shotsSeries = playerShots.get(name) ?? [0];
@@ -2753,16 +3560,22 @@ export async function fetchSportPerformanceForTeams(params: {
         const savesLastFiveAvg =
           savesSeries.slice(0, starterLastFiveMatches).reduce((a, b) => a + b, 0) /
           Math.max(1, Math.min(starterLastFiveMatches, savesSeries.length));
-        const foulsCommittedSeasonAvg =
-          foulsCommittedSeries.reduce((a, b) => a + b, 0) / Math.max(1, foulsCommittedSeries.length);
+        const foulsCommittedSeasonAvg = seasonFoulPerMatchFromSources(
+          foulsCommittedSeries,
+          null,
+          "committed"
+        );
         const foulsCommittedLastTwoAvg =
           foulsCommittedSeries.slice(0, 2).reduce((a, b) => a + b, 0) /
           Math.max(1, Math.min(2, foulsCommittedSeries.length));
         const foulsCommittedLastFiveAvg =
           foulsCommittedSeries.slice(0, starterLastFiveMatches).reduce((a, b) => a + b, 0) /
           Math.max(1, Math.min(starterLastFiveMatches, foulsCommittedSeries.length));
-        const foulsSufferedSeasonAvg =
-          foulsSufferedSeries.reduce((a, b) => a + b, 0) / Math.max(1, foulsSufferedSeries.length);
+        const foulsSufferedSeasonAvg = seasonFoulPerMatchFromSources(
+          foulsSufferedSeries,
+          null,
+          "suffered"
+        );
         const foulsSufferedLastTwoAvg =
           foulsSufferedSeries.slice(0, 2).reduce((a, b) => a + b, 0) /
           Math.max(1, Math.min(2, foulsSufferedSeries.length));
@@ -2773,7 +3586,7 @@ export async function fetchSportPerformanceForTeams(params: {
           dribblesSeries.reduce((a, b) => a + b, 0) / Math.max(1, dribblesSeries.length);
 
         const row = {
-          athleteId: undefined,
+          athleteId: playerIdByName.get(name),
           athleteName: name,
           team: team.teamName,
           teamId: team.teamId,
@@ -2784,7 +3597,7 @@ export async function fetchSportPerformanceForTeams(params: {
           shotsTotal: shotsSeries[0] ?? 0,
           shotsLastTwoAvg,
           shotsLastFiveAvg,
-          shotsSeasonAvg: Math.max(shotsSeasonAvg, 0.1),
+          shotsSeasonAvg,
           opponentShotsConcededTotal: concededSeasonAvg,
           leagueAvgShotsConceded: Math.max(leagueBaseline, 0.1),
           foulsCommitted: foulsCommittedSeasonAvg,
@@ -2832,10 +3645,18 @@ export async function fetchSportPerformanceForTeams(params: {
       });
     }
 
+    if (useStarterMode && isMonitoredInternationalCompetitionSlug(normalizedCompetition)) {
+      const aggregateRows = await rowsFromTeamMatchAggregates(false);
+      if (aggregateRows.length) {
+        return finalizeTeamRows(aggregateRows);
+      }
+      return finalizeTeamRows(await rowsFromTeamMatchAggregates(true));
+    }
+
     if (useStarterMode) {
       const recentEvents: SportApiEvent[] = [];
       for (let page = 0; page < maxEventPages; page += 1) {
-        const eventsResponse = await sportApiFetch(`/api/v1/team/${team.teamId}/events/last/${page}`, {
+        const eventsResponse = await sportApiFetch(sportApiTeamEventsLastPath(team.teamId, page), {
           requestType: "snapshot",
           teamId: team.teamId,
           revalidateSeconds: 300,
@@ -2846,14 +3667,7 @@ export async function fetchSportPerformanceForTeams(params: {
         const pageEvents = (eventsPayload.events ?? [])
           .filter((event) => Boolean(event.id))
           .filter((event) => eventStatusType(event) === "finished")
-          .filter((event) => {
-            if (!normalizedCompetition) return true;
-            return normalizeCompetitionSlug(competitionSlug(event)) === normalizedCompetition;
-          })
-          .filter(
-            (event) =>
-              seasonId == null || Number(event.season?.id) === Number(seasonId)
-          );
+          .filter((event) => eventEligibleForPlayerHistory(event));
         recentEvents.push(...pageEvents);
         if (recentEvents.length >= maxSeasonMatches) {
           break;
@@ -2861,7 +3675,7 @@ export async function fetchSportPerformanceForTeams(params: {
       }
 
       recentEvents.sort((a, b) => (b.startTimestamp ?? 0) - (a.startTimestamp ?? 0));
-      const eventsForSeason = recentEvents.slice(0, maxSeasonMatches);
+      const eventsForSeason = recentEvents.slice(0, seasonEventCap);
 
       const shotsLastTwoByPlayer = new Map<number, number[]>();
       const shotsLastFiveByPlayer = new Map<number, number[]>();
@@ -2886,9 +3700,7 @@ export async function fetchSportPerformanceForTeams(params: {
         const { lineups, stats } = bundle;
         const shotsOnTarget = extractShotsOnTargetByTeam(stats);
         const isHome = event.homeTeam?.id === team.teamId;
-        if (teamConcededShotsOnTarget.length < starterLastTwoMatches) {
-          teamConcededShotsOnTarget.push(isHome ? shotsOnTarget.away : shotsOnTarget.home);
-        }
+        teamConcededShotsOnTarget.push(isHome ? shotsOnTarget.away : shotsOnTarget.home);
 
         const matchPlayers = isHome ? lineups.home?.players ?? [] : lineups.away?.players ?? [];
         for (const matchPlayer of matchPlayers) {
@@ -2940,16 +3752,29 @@ export async function fetchSportPerformanceForTeams(params: {
         }
       }
 
-      const seasonOverallRows = await Promise.all(
-        startersFromSelectedMatch.map(async (starter) => {
-          const playerId = starter.player?.id as number;
-          const [overall, heatmapPoints] = await Promise.all([
-            fetchPlayerSeasonOverall(playerId),
-            fetchPlayerSeasonHeatmap(playerId)
-          ]);
-          return { starter, overall, heatmapPoints };
-        })
-      );
+      const seasonOverallRows: Array<{
+        starter: SportApiLineupPlayer;
+        overall: Record<string, number> | null;
+        heatmapPoints: SportPerformanceInput["heatmapPoints"];
+      }> = [];
+      const starterConcurrency = 2;
+      for (let i = 0; i < startersFromSelectedMatch.length; i += starterConcurrency) {
+        const batch = startersFromSelectedMatch.slice(i, i + starterConcurrency);
+        const batchRows = await Promise.all(
+          batch.map(async (starter) => {
+            const playerId = starter.player?.id as number;
+            const [overall, heatmapPoints] = await Promise.all([
+              fetchPlayerSeasonOverall(playerId, tournamentId, seasonId),
+              resolvePlayerSeasonHeatmapOnly(playerId)
+            ]);
+            return { starter, overall, heatmapPoints };
+          })
+        );
+        seasonOverallRows.push(...batchRows);
+        if (i + starterConcurrency < startersFromSelectedMatch.length) {
+          await sleepMs(150);
+        }
+      }
       const leagueBaseline = leagueShotsOnTargetBaseline(normalizedCompetition);
       const concededSeasonAvg =
         teamConcededShotsOnTarget.length > 0
@@ -2978,16 +3803,8 @@ export async function fetchSportPerformanceForTeams(params: {
         let savesSeasonAvg = overall
           ? overallNumericMaxAcrossKeys(overall, ["saves", "goalkeeperSaves"]) / appearancesRaw
           : 0;
-        const committedTotal = foulsCommittedSeasonTotalFromOverall(overall);
-        let foulsCommittedSeasonAvg =
-          overall && committedTotal !== undefined
-            ? committedTotal / appearancesRaw
-            : 0;
-        const sufferedTotal = foulsSufferedSeasonTotalFromOverall(overall);
-        let foulsSufferedSeasonAvg =
-          overall && sufferedTotal !== undefined
-            ? sufferedTotal / appearancesRaw
-            : 0;
+        let foulsCommittedSeasonAvg = 0;
+        let foulsSufferedSeasonAvg = 0;
         const dribblesTotal = dribblesSeasonTotalFromOverall(overall);
         let dribblesSeasonAvg =
           overall && dribblesTotal !== undefined
@@ -3064,33 +3881,21 @@ export async function fetchSportPerformanceForTeams(params: {
         if (savesSeasonN > 0) {
           savesSeasonAvg = savesSeasonSeries.reduce((a, b) => a + b, 0) / Math.max(1, savesSeasonN);
         }
-        if (foulsSeasonN > 0) {
-          foulsCommittedSeasonAvg =
-            foulsSeasonSeries.reduce((a, b) => a + b, 0) / Math.max(1, foulsSeasonN);
-        }
-        if (fouledSeasonN > 0) {
-          foulsSufferedSeasonAvg =
-            fouledSeasonSeries.reduce((a, b) => a + b, 0) / Math.max(1, fouledSeasonN);
-        }
+        foulsCommittedSeasonAvg = seasonFoulPerMatchFromSources(
+          foulsSeasonSeries,
+          overall,
+          "committed"
+        );
+
+        foulsSufferedSeasonAvg = seasonFoulPerMatchFromSources(
+          fouledSeasonSeries,
+          overall,
+          "suffered"
+        );
+
         if (dribblesSeasonN > 0) {
           dribblesSeasonAvg =
             dribblesSeasonSeries.reduce((a, b) => a + b, 0) / Math.max(1, dribblesSeasonN);
-        }
-
-        if (
-          foulsSufferedSeasonAvg <= 0 &&
-          fouledLastTwoN > 0 &&
-          foulsSufferedLastTwoAvg > 0
-        ) {
-          foulsSufferedSeasonAvg = foulsSufferedLastTwoAvg;
-        }
-
-        if (
-          foulsCommittedSeasonAvg <= 0 &&
-          foulsLastTwoN > 0 &&
-          foulsCommittedLastTwoAvg > 0
-        ) {
-          foulsCommittedSeasonAvg = foulsCommittedLastTwoAvg;
         }
 
         const row = {
@@ -3165,39 +3970,124 @@ export async function fetchSportPerformanceForTeams(params: {
       );
       const merged: SportPerformanceInput[] = [...starterRows];
       for (const row of supplementRows) {
-        const key = `${team.teamId}::${row.athleteId ?? 0}::${row.athleteName.toUpperCase().trim()}`;
+        const key = `${team.teamId}::${row.athleteId ?? 0}::${normalizePlayerNameKey(row.athleteName)}`;
         const isCurrentRoster =
-          currentRosterNameSet.size === 0 || currentRosterNameSet.has(row.athleteName.toUpperCase().trim());
+          currentRosterNameSet.size === 0 || currentRosterNameSet.has(normalizePlayerNameKey(row.athleteName));
         if (!starterKeys.has(key) && isCurrentRoster) {
           merged.push(row);
         }
       }
-      return merged;
+      return finalizeTeamRows(merged);
     }
 
-    return rowsFromTeamMatchAggregates(true);
+    return finalizeTeamRows(await rowsFromTeamMatchAggregates(true));
   }
 
-  const [homeRows, awayRows] = await Promise.all([
-    buildTeamRows(
+  let homeRows: SportPerformanceInput[] = [];
+  let awayRows: SportPerformanceInput[] = [];
+  try {
+    homeRows = await buildTeamRows(
       {
         teamId: params.homeTeamId,
         teamName: params.homeTeamName,
         clubColor: "#2D6CDF"
       },
       homeBinding
-    ),
-    buildTeamRows(
+    );
+  } catch (error) {
+    console.warn(
+      `[sportapi] home_team_rows_failed eventId=${params.eventId ?? "n/a"}:`,
+      error instanceof Error ? error.message : String(error)
+    );
+  }
+
+  await sleepBetweenTeams(350);
+
+  try {
+    awayRows = await buildTeamRows(
       {
         teamId: params.awayTeamId,
         teamName: params.awayTeamName,
         clubColor: "#E11D48"
       },
       awayBinding
-    )
-  ]);
+    );
+  } catch (error) {
+    console.warn(
+      `[sportapi] away_team_rows_failed eventId=${params.eventId ?? "n/a"}:`,
+      error instanceof Error ? error.message : String(error)
+    );
+  }
 
-  return [...homeRows, ...awayRows];
+  const homeBaseline = buildLineupBaselineRows(
+    params.homeTeamId,
+    params.homeTeamName,
+    "#2D6CDF"
+  );
+  const awayBaseline = buildLineupBaselineRows(
+    params.awayTeamId,
+    params.awayTeamName,
+    "#E11D48"
+  );
+
+  async function appendMissingTeamRows(
+    combined: SportPerformanceInput[],
+    teamId: number,
+    teamName: string,
+    clubColor: string
+  ): Promise<SportPerformanceInput[]> {
+    if (combined.some((row) => row.teamId === teamId)) return combined;
+
+    const lineupStarters = (lineupsByTeam.get(teamId) ?? [])
+      .filter((player) => player.substitute !== true)
+      .filter((player) => Boolean(player.player?.id))
+      .slice(0, 11);
+    if (lineupStarters.length) {
+      const leagueBaseline = leagueShotsOnTargetBaseline(normalizedCompetition);
+      return [
+        ...combined,
+        ...lineupStarters.map((player) =>
+          mapLineupPlayerToPerformance({
+            player,
+            teamName,
+            teamId,
+            clubColor,
+            opponentShotsOnTarget: 0,
+            leagueShotsOnTargetAvg: leagueBaseline
+          })
+        )
+      ];
+    }
+
+    const fallback = await fetchFallbackPlayersForTeam({ teamId, teamName, clubColor });
+    return fallback.length ? [...combined, ...fallback] : combined;
+  }
+
+  let combined = [
+    ...mergeEnrichedWithBaseline(homeRows, homeBaseline, params.homeTeamId),
+    ...mergeEnrichedWithBaseline(awayRows, awayBaseline, params.awayTeamId)
+  ];
+  combined = await appendMissingTeamRows(
+    combined,
+    params.homeTeamId,
+    params.homeTeamName,
+    "#2D6CDF"
+  );
+  combined = await appendMissingTeamRows(
+    combined,
+    params.awayTeamId,
+    params.awayTeamName,
+    "#E11D48"
+  );
+
+  const rosterTeamIds = new Set(combined.map((row) => row.teamId));
+  if (!rosterTeamIds.has(params.homeTeamId) || !rosterTeamIds.has(params.awayTeamId)) {
+    console.warn(
+      `[sportapi] incomplete_roster eventId=${params.eventId ?? "n/a"} found=${Array.from(rosterTeamIds).join(",")} expected=${params.homeTeamId},${params.awayTeamId}`
+    );
+  }
+
+  return combined;
 }
 
 async function fetchEventStatisticsByTeam(
@@ -3205,12 +4095,12 @@ async function fetchEventStatisticsByTeam(
   teamId: number
 ): Promise<Record<string, number>> {
   const [eventResponse, statsResponse] = await Promise.all([
-    sportApiFetch(`/api/v1/event/${eventId}`, {
+    sportApiFetch(sportApiEventPath(eventId), {
       requestType: "blueprint",
       teamId,
       revalidateSeconds: 600
     }),
-    sportApiFetch(`/api/v1/event/${eventId}/statistics`, {
+    sportApiFetch(sportApiEventStatisticsPath(eventId), {
       requestType: "blueprint",
       teamId,
       revalidateSeconds: 600
@@ -3269,7 +4159,7 @@ async function resolveSeasonContextFromEvent(event: SportApiEvent): Promise<Seas
     return { context: null, eventIdUsed: null };
   }
 
-  const eventResponse = await sportApiFetch(`/api/v1/event/${event.id}`, {
+  const eventResponse = await sportApiFetch(sportApiEventPath(event.id), {
     requestType: "blueprint",
     revalidateSeconds: 3600
   });
@@ -3295,7 +4185,7 @@ async function fetchTeamSeasonOverallStatistics(params: {
   seasonId: number;
 }): Promise<Record<string, number> | null> {
   const response = await sportApiFetch(
-    `/api/v1/team/${params.teamId}/unique-tournament/${params.tournamentId}/season/${params.seasonId}/statistics/overall`,
+    sportApiTeamSeasonStatisticsPath(params.teamId, params.tournamentId, params.seasonId),
     {
       requestType: "blueprint",
       teamId: params.teamId,
@@ -3304,18 +4194,79 @@ async function fetchTeamSeasonOverallStatistics(params: {
   );
 
   if (!response.ok) return null;
-  const payload = (await response.json()) as SportApiTeamSeasonOverallResponse;
-  if (!payload.statistics || typeof payload.statistics !== "object") {
-    return null;
-  }
+  const payload: unknown = await response.json();
+  const parsed = parsePlayerSeasonOverallPayload(payload);
+  if (parsed && Object.keys(parsed).length > 0) return parsed;
 
-  const normalized: Record<string, number> = {};
-  for (const [key, value] of Object.entries(payload.statistics)) {
-    if (typeof value === "number" && Number.isFinite(value)) {
-      normalized[key] = value;
+  if (payload && typeof payload === "object") {
+    const root = payload as Record<string, unknown>;
+    const flat = root.statistics;
+    if (flat && typeof flat === "object" && !Array.isArray(flat)) {
+      const normalized: Record<string, number> = {};
+      for (const [key, value] of Object.entries(flat as Record<string, unknown>)) {
+        const n = coerceFiniteNumber(value);
+        if (n !== undefined) normalized[key] = n;
+      }
+      if (Object.keys(normalized).length > 0) return normalized;
     }
   }
-  return Object.keys(normalized).length > 0 ? normalized : null;
+  return null;
+}
+
+function resolveShotsConcededPerMatch(
+  seasonOverallRow: Record<string, number>,
+  perMatch: (keys: string[]) => number
+): number {
+  const direct = perMatch([
+    "totalShotsConceded",
+    "shotsConceded",
+    "opponentTotalShots",
+    "opponentShots",
+    "shotsAgainst"
+  ]);
+  if (direct > 0) return direct;
+
+  const sotConceded = perMatch([
+    "shotsOnTargetConceded",
+    "opponentShotsOnTarget",
+    "onTargetScoringAttemptConceded"
+  ]);
+  if (sotConceded <= 0) return 0;
+
+  const ownShotsOn = perMatch(["shotsOnTarget", "shotsOnGoal", "onTargetScoringAttempt"]);
+  const ownTotal = perMatch(["totalShots", "shots", "attempts"]);
+  const accuracy = ownTotal > 0 && ownShotsOn > 0 ? ownShotsOn / ownTotal : 0.38;
+  return Math.round((sotConceded / Math.max(accuracy, 0.25)) * 100) / 100;
+}
+
+function pickSeasonOverallStatsRow(
+  statsRows: Array<Record<string, number>>
+): Record<string, number> | null {
+  if (!statsRows.length) return null;
+  let best: Record<string, number> | null = null;
+  let bestScore = -1;
+  for (const row of statsRows) {
+    const apps = appearanceCountFromOverall(row);
+    const volume = statValue(row, ["totalShots", "shots", "attempts"], 0);
+    const defensiveVolume = statValue(row, ["goalsConceded"], 0);
+    if (volume <= 0 && defensiveVolume <= 0) continue;
+    const score = apps * 10_000 + volume + defensiveVolume;
+    if (score > bestScore) {
+      bestScore = score;
+      best = row;
+    }
+  }
+  return best;
+}
+
+function resolveMatchesPlayedForStatsRow(row: Record<string, number>): number {
+  let apps = appearanceCountFromOverall(row);
+  const totalShots = statValue(row, ["totalShots", "shots", "attempts"], 0);
+  if (apps <= 1 && totalShots > 14) {
+    const inferred = Math.max(1, Math.round(totalShots / 13));
+    if (inferred > 1) apps = inferred;
+  }
+  return Math.max(1, apps);
 }
 
 function aggregateBlueprintFromStats(params: {
@@ -3326,22 +4277,26 @@ function aggregateBlueprintFromStats(params: {
   competitions: string[];
 }): TeamPerformanceBlueprint {
   const base = defaultBlueprint(params.teamId, params.teamName, params.scope);
-  const seasonOverallRow =
-    params.statsRows.find(
-      (row) => typeof row.matches === "number" && Number.isFinite(row.matches) && row.matches > 0
-    ) ?? null;
+  const seasonOverallRow = pickSeasonOverallStatsRow(params.statsRows);
+  const seasonApps = seasonOverallRow ? resolveMatchesPlayedForStatsRow(seasonOverallRow) : 1;
+  const useSeasonOverallBranch =
+    seasonOverallRow != null &&
+    (seasonApps >= 2 || params.statsRows.length === 1);
 
   const raw = (keys: string[]): number =>
     Math.round(statValue(seasonOverallRow ?? {}, keys, 0) * 100) / 100;
-  const matchesPlayed =
-    typeof seasonOverallRow?.matches === "number" &&
-    Number.isFinite(seasonOverallRow.matches) &&
-    seasonOverallRow.matches > 0
-      ? seasonOverallRow.matches
-      : 1;
+  const matchesPlayed = seasonApps;
   const perMatch = (keys: string[]): number => Math.round((raw(keys) / matchesPlayed) * 100) / 100;
 
-  if (seasonOverallRow) {
+  if (seasonOverallRow && useSeasonOverallBranch) {
+    const shotsOn = perMatch(["shotsOnTarget", "shotsOnGoal", "onTargetScoringAttempt"]);
+    const shotsBlocked = perMatch(["blockedScoringAttempt", "blockedShots"]);
+    let shotsOff = perMatch(["shotsOffTarget", "shotsOffGoal", "offTargetScoringAttempt"]);
+    const totalShots = perMatch(["totalShots", "shots", "attempts"]);
+    if (totalShots > 0 && shotsOn + shotsOff + shotsBlocked < totalShots * 0.85) {
+      const remainder = Math.max(0, totalShots - shotsOn - shotsBlocked);
+      if (shotsOff <= 0) shotsOff = remainder;
+    }
     // Normalize season totals by matches played to expose per-game values in kiosk.
     return {
       ...base,
@@ -3355,9 +4310,9 @@ function aggregateBlueprintFromStats(params: {
         goalsHead: perMatch(["headedGoals"]),
         bigChancesCreated: perMatch(["bigChancesCreated", "bigChanceCreated"]),
         bigChancesMissed: perMatch(["bigChancesMissed", "bigChanceMissed"]),
-        shotsOn: perMatch(["shotsOnTarget", "shotsOnGoal"]),
-        shotsOff: perMatch(["shotsOffTarget", "shotsOffGoal"]),
-        shotsBlocked: perMatch(["blockedScoringAttempt"]),
+        shotsOn,
+        shotsOff,
+        shotsBlocked,
         dribbles: perMatch(["successfulDribbles", "dribbles"]),
         corners: perMatch(["corners", "cornerKicks"]),
         freeKicksGoals: perMatch(["freeKickGoals"]),
@@ -3383,16 +4338,15 @@ function aggregateBlueprintFromStats(params: {
         lastManFoul: perMatch(["lastManTackles", "lastManTackle"]),
         foulsCommitted: perMatch(["fouls"]),
         yellowCards: perMatch(["yellowCards"]),
-        redCards: perMatch(["redCards"])
+        redCards: perMatch(["redCards"]),
+        shotsConceded: resolveShotsConcededPerMatch(seasonOverallRow, perMatch),
+        cornersConceded: perMatch(["cornersConceded", "cornersAgainst", "opponentCorners"])
       }
     };
   }
 
   const samples = params.statsRows.length || 1;
-  const matchesInRow = (row: Record<string, number>): number => {
-    const matches = row.matches;
-    return typeof matches === "number" && Number.isFinite(matches) && matches > 0 ? matches : 1;
-  };
+  const matchesInRow = (row: Record<string, number>): number => resolveMatchesPlayedForStatsRow(row);
   const sumRaw = (keys: string[]): number =>
     params.statsRows.reduce((acc, row) => acc + statValue(row, keys, 0), 0);
   const sumPerMatch = (keys: string[]): number =>
@@ -3444,7 +4398,12 @@ function aggregateBlueprintFromStats(params: {
       lastManFoul: avgRaw(["lastManTackles", "lastManTackle"]),
       foulsCommitted: avgPerMatch(["fouls"]),
       yellowCards: avgPerMatch(["yellowCards"]),
-      redCards: avgRaw(["redCards"])
+      redCards: avgRaw(["redCards"]),
+      shotsConceded:
+        seasonOverallRow != null
+          ? resolveShotsConcededPerMatch(seasonOverallRow, avgPerMatch)
+          : avgPerMatch(["totalShotsConceded", "shotsConceded", "opponentTotalShots", "opponentShots"]),
+      cornersConceded: avgPerMatch(["cornersConceded", "cornersAgainst", "opponentCorners"])
     }
   };
 }
@@ -3457,7 +4416,7 @@ async function listFinishedEventsForTeam(params: {
 }): Promise<SportApiEvent[]> {
   const result: SportApiEvent[] = [];
   for (let page = 0; page < params.maxPages; page += 1) {
-    const response = await sportApiFetch(`/api/v1/team/${params.teamId}/events/last/${page}`, {
+    const response = await sportApiFetch(sportApiTeamEventsLastPath(params.teamId, page), {
       requestType: "blueprint",
       teamId: params.teamId,
       revalidateSeconds: 600
@@ -3478,18 +4437,76 @@ async function listFinishedEventsForTeam(params: {
   return result;
 }
 
+async function getTeamUniverseFromAnchorSchedules(): Promise<Array<{ id: number; name: string }>> {
+  const teams = new Map<number, string>();
+  let successfulFetches = 0;
+  let quotaExceededCount = 0;
+
+  for (const teamId of footApiDiscoveryAnchorTeamIds()) {
+    for (const direction of ["next", "last"] as const) {
+      const response = await sportApiFetch(
+        direction === "next"
+          ? sportApiTeamEventsNextPath(teamId, 0)
+          : sportApiTeamEventsLastPath(teamId, 0),
+        {
+          requestType: "search",
+          teamId,
+          revalidateSeconds: 600
+        }
+      );
+      if (!response.ok) {
+        if (response.status === 429) quotaExceededCount += 1;
+        continue;
+      }
+      successfulFetches += 1;
+
+      const payload = (await response.json()) as unknown;
+      const events = extractEvents(payload)
+        .filter(isFootballEvent)
+        .filter(isStrictTop5DomesticEvent)
+        .filter((event) => !event.homeTeam?.national && !event.awayTeam?.national);
+
+      for (const event of events) {
+        if (event.homeTeam?.id && event.homeTeam.name) {
+          teams.set(event.homeTeam.id, event.homeTeam.name);
+        }
+        if (event.awayTeam?.id && event.awayTeam.name) {
+          teams.set(event.awayTeam.id, event.awayTeam.name);
+        }
+      }
+    }
+  }
+
+  if (successfulFetches === 0) {
+    if (quotaExceededCount > 0) {
+      throw new Error("SportAPI error: quota_exceeded");
+    }
+    throw new Error("SportAPI error: provider_unavailable");
+  }
+
+  const result = Array.from(teams.entries())
+    .map(([id, name]) => ({ id, name }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  if (result.length === 0) {
+    throw new Error("SportAPI error: empty_team_universe");
+  }
+
+  return result;
+}
+
 async function getTeamUniverseFromSchedule(): Promise<Array<{ id: number; name: string }>> {
+  if (detectSportApiProvider() === "footapi") {
+    return getTeamUniverseFromAnchorSchedules();
+  }
+
   const lookaheadDays = parsePositiveInt(process.env.TACTICAL_TEAM_SEARCH_LOOKAHEAD_DAYS, 14);
   const lookbackDays = parsePositiveInt(process.env.TACTICAL_TEAM_SEARCH_LOOKBACK_DAYS, 14);
-  const endpointTemplate =
-    process.env.SPORTAPI_FOOTBALL_SCHEDULED_EVENTS_PATH ??
-    "/api/v1/sport/football/scheduled-events/{date}";
-
   const teams = new Map<number, string>();
   let successfulFetches = 0;
   let quotaExceededCount = 0;
   for (let dayOffset = -lookbackDays; dayOffset <= lookaheadDays; dayOffset += 1) {
-    const endpoint = endpointTemplate.replaceAll("{date}", dateToken(dayOffset));
+    const endpoint = sportApiScheduledEventsPath(dateToken(dayOffset));
     const response = await sportApiFetch(endpoint, {
       requestType: "search",
       revalidateSeconds: 600
@@ -3537,7 +4554,7 @@ async function getTeamUniverseFromSchedule(): Promise<Array<{ id: number; name: 
 }
 
 async function searchTeamsByProviderQuery(query: string): Promise<TeamCandidate[]> {
-  const endpoint = `/api/v1/search/all/${encodeURIComponent(query)}`;
+  const endpoint = sportApiSearchPath(query);
   const response = await sportApiFetch(endpoint, {
     requestType: "search",
     revalidateSeconds: 600
@@ -3640,7 +4657,7 @@ async function hasNextMatchWithinDays(params: {
   allowedCompetitionSlugs: Set<string>;
   days: number;
 }): Promise<boolean> {
-  const response = await sportApiFetch(`/api/v1/team/${params.teamId}/events/next/0`, {
+  const response = await sportApiFetch(sportApiTeamEventsNextPath(params.teamId, 0), {
     requestType: "blueprint",
     teamId: params.teamId,
     revalidateSeconds: 600
@@ -3807,17 +4824,10 @@ export async function fetchTeamPerformanceBlueprint(params: {
   const allowedSlugs = requestedCompetitionSlug
     ? new Set([requestedCompetitionSlug])
     : new Set(scopeCompetitions);
-  const cacheTournamentId = params.tournamentId && params.tournamentId > 0 ? params.tournamentId : 0;
-  const cacheSeasonId = params.seasonId && params.seasonId > 0 ? params.seasonId : 0;
   let leagueId: number | null = null;
-  const blueprintSkipsDomesticTop5TeamCheck = Boolean(
-    requestedCompetitionSlug &&
-      (isStrictTop5CompetitionSlug(requestedCompetitionSlug) ||
-        isUefaChampionsOrEuropaBlueprintCompetitionSlug(requestedCompetitionSlug) ||
-        isSerieBBlueprintCompetitionSlug(requestedCompetitionSlug))
-  );
+  const skipTop5Gate = shouldSkipTop5CheckForBlueprint(requestedCompetitionSlug);
 
-  if (!blueprintSkipsDomesticTop5TeamCheck) {
+  if (!skipTop5Gate) {
     leagueId = await getTeamLeagueId(params.teamId);
     const isTop5Team = leagueId ? top5LeagueIds().has(leagueId) : false;
     if (!isTop5Team) {
@@ -3828,6 +4838,28 @@ export async function fetchTeamPerformanceBlueprint(params: {
     }
   }
 
+  let effectiveTournamentId =
+    params.tournamentId && params.tournamentId > 0 ? params.tournamentId : 0;
+  let effectiveSeasonId = params.seasonId && params.seasonId > 0 ? params.seasonId : 0;
+
+  if (effectiveTournamentId > 0 && effectiveSeasonId > 0) {
+    const seasonFallback = await resolveTeamSeasonFallback({
+      teamId: params.teamId,
+      current: { tournamentId: effectiveTournamentId, seasonId: effectiveSeasonId },
+      bypassCache: params.forceRefresh,
+      sportApiFetch: sportApiFetch as (
+        endpoint: string,
+        options?: Record<string, unknown>
+      ) => Promise<Response>
+    });
+    effectiveTournamentId = seasonFallback.teamContext.tournamentId;
+    effectiveSeasonId = seasonFallback.teamContext.seasonId;
+  }
+
+  const cacheTournamentId = effectiveTournamentId;
+  const cacheSeasonId = effectiveSeasonId;
+  const hasDirectSeasonContext = Boolean(effectiveTournamentId > 0 && effectiveSeasonId > 0);
+
   const cached = await getCachedBlueprintRow(
     params.teamId,
     params.scope,
@@ -3837,9 +4869,6 @@ export async function fetchTeamPerformanceBlueprint(params: {
   const now = nowMs();
   const refreshEveryDays = parsePositiveInt(process.env.TACTICAL_BLUEPRINT_REFRESH_DAYS, 10);
   const refreshWindowMs = refreshEveryDays * 24 * 60 * 60 * 1000;
-  const hasDirectSeasonContext = Boolean(
-    params.tournamentId && params.tournamentId > 0 && params.seasonId && params.seasonId > 0
-  );
 
   // If direct season context is available from selected match, skip early cache returns:
   // we prefer exact season-overall numbers for correctness.
@@ -3915,16 +4944,16 @@ export async function fetchTeamPerformanceBlueprint(params: {
   if (hasDirectSeasonContext) {
     const seasonOverall = await fetchTeamSeasonOverallStatistics({
       teamId: params.teamId,
-      tournamentId: params.tournamentId as number,
-      seasonId: params.seasonId as number
+      tournamentId: effectiveTournamentId,
+      seasonId: effectiveSeasonId
     });
     if (seasonOverall) {
       statsRows.push(seasonOverall);
       usedSeasonOverall = true;
       params.debugCollector?.({
         source: "season_overall_direct_context",
-        tournamentId: params.tournamentId,
-        seasonId: params.seasonId
+        tournamentId: effectiveTournamentId,
+        seasonId: effectiveSeasonId
       });
     }
   }
@@ -4065,7 +5094,7 @@ export async function fetchLastHeadToHeadPlayerDiscipline(params: {
 
   const candidates: SportApiEvent[] = [];
   for (let page = 0; page < maxPages; page += 1) {
-    const resp = await sportApiFetch(`/api/v1/team/${aId}/events/last/${page}`, {
+    const resp = await sportApiFetch(sportApiTeamEventsLastPath(aId, page), {
       requestType: "snapshot",
       teamId: aId,
       revalidateSeconds: 1200
@@ -4091,7 +5120,7 @@ export async function fetchLastHeadToHeadPlayerDiscipline(params: {
   const chosen = candidates[0];
   const eventId = chosen.id as number;
 
-  const lineupsResp = await sportApiFetch(`/api/v1/event/${eventId}/lineups`, {
+  const lineupsResp = await sportApiFetch(sportApiEventLineupsPath(eventId), {
     requestType: "snapshot",
     teamId: aId,
     revalidateSeconds: 1200
@@ -4133,4 +5162,254 @@ export async function fetchLastHeadToHeadPlayerDiscipline(params: {
   }
 
   return { eventId, players: out };
+}
+
+export interface FootApiMatchTrendPlayerRow {
+  playerId: number;
+  playerName: string;
+  playerImageUrl?: string;
+  teamId: number;
+  opponentId: number;
+  opponentName: string;
+  homeAway: "home" | "away";
+  starter: boolean;
+  position?: string;
+  statistics?: SportApiLineupPlayer["statistics"];
+}
+
+/** Bundle FootAPI7 per acquisizione Trend: event + lineups + team shots on target (max 3 chiamate). */
+export interface FootApiMatchTrendSourceBundle {
+  eventId: number;
+  startTimestamp: number;
+  round?: number;
+  competitionSlug: string;
+  tournamentId: number;
+  seasonId: number;
+  homeTeam: { id: number; name: string };
+  awayTeam: { id: number; name: string };
+  players: FootApiMatchTrendPlayerRow[];
+  teamShotsOnTarget: { home: number; away: number };
+}
+
+export async function fetchFootApiMatchTrendSourceBundle(
+  eventId: number
+): Promise<FootApiMatchTrendSourceBundle | null> {
+  const [eventResponse, lineupsResponse, statsResponse] = await Promise.all([
+    sportApiFetch(sportApiEventPath(eventId), {
+      requestType: "snapshot",
+      revalidateSeconds: 600
+    }),
+    sportApiFetch(sportApiEventLineupsPath(eventId), {
+      requestType: "snapshot",
+      revalidateSeconds: 600
+    }),
+    sportApiFetch(sportApiEventStatisticsPath(eventId), {
+      requestType: "snapshot",
+      revalidateSeconds: 600
+    })
+  ]);
+
+  if (!eventResponse.ok || !lineupsResponse.ok || !statsResponse.ok) {
+    console.warn("[trends] footapi_bundle_failed", {
+      eventId,
+      eventStatus: eventResponse.status,
+      lineupsStatus: lineupsResponse.status,
+      statsStatus: statsResponse.status
+    });
+    return null;
+  }
+
+  const eventPayload = await readSportApiJson(eventResponse);
+  if (!eventPayload) return null;
+  const ctx = parseSeasonContextFromEventJson(eventPayload);
+  const anchorNode = extractEventNodeFromPayload(eventPayload as Record<string, unknown>);
+  if (!ctx || !anchorNode) return null;
+
+  const lineupsPayload = await readSportApiJson(lineupsResponse);
+  const statsPayload = await readSportApiJson(statsResponse);
+  if (!lineupsPayload || !statsPayload) return null;
+
+  const lineups = lineupsPayload as SportApiLineupsResponse;
+  const stats = statsPayload as SportApiEventStatisticsResponse;
+  const shotsOnTarget = extractShotsOnTargetByTeam(stats);
+
+  const homeTeam = anchorNode.homeTeam as SportApiEvent["homeTeam"] | undefined;
+  const awayTeam = anchorNode.awayTeam as SportApiEvent["awayTeam"] | undefined;
+  const homeTeamId = coerceFiniteNumber(homeTeam?.id as number | undefined);
+  const awayTeamId = coerceFiniteNumber(awayTeam?.id as number | undefined);
+  if (!homeTeamId || !awayTeamId) return null;
+
+  const normalizedCompetitionSlug = normalizeCompetitionSlug(
+    (anchorNode.tournament as SportApiEvent["tournament"] | undefined)?.uniqueTournament?.slug ??
+      competitionSlug({ tournament: anchorNode.tournament } as SportApiEvent)
+  );
+  const round = parseRoundFromEventPayload(eventPayload);
+  const startTimestamp = coerceFiniteNumber(
+    (anchorNode as Record<string, unknown>).startTimestamp as number | undefined
+  );
+
+  const players: FootApiMatchTrendPlayerRow[] = [];
+  const ingestSide = (
+    sidePlayers: SportApiLineupPlayer[] | undefined,
+    teamId: number,
+    opponentId: number,
+    opponentName: string,
+    homeAway: "home" | "away"
+  ) => {
+    for (const player of sidePlayers ?? []) {
+      const playerId = player.player?.id;
+      const playerName = player.player?.name ?? player.player?.shortName;
+      if (!playerId || !playerName) continue;
+      if (!lineupPlayerHasPlayed(player)) continue;
+      players.push({
+        playerId,
+        playerName,
+        playerImageUrl:
+          typeof player.player?.image === "string"
+            ? player.player.image
+            : typeof (player.player as { photo?: string } | undefined)?.photo === "string"
+              ? (player.player as { photo: string }).photo
+              : undefined,
+        teamId,
+        opponentId,
+        opponentName,
+        homeAway,
+        starter: player.substitute !== true,
+        position: player.position,
+        statistics: player.statistics
+      });
+    }
+  };
+
+  ingestSide(
+    lineups.home?.players,
+    homeTeamId,
+    awayTeamId,
+    awayTeam?.name ?? "Away",
+    "home"
+  );
+  ingestSide(
+    lineups.away?.players,
+    awayTeamId,
+    homeTeamId,
+    homeTeam?.name ?? "Home",
+    "away"
+  );
+
+  return {
+    eventId,
+    startTimestamp: startTimestamp ?? 0,
+    round,
+    competitionSlug: normalizedCompetitionSlug,
+    tournamentId: ctx.tournamentId,
+    seasonId: ctx.seasonId,
+    homeTeam: { id: homeTeamId, name: homeTeam?.name ?? "Home" },
+    awayTeam: { id: awayTeamId, name: awayTeam?.name ?? "Away" },
+    players,
+    teamShotsOnTarget: shotsOnTarget
+  };
+}
+
+export async function fetchFootApiTeamFinishedEvents(params: {
+  teamId: number;
+  tournamentId: number;
+  seasonId: number;
+  maxPages?: number;
+  maxEvents?: number;
+}): Promise<SportApiEvent[]> {
+  const maxPages = params.maxPages ?? 4;
+  const maxEvents = params.maxEvents ?? 22;
+  const collected: SportApiEvent[] = [];
+
+  for (let page = 0; page < maxPages; page += 1) {
+    const resp = await sportApiFetch(sportApiTeamEventsLastPath(params.teamId, page), {
+      requestType: "snapshot",
+      teamId: params.teamId,
+      revalidateSeconds: 600
+    });
+    if (!resp.ok) break;
+    const payload = (await resp.json()) as SportApiTeamEventsResponse;
+    const pageEvents = (payload.events ?? [])
+      .filter((event) => Boolean(event.id))
+      .filter((event) => eventStatusType(event) === "finished")
+      .filter(
+        (event) =>
+          Number(event.tournament?.uniqueTournament?.id) === Number(params.tournamentId) &&
+          Number(event.season?.id) === Number(params.seasonId)
+      );
+    if (!pageEvents.length && page > 0) break;
+    collected.push(...pageEvents);
+    if (collected.length >= maxEvents) break;
+  }
+
+  return collected
+    .sort((a, b) => (b.startTimestamp ?? 0) - (a.startTimestamp ?? 0))
+    .slice(0, maxEvents);
+}
+
+function isFriendlyEvent(event: SportApiEvent): boolean {
+  const slug = (
+    event.tournament?.uniqueTournament?.slug ??
+    event.tournament?.slug ??
+    ""
+  ).toLowerCase();
+  const name = (event.tournament?.uniqueTournament?.name ?? "").toLowerCase();
+  return slug.includes("friendly") || name.includes("friendly") || slug.includes("amichev");
+}
+
+/** Partite concluse della squadra (tutte le competizioni ufficiali), prima di un anchor opzionale. */
+export async function fetchFootApiTeamFinishedEventsBroad(params: {
+  teamId: number;
+  beforeTimestamp?: number;
+  maxPages?: number;
+  maxEvents?: number;
+  preferredTournamentId?: number;
+  preferredSeasonId?: number;
+}): Promise<SportApiEvent[]> {
+  const maxPages = params.maxPages ?? 6;
+  const maxEvents = params.maxEvents ?? 24;
+  const before = params.beforeTimestamp ?? Number.MAX_SAFE_INTEGER;
+  const collected: SportApiEvent[] = [];
+
+  for (let page = 0; page < maxPages; page += 1) {
+    const resp = await sportApiFetch(sportApiTeamEventsLastPath(params.teamId, page), {
+      requestType: "snapshot",
+      teamId: params.teamId,
+      revalidateSeconds: 600
+    });
+    if (!resp.ok) break;
+    const payload = await readSportApiJson(resp);
+    const pageEvents = ((payload as SportApiTeamEventsResponse | null)?.events ?? [])
+      .filter((event) => Boolean(event.id))
+      .filter((event) => eventStatusType(event) === "finished")
+      .filter((event) => (event.startTimestamp ?? 0) < before)
+      .filter((event) => !isFriendlyEvent(event));
+    if (!pageEvents.length && page > 0) break;
+    collected.push(...pageEvents);
+    if (collected.length >= maxEvents * 2) break;
+  }
+
+  const deduped = [...new Map(collected.map((event) => [event.id, event])).values()].sort(
+    (a, b) => (b.startTimestamp ?? 0) - (a.startTimestamp ?? 0)
+  );
+
+  const preferred = deduped.filter(
+    (event) =>
+      params.preferredTournamentId != null &&
+      params.preferredSeasonId != null &&
+      Number(event.tournament?.uniqueTournament?.id) === Number(params.preferredTournamentId) &&
+      Number(event.season?.id) === Number(params.preferredSeasonId)
+  );
+
+  const merged: SportApiEvent[] = [];
+  const seen = new Set<number>();
+  for (const event of [...preferred, ...deduped]) {
+    const id = event.id as number;
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    merged.push(event);
+    if (merged.length >= maxEvents) break;
+  }
+
+  return merged;
 }

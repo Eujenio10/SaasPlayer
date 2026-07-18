@@ -93,3 +93,10 @@ export function isInternationalTournamentSlug(raw?: string): boolean {
   }
   return false;
 }
+
+/** Slug chiaramente femminile / youth / olimpico: non rientra nel menu nazionali maschili senior. */
+export function isWomenYouthOrOlympicSlug(raw?: string): boolean {
+  const s = normalizeInternationalTournamentSlug(raw);
+  if (!s) return false;
+  return looksLikeWomensFootballTournamentSlug(s) || looksLikeYouthAgeTierOrOlympicSlug(s);
+}

@@ -1,14 +1,10 @@
 import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createApiSupabaseClient, getApiUser } from "@/lib/auth/get-api-user";
 
 export async function PATCH(request: Request) {
-  const supabase = createSupabaseServerClient();
-  const {
-    data: { user },
-    error: userError
-  } = await supabase.auth.getUser();
+  const user = await getApiUser(request);
 
-  if (userError || !user) {
+  if (!user) {
     return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
   }
 
@@ -18,6 +14,7 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: "invalid_full_name" }, { status: 400 });
   }
 
+  const supabase = createApiSupabaseClient(request);
   const { error } = await supabase.auth.updateUser({
     data: { full_name: raw }
   });

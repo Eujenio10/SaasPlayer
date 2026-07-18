@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createApiSupabaseClient, getApiUser } from "@/lib/auth/get-api-user";
 import { getOrganizationContextForUser } from "@/lib/auth/organization";
 
 const putSchema = z.object({
@@ -9,16 +9,14 @@ const putSchema = z.object({
   rows: z.array(z.unknown())
 });
 
-export async function GET() {
-  const supabase = createSupabaseServerClient();
-  const {
-    data: { user }
-  } = await supabase.auth.getUser();
+export async function GET(request: Request) {
+  const user = await getApiUser(request);
 
   if (!user) {
     return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
   }
 
+  const supabase = createApiSupabaseClient(request);
   const organization = await getOrganizationContextForUser(user.id);
   if (!organization) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
@@ -56,15 +54,13 @@ export async function GET() {
 }
 
 export async function PUT(request: Request) {
-  const supabase = createSupabaseServerClient();
-  const {
-    data: { user }
-  } = await supabase.auth.getUser();
+  const user = await getApiUser(request);
 
   if (!user) {
     return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
   }
 
+  const supabase = createApiSupabaseClient(request);
   const organization = await getOrganizationContextForUser(user.id);
   if (!organization || organization.role !== "admin") {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });

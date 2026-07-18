@@ -1,0 +1,123 @@
+
+DataAnnotation
+Work on projects
+Transfer Funds
+Refer & Earn
+Inbox
+$0.00
+Eugenio Iandoli 
+Projects
+Onboarding Step 2 - Getting Paid! 👈
+Collapse Instructions
+
+Onboarding Step 2: Getting Paid! 💰
+In this step, you’ll:
+Add your PayPal login email to your profile
+
+Learn how pay works for task-based and hourly projects
+
+Understand how to track and report time for hourly tasks
+
+See how to view your earnings and request payouts
+
+Complete a paid task that involves reading the Onboarding Guide and reporting your time
+
+Add your PayPal login email to your profile
+Be sure to enter this correctly — you won’t be able to change it once it’s saved!
+
+Identify the email address you use to log into PayPal, formatted as email@example.com, not a PayPal.me URL.
+
+Double-check that it’s accurate.
+
+Make sure you actually have a PayPal account attached to the address you enter! If you've never used PayPal before, this means you need to go sign up on paypal.com and provide them a range of information before you can receive payments.
+
+If your PayPal address is an email that you may lose access to in the future (such as a university email address — which is very common), you will want to change it to an email address that you will always have control over before entering the email on our site.
+
+Go to your DataAnnotation profile, scroll to the PayPal Email field, and enter the address.
+
+Carefully verify it — we can’t recover funds sent to the wrong account!
+
+Verify you have the correct PayPal email
+Did you double-check to make sure you entered the correct PayPal email in your DataAnnotation profile?
+
+Yes, and I logged into my PayPal account to make sure I have the right email!
+Payment Types: Hourly and Per Task
+Most projects are paid either hourly or per task — you'll see this pay rate (always shown in USD) listed under the Pay column on the Work on Projects page.
+
+If a project is hourly, you'll see a rate — $20.00/hr, for example.
+
+For hourly projects, you’ll need to track your own time while working, then report it separately when you’re done.
+
+If a project is per task, the amount (e.g., $0.50) shows how much you'll earn each time you submit a task.
+
+Per-task payments are added to your account automatically — nice and easy!
+
+How to track your time
+❌ DON'T track your time with the built-in timer!
+Although you might see a timer running in the bottom-right corner of a project window, that timer is NOT for helping you track the amount of time you're spending. That timer shows the amount of time allotted for you to complete the task before it expires. The timer will reset after you either submit your current task or skip a task.
+
+✅ DO track your time manually
+It is important to be as accurate as possible when reporting your time, down to the exact minute. Some people use a special app (such as Clockify) to track their time, while others just use the stopwatch on their phone or other device.
+
+How to report your time
+After submitting one or more tasks in an hourly project, you’ll see it listed within the Report Time tab on the Work on Projects page:
+
+Click on the project link, enter how many minutes you worked, and click Submit. Honest and accurate time reporting is crucial to retain good standing on the platform.
+
+If you submit more tasks for the same project later, use the same link to add more time.
+
+⚠️ Important: The link will disappear 24 hours after you submit a task. Be sure to report your time promptly after each work session.
+
+Once submitted, your time will appear under Pending Approval in the bottom-left of the Transfer Funds page.
+
+How to transfer funds to your PayPal account
+Once payments are approved, they’ll appear in the top right of the Transfer Funds page:
+
+Hourly project funds are approved 7 days (168 hours) after time is submitted.
+
+Per-task project funds are approved 3 days (72 hours) after task completion.
+
+To withdraw your funds:
+
+Click the Get paid button at the top right of the Transfer Funds page to initiate a withdrawal.
+
+You can only withdraw once every 3 days, so plan accordingly.
+
+If you experience any issues with payment, reach out to Support to resolve the issue.
+
+Quick Check: How long after submitting a task do you have to report your time before the link disappears?
+
+
+Unlimited
+12 hours
+24 hours
+✅ Correct!
+
+Now let's practice reporting your time!
+For this task we'd like you to:
+
+Open the Onboarding Guide document and read over it carefully.
+
+Just as you would with an hourly project, we'd like you to time yourself using a stopwatch or other app as you read it.
+
+Heads up: Onboarding Step 3 will involve a short quiz about the onboarding document!
+
+You can always access this document later by clicking on your name dropdown in the top right of the screen and then selecting Support.
+
+Once you're done reading the document, come back to this page and click Submit and Begin Next Task, but be sure to read the rest of the instructions below first!
+
+After you click Submit and Begin Next Task, go to the Work on Projects page, click on the Report Time tab, and click on "Onboarding Step 2: Getting Paid."
+
+Enter the amount of time it took you to read the document (up to 60 mins) and click Submit.
+
+⚠️ Please do not report more than 60 minutes for this task.
+Finished reading everything and ready to submit your time?
+Click Submit and Begin Next Task to return to your dashboard and move on to Onboarding Step 3: Practice Quiz! 📝
+
+Last draft saved at 9:53 PM
+Expires in: 
+9 hours 57 minutes
+
+Code of Conduct Support
+
+© 2026 DataAnnotation. All rights reserved.

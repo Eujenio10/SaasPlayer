@@ -4,14 +4,18 @@ function n(v: unknown): number {
   return typeof v === "number" && Number.isFinite(v) ? v : 0;
 }
 
-/** Media falli commessi coerente per intestazioni tabella (stagione vs ultime uscite). */
+/** Media falli commessi nel torneo analizzato (non gonfiata dalle sole ultime uscite). */
 export function foulsCommittedPerMatchForDisplay(m: TacticalMetrics): number {
-  return Math.max(n(m.foulsCommittedSeasonAvg), n(m.foulsCommittedLastFiveAvg) * 0.95);
+  const season = n(m.foulsCommittedSeasonAvg);
+  if (season > 0) return season;
+  return Math.max(n(m.foulsCommittedLastFiveAvg), n(m.foulsCommittedLastTwoAvg));
 }
 
-/** Media falli subiti per confronti con heatmap / narrativa. */
+/** Media falli subiti nel torneo analizzato (non gonfiata dalle sole ultime uscite). */
 export function foulsSufferedPerMatchForDisplay(m: TacticalMetrics): number {
-  return Math.max(n(m.foulsSufferedSeasonAvg), n(m.foulsSufferedLastFiveAvg) * 0.95);
+  const season = n(m.foulsSufferedSeasonAvg);
+  if (season > 0) return season;
+  return Math.max(n(m.foulsSufferedLastFiveAvg), n(m.foulsSufferedLastTwoAvg));
 }
 
 /**

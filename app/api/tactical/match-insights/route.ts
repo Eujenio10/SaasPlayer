@@ -95,13 +95,16 @@ export async function GET(request: Request) {
         forceBlueprintRefresh,
         playerAnalyticsMode
       },
-      cacheTtlHours
+      cacheTtlHours,
+      { allowComputeOnMiss: forceBlueprintRefresh }
     );
     return NextResponse.json(payload);
   } catch (error) {
     const message = error instanceof Error ? error.message : "match_insights_unavailable";
     const status = message.includes("member_weekly_match_limit_reached")
       ? 403
+      : message.includes("match_insights_not_ready")
+        ? 404
       : message.includes("quota_exceeded") || message.includes("429")
         ? 429
         : 503;

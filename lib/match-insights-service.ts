@@ -1,4 +1,10 @@
-import { env } from "@/lib/env";
+import { resolveCompetitionId } from "@/lib/competitions";
+import {
+  sportApiAbsoluteUrl,
+  sportApiEventPath,
+  sportApiEventStatisticsPath,
+  sportApiTeamEventsLastPath
+} from "@/lib/sportapi-endpoints";
 import { getApiCache, setApiCache } from "@/lib/api-cache";
 import { isHybridFullPlayerAnalyticsCompetitionSlug } from "@/lib/hybrid-player-analytics-competition";
 import { buildTacticalMetrics } from "@/lib/predictive";
@@ -13,7 +19,6 @@ import {
   fetchLastHeadToHeadPlayerDiscipline,
   fetchSportPerformance,
   fetchSportPerformanceForTeams,
-  isTeamInSerieALeague,
   type PlayerSavesDiagnosticsRow
 } from "@/services/sportapi";
 import {
@@ -136,6 +141,8 @@ function normalizeStatKey(key: string): string {
 }
 
 export function normalizeCompetitionSlugForInsights(raw?: string): string {
+  const resolved = resolveCompetitionId(raw);
+  if (resolved) return resolved;
   const slug = raw?.toLowerCase().trim() ?? "";
   if (slug === "la-liga") return "laliga";
   return slug;
@@ -399,7 +406,7 @@ async function fetchRecentDiagnosticsFallback(params: {
   | null
 > {
   const eventsResp = await fetch(
-    `https://${env.SPORTAPI_RAPIDAPI_HOST}/api/v1/team/${params.homeTeamId}/events/last/0`,
+    sportApiAbsoluteUrl(sportApiTeamEventsLastPath(params.homeTeamId, 0)),
     {
       headers: {
         "x-rapidapi-key": env.SPORTAPI_RAPIDAPI_KEY,
@@ -423,14 +430,14 @@ async function fetchRecentDiagnosticsFallback(params: {
   for (const event of candidates) {
     const candidateEventId = event.id as number;
     const [eventResp, statsResp] = await Promise.all([
-      fetch(`https://${env.SPORTAPI_RAPIDAPI_HOST}/api/v1/event/${candidateEventId}`, {
+      fetch(sportApiAbsoluteUrl(sportApiEventPath(candidateEventId)), {
         headers: {
           "x-rapidapi-key": env.SPORTAPI_RAPIDAPI_KEY,
           "x-rapidapi-host": env.SPORTAPI_RAPIDAPI_HOST
         },
         next: { revalidate: 300 }
       }),
-      fetch(`https://${env.SPORTAPI_RAPIDAPI_HOST}/api/v1/event/${candidateEventId}/statistics`, {
+      fetch(sportApiAbsoluteUrl(sportApiEventStatisticsPath(candidateEventId)), {
         headers: {
           "x-rapidapi-key": env.SPORTAPI_RAPIDAPI_KEY,
           "x-rapidapi-host": env.SPORTAPI_RAPIDAPI_HOST
@@ -462,14 +469,14 @@ async function fetchEventStatBundle(eventId: number): Promise<{
   awayGoals: number;
 } | null> {
   const [eventResp, statsResp] = await Promise.all([
-    fetch(`https://${env.SPORTAPI_RAPIDAPI_HOST}/api/v1/event/${eventId}`, {
+    fetch(sportApiAbsoluteUrl(sportApiEventPath(eventId)), {
       headers: {
         "x-rapidapi-key": env.SPORTAPI_RAPIDAPI_KEY,
         "x-rapidapi-host": env.SPORTAPI_RAPIDAPI_HOST
       },
       next: { revalidate: 60 }
     }),
-    fetch(`https://${env.SPORTAPI_RAPIDAPI_HOST}/api/v1/event/${eventId}/statistics`, {
+    fetch(sportApiAbsoluteUrl(sportApiEventStatisticsPath(eventId)), {
       headers: {
         "x-rapidapi-key": env.SPORTAPI_RAPIDAPI_KEY,
         "x-rapidapi-host": env.SPORTAPI_RAPIDAPI_HOST
@@ -618,18 +625,7 @@ export async function computeMatchInsightsPayload(
     playerAnalyticsMode
   } = input;
 
-  const normalizedSlug = (competitionSlug ?? "").toLowerCase();
-  const isConferenceLeague =
-    normalizedSlug.includes("conference") &&
-    (normalizedSlug.includes("uefa") || normalizedSlug.includes("europa"));
-
-  const allowHybridFullAnalytics =
-    isHybridFullPlayerAnalyticsCompetitionSlug(competitionSlug) ||
-    (isConferenceLeague &&
-      Boolean(
-        (homeTeamId && (await isTeamInSerieALeague(homeTeamId))) ||
-          (awayTeamId && (await isTeamInSerieALeague(awayTeamId)))
-      ));
+  const allowHybridFullAnalytics = isHybridFullPlayerAnalyticsCompetitionSlug(competitionSlug);
 
   const skipPlayerPerformance =
     !singleMatchTest && playerAnalyticsMode === "serie_a_players" && !allowHybridFullAnalytics;
@@ -884,21 +880,27 @@ export async function computeMatchInsightsPayload(
 
 export async function getOrComputeMatchInsightsPayload(
   input: MatchInsightsComputeInput,
-  cacheTtlHours: number
+  cacheTtlHours: number,
+  options?: { allowComputeOnMiss?: boolean }
 ): Promise<MatchInsightsApiPayload> {
+  // Chiave condivisa: il flag refresh non deve frammentare la cache (admin scrive, utenti leggono).
   const cacheKey = buildMatchInsightsCacheKey({
     eventId: input.eventId,
     scope: input.scope,
     competitionSlug: input.competitionSlug,
     includeDiagnostics: input.includeDiagnostics,
     singleMatchTest: input.singleMatchTest,
-    forceBlueprintRefresh: input.forceBlueprintRefresh,
+    forceBlueprintRefresh: false,
     playerAnalyticsMode: input.playerAnalyticsMode
   });
 
   if (!input.forceBlueprintRefresh) {
     const cached = await getApiCache<MatchInsightsApiPayload>(cacheKey);
     if (cached) return cached;
+    // Utenti: solo lettura. Il ricalcolo avviene al refresh giornaliero/admin.
+    if (options?.allowComputeOnMiss === false) {
+      throw new Error("match_insights_not_ready");
+    }
   }
 
   const payload = await computeMatchInsightsPayload(input);

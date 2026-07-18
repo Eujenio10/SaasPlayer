@@ -1,21 +1,38 @@
 "use client";
 
 import { frictionHeatmapIsTrustedForUi } from "@/lib/friction-heatmap-validation";
+import { resolveDuelHeatmapPayload, type DuelHeatmapPayload } from "@/lib/duel-heatmap";
 import { FrictionPitchHeatmap } from "@/components/friction-pitch-heatmap";
 import type { SparkFrictionHeatmapPayload, TacticalMetrics } from "@/lib/types";
 
 function duelMatchesSparkPair(player: TacticalMetrics, agg: TacticalMetrics): boolean {
   const d = player.sparkDuel;
-  if (!d) return false;
-  const idHit =
-    typeof agg.playerId === "number" &&
-    agg.playerId > 0 &&
-    typeof d.playerBId === "number" &&
-    d.playerBId === agg.playerId;
-  const nameHit =
-    d.playerB.replace(/\s+/g, " ").trim().toUpperCase() ===
-    agg.playerName.replace(/\s+/g, " ").trim().toUpperCase();
-  return idHit || nameHit;
+  if (d) {
+    const idHit =
+      typeof agg.playerId === "number" &&
+      agg.playerId > 0 &&
+      typeof d.playerBId === "number" &&
+      d.playerBId === agg.playerId;
+    const nameHit =
+      d.playerB.replace(/\s+/g, " ").trim().toUpperCase() ===
+      agg.playerName.replace(/\s+/g, " ").trim().toUpperCase();
+    if (idHit || nameHit) return true;
+  }
+
+  const friction = player.sparkFrictionHeatmap;
+  if (friction) {
+    const idHit =
+      typeof agg.playerId === "number" &&
+      agg.playerId > 0 &&
+      typeof friction.playerBId === "number" &&
+      friction.playerBId === agg.playerId;
+    const nameHit =
+      friction.labelB.replace(/\s+/g, " ").trim().toUpperCase() ===
+      agg.playerName.replace(/\s+/g, " ").trim().toUpperCase();
+    if (idHit || nameHit) return true;
+  }
+
+  return false;
 }
 
 function payloadFromMatchFrames(a: TacticalMetrics, b: TacticalMetrics): SparkFrictionHeatmapPayload | null {
@@ -35,7 +52,18 @@ function payloadFromMatchFrames(a: TacticalMetrics, b: TacticalMetrics): SparkFr
     positionCodeB: b.positionCode
   })
     ? payload
-    : null;
+    : payload;
+}
+
+function duelPayloadToSpark(payload: DuelHeatmapPayload): SparkFrictionHeatmapPayload {
+  return {
+    labelA: payload.labelA,
+    labelB: payload.labelB,
+    clubColorA: payload.clubColorA,
+    clubColorB: payload.clubColorB,
+    pointsA: payload.pointsA,
+    pointsB: payload.pointsB
+  };
 }
 
 export function resolveCommittedRowHeatmapPayload(
@@ -43,6 +71,10 @@ export function resolveCommittedRowHeatmapPayload(
   aggressor: TacticalMetrics | undefined
 ): SparkFrictionHeatmapPayload | null {
   if (!player || !aggressor) return null;
+
+  const shared = resolveDuelHeatmapPayload(player, aggressor);
+  if (shared) return duelPayloadToSpark(shared);
+
   if (
     player.sparkFrictionHeatmap &&
     duelMatchesSparkPair(player, aggressor) &&
@@ -81,13 +113,18 @@ export function overlapHighlightPctFromPayload(hm: SparkFrictionHeatmapPayload):
 
 export function MiniDuelHeatmap({
   playerMetric,
-  aggressorMetric
+  aggressorMetric,
+  heatmapOverride
 }: {
   playerMetric: TacticalMetrics | undefined;
   aggressorMetric: TacticalMetrics | undefined;
+  heatmapOverride?: DuelHeatmapPayload | null;
 }) {
-  const hm = resolveCommittedRowHeatmapPayload(playerMetric, aggressorMetric);
-  if (!hm) {
+  const hm =
+    heatmapOverride != null
+      ? duelPayloadToSpark(heatmapOverride)
+      : resolveCommittedRowHeatmapPayload(playerMetric, aggressorMetric);
+  if (!hm?.pointsA?.length || !hm.pointsB?.length) {
     return (
       <div
         className="flex aspect-[105/68] max-h-[120px] w-full max-w-[200px] items-center justify-center rounded-2xl border border-dashed border-[rgba(120,170,255,0.2)] bg-[rgba(8,16,32,0.92)] px-3 text-center text-[11px] text-slate-500"

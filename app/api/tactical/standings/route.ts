@@ -4,6 +4,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getOrganizationContextForUser } from "@/lib/auth/organization";
 import { getApiCache, setApiCache } from "@/lib/api-cache";
 import { env } from "@/lib/env";
+import { sportApiAbsoluteUrl, sportApiStandingsPath } from "@/lib/sportapi-endpoints";
 
 const querySchema = z.object({
   tournamentId: z.coerce.number().int().min(1),
@@ -116,7 +117,7 @@ export async function GET(request: Request) {
 
   try {
     const res = await fetch(
-      `https://${env.SPORTAPI_RAPIDAPI_HOST}/api/v1/unique-tournament/${tournamentId}/season/${seasonId}/standings/${safeMode}`,
+      sportApiAbsoluteUrl(sportApiStandingsPath(tournamentId, seasonId, safeMode)),
       {
         headers: {
           "x-rapidapi-key": env.SPORTAPI_RAPIDAPI_KEY,

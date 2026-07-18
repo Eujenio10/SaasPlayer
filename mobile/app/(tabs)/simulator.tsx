@@ -1,0 +1,180 @@
+import { useCallback, useState } from "react";
+
+import { RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+
+import { SafeAreaView } from "react-native-safe-area-context";
+
+import { GuestLockedSectionPanel } from "@/components/access/GuestLockedSectionPanel";
+
+import { MarkingsCompetitionPicker } from "@/components/difficult-markings/MarkingsCompetitionPicker";
+
+import { MatchSimulatorList } from "@/components/match-simulator/MatchSimulatorList";
+
+import { useAuth } from "@/contexts/AuthContext";
+
+import { useGuestPreview } from "@/contexts/GuestPreviewContext";
+
+import { formatGuestFeaturesRemainingMinutes } from "@/lib/guest-ad-preview";
+import { canGuestAccessGuestFeatures } from "@/lib/access/guest-preview-mode";
+
+import {
+
+  MATCH_SIMULATOR_PAGE_SUBTITLE,
+
+  MATCH_SIMULATOR_PAGE_TITLE
+
+} from "@/lib/match-simulator/text";
+
+import { colors, spacing } from "@/lib/theme";
+
+
+
+export default function SimulatorScreen() {
+
+  const { userStatus } = useAuth();
+
+  const { featuresPreviewActive, featuresPreviewExpiresAt, openAdModal } = useGuestPreview();
+
+  const [competitionId, setCompetitionId] = useState("serie-a");
+
+  const [refreshToken, setRefreshToken] = useState(0);
+
+  const [refreshing, setRefreshing] = useState(false);
+
+
+
+  const isGuest = userStatus === "guest";
+
+  const canUseSimulator = canGuestAccessGuestFeatures(userStatus, featuresPreviewActive);
+  const remainingMinutes =
+    featuresPreviewExpiresAt != null
+      ? formatGuestFeaturesRemainingMinutes(featuresPreviewExpiresAt)
+      : null;
+
+
+
+  const onRefresh = useCallback(async () => {
+
+    setRefreshing(true);
+
+    setRefreshToken((value) => value + 1);
+
+    setTimeout(() => setRefreshing(false), 600);
+
+  }, []);
+
+
+
+  return (
+
+    <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
+
+      <ScrollView
+
+        contentContainerStyle={styles.content}
+
+        refreshControl={
+
+          <RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} tintColor={colors.cyan} />
+
+        }
+
+        showsVerticalScrollIndicator={false}
+
+      >
+
+        <View style={styles.header}>
+
+          <Text style={styles.title}>{MATCH_SIMULATOR_PAGE_TITLE}</Text>
+
+          <Text style={styles.subtitle}>{MATCH_SIMULATOR_PAGE_SUBTITLE}</Text>
+
+          {isGuest && canUseSimulator && remainingMinutes != null ? (
+
+            <Text style={styles.previewHint}>
+              Simulatore sbloccato — ancora {remainingMinutes} min.
+            </Text>
+
+          ) : null}
+
+        </View>
+
+
+
+        {!canUseSimulator ? (
+
+          <GuestLockedSectionPanel
+
+            title="Simulatore match riservato"
+
+            description="Guarda una breve pubblicità per usare Simulatore match e Duelli da monitorare per 15 minuti."
+
+            onWatchAd={() => openAdModal("features")}
+
+            showAdCta
+
+          />
+
+        ) : (
+
+          <>
+
+            <Text style={styles.pickerLabel}>Campionato</Text>
+
+            <MarkingsCompetitionPicker active={competitionId} onChange={setCompetitionId} />
+
+            <MatchSimulatorList key={`${competitionId}-${refreshToken}`} competitionId={competitionId} />
+
+          </>
+
+        )}
+
+      </ScrollView>
+
+    </SafeAreaView>
+
+  );
+
+}
+
+
+
+const styles = StyleSheet.create({
+
+  safe: { flex: 1, backgroundColor: colors.background },
+
+  content: { paddingHorizontal: spacing.md, paddingBottom: spacing.xl },
+
+  header: { gap: spacing.sm, marginBottom: spacing.md },
+
+  title: { color: colors.text, fontSize: 24, fontWeight: "900" },
+
+  subtitle: { color: colors.textMuted, fontSize: 14, lineHeight: 20 },
+
+  previewHint: {
+
+    color: colors.cyanMuted,
+
+    fontSize: 12,
+
+    fontWeight: "700"
+
+  },
+
+  pickerLabel: {
+
+    color: colors.textDim,
+
+    fontSize: 12,
+
+    fontWeight: "700",
+
+    marginBottom: spacing.xs,
+
+    textTransform: "uppercase"
+
+  }
+
+});
+
+

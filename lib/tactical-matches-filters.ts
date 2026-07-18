@@ -1,7 +1,41 @@
+/**
+ * Pipeline di selezione delle partite del menu.
+ *
+ * Ogni regola del prodotto è isolata in una funzione dedicata e documentata, così il flusso è
+ * leggibile e modificabile senza effetti collaterali:
+ *   1. `filterMonitoredCompetitionMatches`  → solo le 10 competizioni gestite
+ *   2. `filterRealTeamMatches`              → niente placeholder tabellone (es. "1A", "Winner 3")
+ *   3. `filterMatchesWithinNextDays`        → solo entro i prossimi N giorni (default 7)
+ *   4. `dedupeMatchesByEventId`             → nessun duplicato
+ *   5. `selectNextMatchPerTeam`             → solo la prossima partita utile per ogni squadra
+ *   6. `sortMatchesChronologically`         → ordinamento per calcio d’inizio
+ *
+ * L’orchestratore `buildMonitoredMatchesMenu` applica questi passi nell’ordine corretto.
+ */
+import { isMonitoredCompetitionSlug, resolveCompetitionId } from "@/lib/competitions";
+import type { MonitoredCompetitionId } from "@/lib/competitions";
+
+/** Finestra temporale di default: mostra solo le partite entro i prossimi 7 giorni. */
+export const MATCHES_WINDOW_DAYS = 7;
+
+const SECONDS_PER_DAY = 24 * 60 * 60;
+
+function nowSeconds(): number {
+  return Math.floor(Date.now() / 1000);
+}
+
+/** Riga minima richiesta dalla pipeline del menu. */
+export interface MenuMatchRow {
+  eventId: number;
+  startTimestamp: number;
+  competitionSlug: string;
+  homeTeam: { id: number; name: string };
+  awayTeam: { id: number; name: string };
+}
+
 /** True se il calcio d’inizio è ancora nel futuro (kickoff dopo “adesso”). */
 export function matchKickoffIsStillFuture<T extends { startTimestamp: number }>(m: T): boolean {
-  const nowSec = Math.floor(Date.now() / 1000);
-  return m.startTimestamp > 0 && m.startTimestamp > nowSec;
+  return m.startTimestamp > 0 && m.startTimestamp > nowSeconds();
 }
 
 /** Solo partite con calcio d’inizio ancora nel futuro (non giocate / non live / non finite). */
@@ -9,13 +43,49 @@ export function filterMatchesKickoffInFuture<T extends { startTimestamp: number 
   return list.filter((m) => matchKickoffIsStillFuture(m));
 }
 
+/**
+ * Regola finestra: tiene solo le partite il cui calcio d’inizio è compreso fra **adesso** e
+ * **adesso + `days` giorni** (estremo superiore incluso). Include le partite di oggi non ancora
+ * giocate. `nowSec` è iniettabile per ancorare la finestra al momento dell’aggiornamento dati.
+ */
+export function filterMatchesWithinNextDays<T extends { startTimestamp: number }>(
+  list: T[],
+  days: number = MATCHES_WINDOW_DAYS,
+  nowSec: number = nowSeconds()
+): T[] {
+  const upperBound = nowSec + Math.max(0, days) * SECONDS_PER_DAY;
+  return list.filter(
+    (m) => m.startTimestamp > nowSec && m.startTimestamp <= upperBound
+  );
+}
+
+/** Ordina cronologicamente per calcio d’inizio (a parità di orario, per eventId). */
+export function sortMatchesChronologically<T extends { eventId: number; startTimestamp: number }>(
+  list: T[]
+): T[] {
+  return [...list].sort((a, b) => {
+    const d = a.startTimestamp - b.startTimestamp;
+    if (d !== 0) return d;
+    return a.eventId - b.eventId;
+  });
+}
+
 /** Stesso eventId può comparire più volte nel feed: mantieni una sola card per match. */
-export function dedupeMatchesByEventId<T extends { eventId: number; startTimestamp: number }>(list: T[]): T[] {
+export function dedupeMatchesByEventId<T extends { eventId: number; startTimestamp: number }>(
+  list: T[]
+): T[] {
   const map = new Map<number, T>();
   for (const row of list) {
     if (!map.has(row.eventId)) map.set(row.eventId, row);
   }
-  return Array.from(map.values()).sort((a, b) => a.startTimestamp - b.startTimestamp);
+  return sortMatchesChronologically(Array.from(map.values()));
+}
+
+/** Tiene solo le partite appartenenti a una delle 10 competizioni monitorate. */
+export function filterMonitoredCompetitionMatches<T extends { competitionSlug: string }>(
+  list: T[]
+): T[] {
+  return list.filter((m) => isMonitoredCompetitionSlug(m.competitionSlug));
 }
 
 /**
@@ -26,12 +96,14 @@ export function dedupeMatchesByEventId<T extends { eventId: number; startTimesta
 export function isRealTeamName(name: string): boolean {
   const t = (name ?? "").trim();
   if (t.length === 0) return false;
-  /** Nomi cortissimi tipo "1A", "2B", "G1" — mai nomi di nazionali reali. */
+  /** Codici FIFA a 3 lettere (USA, GER, ENG…) — nazionali reali, non placeholder tabellone. */
+  if (/^[A-Z]{3}$/.test(t)) return true;
+  /** Nomi cortissimi tipo "1A", "2B", "G1" — placeholder tabellone. */
   if (t.length <= 3) return false;
   /** Winner/Loser/Runner-up + numero o lettera ("W41", "L3", "Winner 12"). */
   if (/^[WwLl]\d+$/.test(t)) return false;
   if (/^(winner|loser|runner.?up|qualified|tbd|tbc|to\s*be)/i.test(t)) return false;
-  /** Codice girone tipo "1A", "2B", "A1", "B2" con spazi: " 1A ", "Group A2". */
+  /** Codice girone tipo "1A", "2B", "A1", "B2". */
   if (/^\d[A-Z]$/.test(t) || /^[A-Z]\d$/.test(t)) return false;
   return true;
 }
@@ -46,29 +118,130 @@ export function filterRealTeamMatches<
 }
 
 /**
- * Riduce prefetch (chiamate match-insights) per tornei tipo Mondiali:
- * conserva solo la **prima partita nel tempo** prevista per ogni `teamId` (home/away).
- * L’evento può figurare più volte in valore unico dopo dedupe per eventId (due squadre ⇒ un match può bastare).
+ * Regola “prossima partita per squadra”: conserva, per ogni `teamId` (home o away), solo la sua
+ * partita cronologicamente più vicina. Una partita viene quindi inclusa se è la prossima per
+ * **almeno una** delle due squadre coinvolte. Nessun duplicato in uscita.
  */
-export function narrowMenuToEachTeamsNextMatch<
-  T extends { eventId: number; startTimestamp: number; homeTeam: { id: number }; awayTeam: { id: number } }
+export function selectNextMatchPerTeam<
+  T extends {
+    eventId: number;
+    startTimestamp: number;
+    homeTeam: { id: number };
+    awayTeam: { id: number };
+  }
 >(matches: T[]): T[] {
   if (matches.length === 0) return [];
-  const sorted = [...matches].sort((a, b) => {
-    const d = a.startTimestamp - b.startTimestamp;
-    if (d !== 0) return d;
-    return a.eventId - b.eventId;
-  });
+  const sorted = sortMatchesChronologically(matches);
   const firstForTeamId = new Map<number, T>();
   for (const m of sorted) {
-    const h = m.homeTeam.id;
-    const a = m.awayTeam.id;
-    if (!firstForTeamId.has(h)) firstForTeamId.set(h, m);
-    if (!firstForTeamId.has(a)) firstForTeamId.set(a, m);
+    if (!firstForTeamId.has(m.homeTeam.id)) firstForTeamId.set(m.homeTeam.id, m);
+    if (!firstForTeamId.has(m.awayTeam.id)) firstForTeamId.set(m.awayTeam.id, m);
   }
   const byEvent = new Map<number, T>();
   for (const row of firstForTeamId.values()) {
     byEvent.set(row.eventId, row);
   }
-  return Array.from(byEvent.values()).sort((a, b) => a.startTimestamp - b.startTimestamp);
+  return sortMatchesChronologically(Array.from(byEvent.values()));
+}
+
+export interface BuildMatchesMenuOptions {
+  /** Ampiezza finestra in giorni (default 7). */
+  windowDays?: number;
+  /** Istante di riferimento (epoch secondi) per ancorare la finestra. Default: adesso. */
+  nowSec?: number;
+}
+
+/**
+ * Orchestratore unico del menu: applica, nell’ordine, monitorata → nomi reali → finestra giorni →
+ * dedupe → prossima per squadra → ordinamento. Garantisce che nessuna partita valida venga
+ * scartata se non per una regola esplicita qui sopra.
+ */
+export function buildMonitoredMatchesMenu<T extends MenuMatchRow>(
+  matches: T[],
+  options: BuildMatchesMenuOptions = {}
+): T[] {
+  const windowDays = options.windowDays ?? MATCHES_WINDOW_DAYS;
+  const nowSec = options.nowSec ?? nowSeconds();
+
+  const monitored = filterMonitoredCompetitionMatches(matches);
+  const realTeams = filterRealTeamMatches(monitored);
+  const inWindow = filterMatchesWithinNextDays(realTeams, windowDays, nowSec);
+  const deduped = dedupeMatchesByEventId(inWindow);
+  const nextPerTeam = selectNextMatchPerTeam(deduped);
+  return sortMatchesChronologically(nextPerTeam);
+}
+
+/**
+ * Menu partite condiviso (club Top 5 / UEFA): solo competizioni monitorate, entro 7 giorni,
+ * dedupe, al massimo 1 prossima partita per squadra.
+ */
+export function buildEachTeamNextUpcomingMatchesMenu<T extends MenuMatchRow>(matches: T[]): T[] {
+  return buildMonitoredMatchesMenu(matches);
+}
+
+/** Identico al menu standard (i placeholder dei tabelloni sono già esclusi da `filterRealTeamMatches`). */
+export function buildEachTeamNextInternationalMatchesMenu<T extends MenuMatchRow>(matches: T[]): T[] {
+  return buildMonitoredMatchesMenu(matches);
+}
+
+/**
+ * Unisce menu club (Top 5 / UEFA) e nazionali (Coppa del Mondo / Nations League) e riapplica le
+ * regole sull’**insieme completo**, così la “prossima partita per squadra” è valutata globalmente
+ * (es. se una squadra gioca prima in Champions e poi in campionato, resta solo la partita di Champions).
+ */
+export function mergeDomesticAndInternationalUpcomingMenus<T extends MenuMatchRow>(
+  domestic: T[],
+  international: T[]
+): T[] {
+  return buildMonitoredMatchesMenu([...domestic, ...international]);
+}
+
+/**
+ * Unisce snapshot già filtrati in refresh admin (domestic + internazionale separati in DB).
+ * Riapplica solo monitorata, nomi reali, futuro e finestra 7 giorni — **senza** rifare
+ * `selectNextMatchPerTeam` sull’unione (evita di svuotare il menu se gli snapshot sono già menu-ready).
+ */
+export function combinePersistedOrganizationMenuSnapshots<T extends MenuMatchRow>(
+  domestic: T[],
+  international: T[],
+  options: BuildMatchesMenuOptions = {}
+): T[] {
+  const windowDays = options.windowDays ?? MATCHES_WINDOW_DAYS;
+  const nowSec = options.nowSec ?? nowSeconds();
+  const merged = dedupeMatchesByEventId([...domestic, ...international]);
+  const monitored = filterMonitoredCompetitionMatches(merged);
+  const realTeams = filterRealTeamMatches(monitored);
+  const inWindow = filterMatchesWithinNextDays(realTeams, windowDays, nowSec);
+  return sortMatchesChronologically(inWindow);
+}
+
+/**
+ * Seleziona la partita cronologicamente più vicina nel futuro (per l’anteprima della home).
+ * Ritorna `null` se non ci sono partite future.
+ */
+export function pickNearestUpcomingMatch<T extends { eventId: number; startTimestamp: number }>(
+  matches: T[],
+  nowSec: number = nowSeconds()
+): T | null {
+  const future = matches.filter((m) => m.startTimestamp > nowSec);
+  if (future.length === 0) return null;
+  return sortMatchesChronologically(future)[0] ?? null;
+}
+
+/**
+ * Raggruppa le partite per competizione monitorata, preservando l’ordine cronologico interno.
+ * Le partite non monitorate vengono ignorate.
+ */
+export function groupMatchesByCompetition<T extends { competitionSlug: string } & { eventId: number; startTimestamp: number }>(
+  matches: T[]
+): Map<MonitoredCompetitionId, T[]> {
+  const groups = new Map<MonitoredCompetitionId, T[]>();
+  for (const match of sortMatchesChronologically(matches)) {
+    const id = resolveCompetitionId(match.competitionSlug);
+    if (!id) continue;
+    const list = groups.get(id) ?? [];
+    list.push(match);
+    groups.set(id, list);
+  }
+  return groups;
 }

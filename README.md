@@ -51,6 +51,9 @@ Seed iniziale organizzazione/admin in `supabase/seed.sql`.
 - `SPORTAPI_FOOTBALL_SCHEDULED_EVENTS_PATH` endpoint principale per eventi programmati calcio (con `{date}`) usato per calcolare la prossima giornata.
 - `TACTICAL_LOOKAHEAD_DAYS` finestra giorni per trovare la prossima giornata (default `14`).
 - `TACTICAL_INTL_LOOKAHEAD_DAYS` giorni consecutivi (uno `scheduled-events` per giorno, max impostabile `180`) per il pulsante admin **Aggiorna Mondiali** prima di fare fallback su `TACTICAL_LOOKAHEAD_DAYS` (default `60`). Aumentarlo se non ci sono gare **Coppa del Mondo maschile** nel tuo lookahead attuale.
+- `TACTICAL_WORLD_CUP_TOURNAMENT_ID` e `TACTICAL_WORLD_CUP_SEASON_ID` — id torneo/stagione Mondiali sul provider (FootApi: default **16** / **58210** per il Mundial 2026 se non impostati). Con FootApi il calendario completo del torneo viene scaricato da `/api/tournament/{id}/season/{id}/matches/...` e include **tutte** le nazionali, senza elencare ogni squadra negli anchor.
+- `TACTICAL_INTL_DISCOVERY_ANCHOR_TEAM_IDS` — fallback FootApi quando il calendario per data è vuoto: CSV di id nazionali FootApi da cui leggere le prossime partite. Usare solo se il calendario torneo non basta; altrimenti non serve popolare tutte le 48 nazionali a mano.
+- `TACTICAL_INTL_ANCHOR_NEXT_PAGES` — pagine max `matches/next` per ogni nazionale anchor (default `6`).
 - `TACTICAL_INTL_TOURNAMENT_SLUG_INCLUDES` CSV di frammenti slug aggiuntivi (min 4 caratteri) per far riconoscere **solo** Mundial maschili quando il naming del provider differisce dall’euristica (le competizioni femminili restano escluse se lo slug riporta marcatori tipo `women` / `female` / ecc.).
 - `TACTICAL_TEAM_SEARCH_LOOKAHEAD_DAYS` finestra giorni usata per indicizzare i club ricercabili (default `14`).
 - `TACTICAL_TEAM_SEARCH_REFRESH_HOURS` frequenza refresh indice squadre ricerca (default `96`, cioe ogni 4 giorni).
@@ -64,6 +67,7 @@ Seed iniziale organizzazione/admin in `supabase/seed.sql`.
 - `TACTICAL_MATCH_INSIGHTS_CACHE_HOURS` cache TTL endpoint bulk match insights (default `24`).
 - `TACTICAL_TEAM_SEARCH_QUERY_CACHE_HOURS` cache TTL risultati query ricerca squadre (default `48`).
 - Con host `sportapi7.p.rapidapi.com` usa endpoint con prefisso `/api/v1` (es. `/api/v1/sport/football/scheduled-events/{date}`).
+- Con host `footapi7.p.rapidapi.com` il calendario usa `getAllFootballMatchesByDate` → `/api/sport/football/{day}/{month}/{year}/events` (giorno/mese/anno separati, non `YYYY-MM-DD`). Override opzionale: `SPORTAPI_FOOTBALL_SCHEDULED_EVENTS_PATH` con `{day}`, `{month}`, `{year}` o `{date}`.
 
 ### Logica editoriale auto-live
 
