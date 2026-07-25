@@ -13,14 +13,17 @@ import {
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useAccessFlow } from "@/contexts/AccessFlowContext";
 import { useAuth } from "@/contexts/AuthContext";
+import { mapAuthError } from "@/lib/auth-errors";
 import { colors, radii, spacing } from "@/lib/theme";
 
-type AuthMode = "login" | "register";
+type AuthMode = "login" | "register" | "recover";
+
+const RESEND_COOLDOWN_SEC = 60;
 
 const REGISTER_STEPS = [
-  "Inserisci la tua email",
-  "Apri il link che ti inviamo",
-  "Scegli la password e accedi"
+  "Inserisci email e password",
+  "Conferma dall'email che ti inviamo",
+  "Accedi a PitchBrain"
 ] as const;
 
 function ModeTabs({
@@ -68,33 +71,47 @@ function StepList({ steps }: { steps: readonly string[] }) {
 export default function LoginScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ mode?: string }>();
-  const { signIn, requestSignUp, session } = useAuth();
+  const { signIn, signUp, resendConfirmation, resetPassword, session } = useAuth();
   const { resumePendingAction } = useAccessFlow();
   const initialMode: AuthMode = params.mode === "register" ? "register" : "login";
   const [mode, setMode] = useState<AuthMode>(initialMode);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [registerSent, setRegisterSent] = useState(false);
+  const [recoverSent, setRecoverSent] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [resending, setResending] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
 
   useEffect(() => {
     if (params.mode === "register") setMode("register");
   }, [params.mode]);
 
   useEffect(() => {
-    if (session) {
+    if (session?.user?.email_confirmed_at) {
       resumePendingAction();
       router.replace("/");
     }
   }, [session, resumePendingAction, router]);
+
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const timer = setInterval(() => {
+      setResendCooldown((value) => (value <= 1 ? 0 : value - 1));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [resendCooldown]);
 
   function switchMode(next: AuthMode) {
     setMode(next);
     setError(null);
     setSuccessMessage(null);
     setRegisterSent(false);
+    setRecoverSent(false);
+    setConfirmPassword("");
   }
 
   async function handleSubmit() {
@@ -104,40 +121,81 @@ export default function LoginScreen() {
     try {
       if (mode === "login") {
         await signIn(email.trim(), password);
+      } else if (mode === "recover") {
+        await resetPassword(email.trim());
+        setRecoverSent(true);
+        setSuccessMessage(
+          "Ti abbiamo inviato un'email con le istruzioni per reimpostare la password."
+        );
       } else {
-        const result = await requestSignUp(email.trim());
+        if (password.length < 8) {
+          setError("La password deve avere almeno 8 caratteri.");
+          return;
+        }
+        if (password !== confirmPassword) {
+          setError("Le password non coincidono.");
+          return;
+        }
+        const result = await signUp(email.trim(), password);
         if (result.alreadyRegistered) {
           switchMode("login");
           setError(result.message);
         } else {
           setRegisterSent(true);
           setSuccessMessage(result.message);
+          setResendCooldown(RESEND_COOLDOWN_SEC);
         }
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : "";
-      setError(
-        mode === "login"
-          ? "Email o password errate."
-          : message || "Registrazione non riuscita. Riprova."
-      );
+      setError(mapAuthError(err instanceof Error ? err : new Error("auth_failed")));
     } finally {
       setSubmitting(false);
     }
   }
 
+  async function handleResend() {
+    if (resendCooldown > 0 || resending || !email.trim()) return;
+    setError(null);
+    setResending(true);
+    try {
+      await resendConfirmation(email.trim());
+      setSuccessMessage("Email di conferma reinviata. Controlla posta in arrivo e spam.");
+      setResendCooldown(RESEND_COOLDOWN_SEC);
+    } catch (err) {
+      setError(mapAuthError(err instanceof Error ? err : new Error("resend_failed")));
+    } finally {
+      setResending(false);
+    }
+  }
+
   const canSubmit =
-    mode === "login" ? Boolean(email.trim() && password) : Boolean(email.trim()) && !registerSent;
+    mode === "login"
+      ? Boolean(email.trim() && password)
+      : mode === "recover"
+        ? Boolean(email.trim()) && !recoverSent
+        : Boolean(email.trim() && password && confirmPassword) && !registerSent;
 
   const title =
-    mode === "login" ? "Accedi" : registerSent ? "Controlla la email" : "Crea account";
+    mode === "recover"
+      ? recoverSent
+        ? "Controlla la email"
+        : "Recupera password"
+      : mode === "login"
+        ? "Accedi"
+        : registerSent
+          ? "Controlla la email"
+          : "Crea account";
 
   const subtitle =
-    mode === "login"
-      ? "Sincronizza sblocchi, Pro e preferenze su tutti i dispositivi."
-      : registerSent
-        ? "Apri il link che ti abbiamo inviato e scegli la password."
-        : "Gratis. Ti basta l'email: la password la imposti dal link.";
+    mode === "recover"
+      ? recoverSent
+        ? "Apri il link nell'email per scegliere una nuova password."
+        : "Inserisci l'email dell'account: ti invieremo un link di reset."
+      : mode === "login"
+        ? "Sincronizza sblocchi, Pro e preferenze su tutti i dispositivi."
+        : registerSent
+          ? "Apri il link di conferma nell'email per attivare l'account."
+          : "Gratis. Conferma l'email per completare la registrazione.";
 
   return (
     <KeyboardAvoidingView
@@ -154,11 +212,14 @@ export default function LoginScreen() {
           <Text style={styles.title}>{title}</Text>
           <Text style={styles.subtitle}>{subtitle}</Text>
 
-          {!registerSent ? <ModeTabs mode={mode} onChange={switchMode} /> : null}
+          {mode !== "recover" && !registerSent && !recoverSent ? (
+            <ModeTabs mode={mode} onChange={switchMode} />
+          ) : null}
 
           {error ? <Text style={styles.error}>{error}</Text> : null}
+          {successMessage ? <Text style={styles.success}>{successMessage}</Text> : null}
 
-          {mode === "login" ? (
+          {mode === "login" && !registerSent ? (
             <>
               <Text style={styles.label}>Email</Text>
               <TextInput
@@ -180,19 +241,13 @@ export default function LoginScreen() {
                 placeholderTextColor={colors.textDim}
                 style={styles.input}
               />
-            </>
-          ) : registerSent ? (
-            <>
-              {successMessage ? <Text style={styles.success}>{successMessage}</Text> : null}
-              <StepList steps={REGISTER_STEPS} />
-              <Pressable
-                style={({ pressed }) => [styles.secondaryBtn, pressed && { opacity: 0.9 }]}
-                onPress={() => switchMode("login")}
-              >
-                <Text style={styles.secondaryBtnText}>Ho impostato la password — Accedi</Text>
+              <Pressable onPress={() => switchMode("recover")} hitSlop={8}>
+                <Text style={styles.link}>Password dimenticata?</Text>
               </Pressable>
             </>
-          ) : (
+          ) : null}
+
+          {mode === "recover" && !recoverSent ? (
             <>
               <Text style={styles.label}>Email</Text>
               <TextInput
@@ -205,11 +260,84 @@ export default function LoginScreen() {
                 placeholderTextColor={colors.textDim}
                 style={styles.input}
               />
+            </>
+          ) : null}
+
+          {mode === "register" && !registerSent ? (
+            <>
+              <Text style={styles.label}>Email</Text>
+              <TextInput
+                autoCapitalize="none"
+                autoComplete="email"
+                keyboardType="email-address"
+                value={email}
+                onChangeText={setEmail}
+                placeholder="nome@email.it"
+                placeholderTextColor={colors.textDim}
+                style={styles.input}
+              />
+              <Text style={styles.label}>Password</Text>
+              <TextInput
+                secureTextEntry
+                value={password}
+                onChangeText={setPassword}
+                placeholder="Almeno 8 caratteri"
+                placeholderTextColor={colors.textDim}
+                style={styles.input}
+              />
+              <Text style={styles.label}>Conferma password</Text>
+              <TextInput
+                secureTextEntry
+                value={confirmPassword}
+                onChangeText={setConfirmPassword}
+                placeholder="Ripeti la password"
+                placeholderTextColor={colors.textDim}
+                style={styles.input}
+              />
               <StepList steps={REGISTER_STEPS} />
             </>
-          )}
+          ) : null}
 
-          {!registerSent ? (
+          {registerSent ? (
+            <>
+              <StepList steps={REGISTER_STEPS} />
+              <Pressable
+                onPress={() => void handleResend()}
+                disabled={resending || resendCooldown > 0}
+                style={({ pressed }) => [
+                  styles.secondaryBtn,
+                  (pressed || resending || resendCooldown > 0) && { opacity: 0.6 }
+                ]}
+              >
+                {resending ? (
+                  <ActivityIndicator color={colors.cyan} />
+                ) : (
+                  <Text style={styles.secondaryBtnText}>
+                    {resendCooldown > 0
+                      ? `Reinvia email tra ${resendCooldown}s`
+                      : "Reinvia email di conferma"}
+                  </Text>
+                )}
+              </Pressable>
+              <Pressable
+                style={({ pressed }) => [styles.secondaryBtn, pressed && { opacity: 0.9 }]}
+                onPress={() => switchMode("login")}
+              >
+                <Text style={styles.secondaryBtnText}>Ho confermato — Accedi</Text>
+              </Pressable>
+            </>
+          ) : null}
+
+          {recoverSent ? (
+            <Pressable
+              style={({ pressed }) => [styles.secondaryBtn, pressed && { opacity: 0.9 }]}
+              onPress={() => switchMode("login")}
+            >
+              <Text style={styles.secondaryBtnText}>Torna al login</Text>
+            </Pressable>
+          ) : null}
+
+          {!registerSent && !recoverSent ? (
             <Pressable
               onPress={() => void handleSubmit()}
               disabled={submitting || !canSubmit}
@@ -223,13 +351,23 @@ export default function LoginScreen() {
                 <ActivityIndicator color={colors.background} />
               ) : (
                 <Text style={styles.buttonText}>
-                  {mode === "login" ? "Entra in PitchBrain" : "Invia email di registrazione"}
+                  {mode === "login"
+                    ? "Entra in PitchBrain"
+                    : mode === "recover"
+                      ? "Invia link di reset"
+                      : "Crea account"}
                 </Text>
               )}
             </Pressable>
           ) : null}
 
-          {!registerSent ? (
+          {mode === "recover" && !recoverSent ? (
+            <Pressable onPress={() => switchMode("login")} hitSlop={8} style={styles.guestWrap}>
+              <Text style={styles.guestLink}>Torna al login</Text>
+            </Pressable>
+          ) : null}
+
+          {mode !== "recover" && !registerSent ? (
             <Pressable onPress={() => router.replace("/")} hitSlop={8} style={styles.guestWrap}>
               <Text style={styles.guestLink}>Continua senza account</Text>
             </Pressable>
@@ -338,6 +476,12 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     fontSize: 15
   },
+  link: {
+    marginTop: spacing.sm,
+    color: colors.cyan,
+    fontSize: 13,
+    fontWeight: "600"
+  },
   stepsBox: {
     marginTop: spacing.md,
     gap: spacing.sm,
@@ -392,12 +536,14 @@ const styles = StyleSheet.create({
     fontWeight: "800"
   },
   secondaryBtn: {
-    marginTop: spacing.lg,
+    marginTop: spacing.md,
     borderRadius: radii.lg,
     borderWidth: 1,
     borderColor: "rgba(56,189,248,0.3)",
     paddingVertical: 12,
-    alignItems: "center"
+    alignItems: "center",
+    minHeight: 48,
+    justifyContent: "center"
   },
   secondaryBtnText: {
     color: colors.cyan,

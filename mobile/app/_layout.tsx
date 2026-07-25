@@ -74,8 +74,20 @@ export default function RootLayout() {
                   <Stack.Screen
                     name="login"
                     options={{
-                      title: "Accedi",
+                      title: "Account",
                       presentation: "modal",
+                      headerStyle: { backgroundColor: colors.surfaceAlt },
+                      headerTintColor: colors.cyan
+                    }}
+                  />
+                  <Stack.Screen
+                    name="auth/callback"
+                    options={{ headerShown: false, animation: "fade" }}
+                  />
+                  <Stack.Screen
+                    name="auth/reset-password"
+                    options={{
+                      title: "Nuova password",
                       headerStyle: { backgroundColor: colors.surfaceAlt },
                       headerTintColor: colors.cyan
                     }}

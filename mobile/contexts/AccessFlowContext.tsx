@@ -70,7 +70,7 @@ export function AccessFlowProvider({ children }: { children: ReactNode }) {
 
   const openAuthFromPaywall = useCallback(() => {
     setPaywallVisible(false);
-    router.push("/login");
+    router.push({ pathname: "/login", params: { mode: "register" } });
   }, [router]);
 
   const handleRestorePurchases = useCallback(async () => {

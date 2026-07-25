@@ -1,20 +1,35 @@
 {
   "expo": {
-    "name": "Tactical Intelligence Hub",
+    "name": "PitchBrain",
     "slug": "tactical-intelligence-hub",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "tactical-hub",
+    "scheme": "pitchbrain",
     "userInterfaceStyle": "dark",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.ildodicesimo.tacticalhub"
+      "bundleIdentifier": "com.ildodicesimo.tacticalhub",
+      "buildNumber": "1",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
+        "CFBundleAllowMixedLocalizations": true
+      },
+      "privacyManifests": {
+        "NSPrivacyAccessedAPITypes": [
+          {
+            "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryUserDefaults",
+            "NSPrivacyAccessedAPITypeReasons": [
+              "CA92.1"
+            ]
+          }
+        ]
+      }
     },
     "android": {
       "package": "com.ildodicesimo.tacticalhub",
       "adaptiveIcon": {
-        "backgroundColor": "#040B14",
+        "backgroundColor": "#000000",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
@@ -28,19 +43,38 @@
     "plugins": [
       "expo-router",
       "expo-secure-store",
+      "expo-dev-client",
       [
         "expo-splash-screen",
         {
           "image": "./assets/images/splash-icon.png",
           "resizeMode": "contain",
-          "backgroundColor": "#040B14"
+          "backgroundColor": "#000000"
         }
       ],
       "expo-asset",
-      "expo-font"
+      "expo-font",
+      [
+        "react-native-google-mobile-ads",
+        {
+          "androidAppId": "ca-app-pub-8598556060147393~2825808575",
+          "iosAppId": "ca-app-pub-8598556060147393~6015344622"
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "1be236be-aedf-4f24-9df9-1377b81fa1a2"
+      }
+    },
+    "owner": "eujenio03"
+  },
+  "react-native-google-mobile-ads": {
+    "android_app_id": "ca-app-pub-8598556060147393~2825808575",
+    "ios_app_id": "ca-app-pub-8598556060147393~6015344622"
   }
 }

@@ -2,7 +2,9 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import type { Session, User } from "@supabase/supabase-js";
 import { deriveUserAccessStatus } from "@/lib/access/user-status";
 import type { SubscriptionEntitlement, UserAccessStatus } from "@/lib/access/types";
-import { fetchUserAccess } from "@/lib/api";
+import { authCallbackUrl, passwordResetRedirectUrl } from "@/lib/auth-redirect";
+import { mapAuthError } from "@/lib/auth-errors";
+import { fetchUserAccess, deleteUserAccount } from "@/lib/api";
 import {
   refreshUserEntitlements,
   restorePurchases as restorePurchasesFromStore,
@@ -10,6 +12,12 @@ import {
 } from "@/lib/subscription/entitlements";
 import { supabase } from "@/lib/supabase";
 import type { UserAccessSummary } from "@/lib/types";
+
+export interface SignUpResult {
+  alreadyRegistered: boolean;
+  needsConfirmation: boolean;
+  message: string;
+}
 
 interface AuthContextValue {
   session: Session | null;
@@ -20,8 +28,12 @@ interface AuthContextValue {
   loading: boolean;
   isGuest: boolean;
   signIn: (email: string, password: string) => Promise<void>;
-  signUp: (email: string, password: string) => Promise<void>;
+  signUp: (email: string, password: string) => Promise<SignUpResult>;
+  resendConfirmation: (email: string) => Promise<void>;
+  resetPassword: (email: string) => Promise<void>;
+  updatePassword: (password: string) => Promise<void>;
   signOut: () => Promise<void>;
+  deleteAccount: () => Promise<void>;
   refreshAccess: () => Promise<void>;
   restorePurchases: () => Promise<{ restored: boolean }>;
   activateProPurchase: () => Promise<{ completed: boolean; message: string }>;
@@ -85,13 +97,61 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [session, refreshAccess]);
 
   const signIn = useCallback(async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) throw error;
+    const { error } = await supabase.auth.signInWithPassword({
+      email: email.trim(),
+      password
+    });
+    if (error) throw new Error(mapAuthError(error));
   }, []);
 
-  const signUp = useCallback(async (email: string, password: string) => {
-    const { error } = await supabase.auth.signUp({ email, password });
-    if (error) throw error;
+  const signUp = useCallback(async (email: string, password: string): Promise<SignUpResult> => {
+    const normalizedEmail = email.trim();
+    const emailRedirectTo = authCallbackUrl();
+    const { data, error } = await supabase.auth.signUp({
+      email: normalizedEmail,
+      password,
+      options: { emailRedirectTo }
+    });
+    if (error) throw new Error(mapAuthError(error));
+
+    if (data.user?.identities?.length === 0) {
+      return {
+        alreadyRegistered: true,
+        needsConfirmation: false,
+        message:
+          "Questa email è già registrata. Accedi con la password o usa Recupera password."
+      };
+    }
+
+    const needsConfirmation = !data.session;
+    return {
+      alreadyRegistered: false,
+      needsConfirmation,
+      message: needsConfirmation
+        ? "Ti abbiamo inviato un'email di conferma. Apri il link per attivare l'account, poi accedi."
+        : "Account creato. Ora puoi accedere."
+    };
+  }, []);
+
+  const resendConfirmation = useCallback(async (email: string) => {
+    const { error } = await supabase.auth.resend({
+      type: "signup",
+      email: email.trim(),
+      options: { emailRedirectTo: authCallbackUrl() }
+    });
+    if (error) throw new Error(mapAuthError(error));
+  }, []);
+
+  const resetPassword = useCallback(async (email: string) => {
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+      redirectTo: passwordResetRedirectUrl()
+    });
+    if (error) throw new Error(mapAuthError(error));
+  }, []);
+
+  const updatePassword = useCallback(async (password: string) => {
+    const { error } = await supabase.auth.updateUser({ password });
+    if (error) throw new Error(mapAuthError(error));
   }, []);
 
   const signOut = useCallback(async () => {
@@ -99,6 +159,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setAccess(null);
     setSubscription(defaultSubscription);
   }, []);
+
+  const deleteAccount = useCallback(async () => {
+    if (!session?.user) {
+      throw new Error("not_authenticated");
+    }
+    await deleteUserAccount();
+    await supabase.auth.signOut();
+    setAccess(null);
+    setSubscription(defaultSubscription);
+    setSession(null);
+  }, [session?.user]);
 
   const restorePurchases = useCallback(async () => {
     if (!session?.user) return { restored: false };
@@ -139,7 +210,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isGuest: userStatus === "guest",
       signIn,
       signUp,
+      resendConfirmation,
+      resetPassword,
+      updatePassword,
       signOut,
+      deleteAccount,
       refreshAccess,
       restorePurchases,
       activateProPurchase
@@ -152,7 +227,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       loading,
       signIn,
       signUp,
+      resendConfirmation,
+      resetPassword,
+      updatePassword,
       signOut,
+      deleteAccount,
       refreshAccess,
       restorePurchases,
       activateProPurchase

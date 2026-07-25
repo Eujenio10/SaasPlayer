@@ -18,7 +18,7 @@ const benefits = [
 ];
 
 function primaryCtaLabel(status: UserAccessStatus): string {
-  if (status === "guest") return "Accedi e continua";
+  if (status === "guest") return "Crea account e continua";
   if (status === "expired_pro") return "Riattiva Pro";
   return "Attiva Pro";
 }

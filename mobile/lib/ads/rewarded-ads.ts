@@ -1,7 +1,8 @@
 /**
  * Astrazione Rewarded Ads.
- * - Dev / senza SDK: mock che completa la reward
- * - Con react-native-google-mobile-ads installato (dev client): AdMob reale
+ * - Mock: EXPO_PUBLIC_ADS_FORCE_MOCK=1 (default in __DEV__ se non forzi AdMob)
+ * - AdMob reale: EXPO_PUBLIC_ADS_FORCE_MOCK=0
+ * - In __DEV__ usa sempre le sample unit Google (fill affidabile), salvo USE_PRODUCTION_UNITS=1
  */
 
 import { Platform } from "react-native";
@@ -19,10 +20,60 @@ export interface RewardedAdsService {
   show(options?: { customData?: string }): Promise<RewardedAdShowResult>;
 }
 
-const UNIT_IOS =
-  process.env.EXPO_PUBLIC_ADMOB_REWARDED_UNIT_IOS ?? "ca-app-pub-3940256099942544/1712485313";
-const UNIT_ANDROID =
-  process.env.EXPO_PUBLIC_ADMOB_REWARDED_UNIT_ANDROID ?? "ca-app-pub-3940256099942544/5224354917";
+/** Sample ufficiali Google — non usare TestIds.REWARDED (può essere "" prima del Platform.select). */
+const GOOGLE_SAMPLE_REWARDED_IOS = "ca-app-pub-3940256099942544/1712485313";
+const GOOGLE_SAMPLE_REWARDED_ANDROID = "ca-app-pub-3940256099942544/5224354917";
+
+let mobileAdsInitialized: Promise<void> | null = null;
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function ensureMobileAdsInitialized(mod: any): Promise<void> {
+  if (!mobileAdsInitialized) {
+    mobileAdsInitialized = (async () => {
+      const api = typeof mod.default === "function" ? mod.default() : (mod.default ?? mod);
+      if (typeof api?.setRequestConfiguration === "function") {
+        await api.setRequestConfiguration({
+          testDeviceIdentifiers: ["EMULATOR", "SIMULATOR"]
+        });
+      }
+      if (typeof api?.initialize === "function") {
+        await api.initialize();
+      } else if (typeof mod.initialize === "function") {
+        await mod.initialize();
+      }
+    })();
+  }
+  return mobileAdsInitialized;
+}
+
+function googleSampleUnit(): string {
+  return Platform.OS === "ios" ? GOOGLE_SAMPLE_REWARDED_IOS : GOOGLE_SAMPLE_REWARDED_ANDROID;
+}
+
+function rewardedUnitId(): string {
+  const useProductionUnits = process.env.EXPO_PUBLIC_ADMOB_USE_PRODUCTION_UNITS === "1";
+
+  // Preview/dev: sample Google (fill affidabile). Production store: unit reali (USE_PRODUCTION_UNITS=1).
+  if (!useProductionUnits) {
+    return googleSampleUnit();
+  }
+
+  const envKey =
+    Platform.OS === "ios"
+      ? process.env.EXPO_PUBLIC_ADMOB_REWARDED_UNIT_IOS
+      : process.env.EXPO_PUBLIC_ADMOB_REWARDED_UNIT_ANDROID;
+  const configured = envKey?.trim() ?? "";
+
+  if (!configured) {
+    throw new Error(
+      "EXPO_PUBLIC_ADMOB_REWARDED_UNIT_IOS/ANDROID mancante: configura unit reali prima della build production."
+    );
+  }
+  if (configured === GOOGLE_SAMPLE_REWARDED_IOS || configured === GOOGLE_SAMPLE_REWARDED_ANDROID) {
+    throw new Error("AdMob sample unit non consentita con USE_PRODUCTION_UNITS=1.");
+  }
+  return configured;
+}
 
 class MockRewardedAdsService implements RewardedAdsService {
   private ready = false;
@@ -58,25 +109,46 @@ class AdMobRewardedAdsService implements RewardedAdsService {
     this.module = mod;
   }
 
-  private unitId(): string {
-    return Platform.OS === "ios" ? UNIT_IOS : UNIT_ANDROID;
-  }
-
   async load(): Promise<void> {
+    await ensureMobileAdsInitialized(this.module);
+    this.ready = false;
     const { RewardedAd, RewardedAdEventType, AdEventType } = this.module;
-    this.rewarded = RewardedAd.createForAdRequest(this.unitId(), {
-      requestNonPersonalizedAdsOnly: true
-    });
+    const unitId = rewardedUnitId();
+    if (!unitId) {
+      throw new Error("Ad unit ID vuoto: controlla la configurazione AdMob.");
+    }
+
+    this.rewarded = RewardedAd.createForAdRequest(unitId);
 
     await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(
+          new Error(
+            "Timeout caricamento ads. In dev lascia EXPO_PUBLIC_ADMOB_USE_PRODUCTION_UNITS=0 e riavvia Metro con --clear."
+          )
+        );
+      }, 25000);
+
       const unsubLoaded = this.rewarded.addAdEventListener(RewardedAdEventType.LOADED, () => {
+        clearTimeout(timeout);
         this.ready = true;
         unsubLoaded();
+        unsubError();
         resolve();
       });
       const unsubError = this.rewarded.addAdEventListener(AdEventType.ERROR, (err: unknown) => {
+        clearTimeout(timeout);
+        unsubLoaded();
         unsubError();
-        reject(err instanceof Error ? err : new Error("ad_load_failed"));
+        const message =
+          err && typeof err === "object" && "message" in err
+            ? String((err as { message: unknown }).message)
+            : "ad_load_failed";
+        reject(
+          new Error(
+            `${message} (unit=${unitId}). Se vedi "No ads to show", in test usa le sample Google (USE_PRODUCTION_UNITS=0).`
+          )
+        );
       });
       this.rewarded.load();
     });
@@ -94,10 +166,14 @@ class AdMobRewardedAdsService implements RewardedAdsService {
 
     return new Promise((resolve) => {
       let rewarded = false;
-      let completed = false;
+      let settled = false;
       const { RewardedAdEventType, AdEventType } = this.module;
 
       const finish = (result: RewardedAdShowResult) => {
+        if (settled) return;
+        settled = true;
+        this.ready = false;
+        this.rewarded = null;
         resolve(result);
       };
 
@@ -105,20 +181,27 @@ class AdMobRewardedAdsService implements RewardedAdsService {
         rewarded = true;
       });
       this.rewarded.addAdEventListener(AdEventType.CLOSED, () => {
-        completed = true;
         finish({
-          completed,
+          completed: true,
           rewarded,
           transactionId: rewarded ? `admob_${Date.now()}` : undefined,
           error: rewarded ? undefined : "closed_before_reward"
         });
       });
-      this.rewarded.addAdEventListener(AdEventType.ERROR, () => {
-        finish({ completed: false, rewarded: false, error: "ad_show_failed" });
+      this.rewarded.addAdEventListener(AdEventType.ERROR, (err: unknown) => {
+        const message =
+          err && typeof err === "object" && "message" in err
+            ? String((err as { message: unknown }).message)
+            : "ad_show_failed";
+        finish({ completed: false, rewarded: false, error: message });
       });
 
-      this.rewarded.show().catch(() => {
-        finish({ completed: false, rewarded: false, error: "ad_show_failed" });
+      this.rewarded.show().catch((err: unknown) => {
+        finish({
+          completed: false,
+          rewarded: false,
+          error: err instanceof Error ? err.message : "ad_show_failed"
+        });
       });
     });
   }
@@ -128,27 +211,26 @@ let singleton: RewardedAdsService | null = null;
 
 function tryCreateAdMobService(): RewardedAdsService | null {
   try {
-    // Optional dependency — install with: npx expo install react-native-google-mobile-ads
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const mod = require("react-native-google-mobile-ads");
     if (mod?.RewardedAd) return new AdMobRewardedAdsService(mod);
   } catch {
-    // package non installato
+    // package non installato / native module assente
   }
   return null;
 }
 
 export function getRewardedAdsService(): RewardedAdsService {
   if (!singleton) {
-    const forceMock = process.env.EXPO_PUBLIC_ADS_FORCE_MOCK === "1" || __DEV__;
-    if (!forceMock) {
+    const forceMock = process.env.EXPO_PUBLIC_ADS_FORCE_MOCK === "1";
+    const forceAdMob = process.env.EXPO_PUBLIC_ADS_FORCE_MOCK === "0";
+
+    if (forceMock) {
+      singleton = new MockRewardedAdsService();
+    } else if (forceAdMob || !__DEV__) {
       singleton = tryCreateAdMobService() ?? new MockRewardedAdsService();
     } else {
-      // In __DEV__ usa mock di default; set EXPO_PUBLIC_ADS_FORCE_MOCK=0 per testare AdMob
-      const preferAdMob = process.env.EXPO_PUBLIC_ADS_FORCE_MOCK === "0";
-      singleton = preferAdMob
-        ? tryCreateAdMobService() ?? new MockRewardedAdsService()
-        : new MockRewardedAdsService();
+      singleton = new MockRewardedAdsService();
     }
   }
   return singleton;

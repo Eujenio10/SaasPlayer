@@ -15,6 +15,7 @@ import {
   readGuestFeaturesPreviewExpiresAt,
   type GuestAdPreviewScope
 } from "@/lib/guest-ad-preview";
+import { getRewardedAdsService } from "@/lib/ads/rewarded-ads";
 import { useAuth } from "@/contexts/AuthContext";
 
 interface GuestPreviewContextValue {
@@ -77,13 +78,26 @@ export function GuestPreviewProvider({ children }: { children: ReactNode }) {
   const completeAdWatch = useCallback(async () => {
     setAdWatching(true);
     try {
-      // TODO: collegare AdMob / Unity Ads / provider reale qui.
-      await new Promise((resolve) => setTimeout(resolve, 2500));
+      const ads = getRewardedAdsService();
+      await ads.load();
+      const shown = await ads.show();
+      if (!shown.completed || !shown.rewarded) {
+        Alert.alert(
+          "Video non completato",
+          shown.error ?? "La pubblicità non è stata completata. Lo sblocco non è stato attivato."
+        );
+        return;
+      }
       const expiresAt = await activateGuestAdPreview("features");
       setFeaturesPreviewExpiresAt(expiresAt);
       setFeaturesPreviewActive(true);
       setAdModalVisible(false);
       Alert.alert(GUEST_FEATURES_UNLOCK_TITLE, GUEST_FEATURES_UNLOCK_MESSAGE, [{ text: "Ho capito" }]);
+    } catch (err) {
+      Alert.alert(
+        "Errore pubblicità",
+        err instanceof Error ? err.message : "Impossibile caricare o mostrare la pubblicità."
+      );
     } finally {
       setAdWatching(false);
     }

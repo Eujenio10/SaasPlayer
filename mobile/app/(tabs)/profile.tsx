@@ -1,10 +1,11 @@
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { Screen } from "@/components/Screen";
 import { useAccessFlow } from "@/contexts/AccessFlowContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { userStatusLabel } from "@/lib/access/features";
 import { colors, radii, spacing } from "@/lib/theme";
+import { useState } from "react";
 
 function roleFeatures(role: string | undefined): string[] {
   if (role === "admin") {
@@ -30,11 +31,42 @@ function roleFeatures(role: string | undefined): string[] {
 
 export default function ProfileScreen() {
   const router = useRouter();
-  const { user, access, userStatus, signOut } = useAuth();
+  const { user, access, userStatus, signOut, deleteAccount } = useAuth();
   const { openPaywall, handleRestorePurchases } = useAccessFlow();
+  const [deleting, setDeleting] = useState(false);
 
   const email = user?.email ?? "—";
   const features = roleFeatures(access?.role);
+
+  const confirmDeleteAccount = () => {
+    Alert.alert(
+      "Elimina account",
+      "Questa azione è definitiva: account, preferenze e dati personali collegati verranno cancellati. Gli abbonamenti store vanno gestiti anche da Impostazioni Apple/Google.",
+      [
+        { text: "Annulla", style: "cancel" },
+        {
+          text: "Elimina definitivamente",
+          style: "destructive",
+          onPress: () => {
+            void (async () => {
+              try {
+                setDeleting(true);
+                await deleteAccount();
+                router.replace("/");
+              } catch {
+                Alert.alert(
+                  "Eliminazione non riuscita",
+                  "Riprova più tardi o contatta il supporto."
+                );
+              } finally {
+                setDeleting(false);
+              }
+            })();
+          }
+        }
+      ]
+    );
+  };
 
   if (userStatus === "guest") {
     return (
@@ -54,14 +86,21 @@ export default function ProfileScreen() {
           style={({ pressed }) => [styles.primaryBtn, pressed && { opacity: 0.92 }]}
           onPress={() => router.push("/login")}
         >
-          <Text style={styles.primaryBtnText}>Accedi o registrati</Text>
+          <Text style={styles.primaryBtnText}>Accedi</Text>
         </Pressable>
 
         <Pressable
           style={({ pressed }) => [styles.secondaryBtn, pressed && { opacity: 0.9 }]}
+          onPress={() => router.push({ pathname: "/login", params: { mode: "register" } })}
+        >
+          <Text style={styles.secondaryBtnText}>Crea account gratis</Text>
+        </Pressable>
+
+        <Pressable
+          style={({ pressed }) => [styles.linkBtn, pressed && { opacity: 0.9 }]}
           onPress={() => openPaywall("fullPreMatchReport")}
         >
-          <Text style={styles.secondaryBtnText}>Scopri PitchBrain Pro</Text>
+          <Text style={styles.linkBtnText}>Scopri PitchBrain Pro</Text>
         </Pressable>
       </Screen>
     );
@@ -147,6 +186,16 @@ export default function ProfileScreen() {
         style={({ pressed }) => [styles.logout, pressed && { opacity: 0.85 }]}
       >
         <Text style={styles.logoutText}>Logout</Text>
+      </Pressable>
+
+      <Pressable
+        disabled={deleting}
+        onPress={confirmDeleteAccount}
+        style={({ pressed }) => [styles.deleteBtn, pressed && { opacity: 0.85 }]}
+      >
+        <Text style={styles.deleteBtnText}>
+          {deleting ? "Eliminazione in corso…" : "Elimina account"}
+        </Text>
       </Pressable>
 
       <Text style={styles.footer}>PitchBrain Hub © 2025 | IlDodicesimo</Text>
@@ -239,6 +288,16 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "700"
   },
+  linkBtn: {
+    marginTop: spacing.xs,
+    paddingVertical: 10,
+    alignItems: "center"
+  },
+  linkBtnText: {
+    color: colors.cyanMuted,
+    fontSize: 13,
+    fontWeight: "700"
+  },
   logout: {
     marginTop: spacing.md,
     borderRadius: radii.lg,
@@ -250,6 +309,20 @@ const styles = StyleSheet.create({
   logoutText: {
     color: colors.danger,
     fontSize: 15,
+    fontWeight: "800"
+  },
+  deleteBtn: {
+    marginTop: spacing.sm,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: "rgba(248,113,113,0.55)",
+    backgroundColor: "rgba(248,113,113,0.08)",
+    paddingVertical: 14,
+    alignItems: "center"
+  },
+  deleteBtnText: {
+    color: colors.danger,
+    fontSize: 14,
     fontWeight: "800"
   },
   footer: {

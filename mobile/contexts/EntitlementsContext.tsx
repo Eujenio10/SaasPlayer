@@ -233,12 +233,17 @@ export function EntitlementsProvider({ children }: { children: ReactNode }) {
             `${result.entitlements.rewardedUnlocksRemaining} sblocchi gratuiti oggi.`
         );
         return true;
-      } catch {
+      } catch (err) {
         void trackMobileEntitlementEvent("rewarded_ad_failed", {
           matchId: String(matchId),
           sourceScreen
         });
-        Alert.alert("Errore", "Impossibile caricare o mostrare la pubblicità. Riprova più tardi.");
+        Alert.alert(
+          "Errore pubblicità",
+          err instanceof Error
+            ? err.message
+            : "Impossibile caricare o mostrare la pubblicità. Riprova più tardi."
+        );
         return false;
       } finally {
         unlockInFlight.current = false;
