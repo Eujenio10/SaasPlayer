@@ -8,23 +8,17 @@ function webOrigin(): string {
 }
 
 /**
- * Route server Supabase: gestisce token_hash e code lato server (affidabile su iOS/Safari).
- * Aggiungi in Supabase Redirect URLs:
- * https://saas-player.vercel.app/auth/confirm
+ * Callback client-side: legge #access_token dal browser (Supabase implicit flow).
+ * NON usare /auth/confirm come redirect email — il server non vede l'hash.
  */
-export function webAuthConfirmUrl(nextPath: string): string {
-  return `${webOrigin()}/auth/confirm?next=${encodeURIComponent(nextPath)}`;
-}
-
-/** Fallback client per token nel fragment (#access_token). */
 export function webAuthCallbackUrl(nextPath: string): string {
   return `${webOrigin()}/auth/callback?next=${encodeURIComponent(nextPath)}`;
 }
 
 export function passwordResetRedirectUrl(): string {
-  return webAuthConfirmUrl("/set-password");
+  return webAuthCallbackUrl("/set-password");
 }
 
 export function signupEmailRedirectUrl(): string {
-  return webAuthConfirmUrl("/account/welcome");
+  return webAuthCallbackUrl("/account/welcome");
 }

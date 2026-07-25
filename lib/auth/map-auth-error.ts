@@ -52,7 +52,7 @@ export function mapAuthError(error: AuthError | Error): string {
 }
 
 export function webAuthRedirectTo(next = "/"): string {
-  if (typeof window === "undefined") return "/auth/confirm";
+  if (typeof window === "undefined") return "/auth/callback";
   const origin = window.location.origin.replace(/\/$/, "");
-  return `${origin}/auth/confirm?next=${encodeURIComponent(next)}`;
+  return `${origin}/auth/callback?next=${encodeURIComponent(next)}`;
 }

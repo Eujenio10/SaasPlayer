@@ -28,7 +28,7 @@ function buildAuthConfirmFromSearchParams(
     const qs = new URLSearchParams();
     qs.set("code", code);
     qs.set("next", "/set-password");
-    return `/auth/confirm?${qs.toString()}`;
+    return `/auth/callback?${qs.toString()}`;
   }
 
   if (tokenHash) {
@@ -36,7 +36,7 @@ function buildAuthConfirmFromSearchParams(
     qs.set("token_hash", tokenHash);
     if (type) qs.set("type", type);
     qs.set("next", "/set-password");
-    return `/auth/confirm?${qs.toString()}`;
+    return `/auth/callback?${qs.toString()}`;
   }
 
   return null;
