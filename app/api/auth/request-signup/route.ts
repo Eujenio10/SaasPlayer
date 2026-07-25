@@ -13,7 +13,7 @@ function normalizeEmail(raw: unknown): string | null {
 
 function signupRedirectTo(): string {
   const appUrl = env.NEXT_PUBLIC_APP_URL.replace(/\/$/, "");
-  return `${appUrl}/auth/confirm?next=${encodeURIComponent("/set-password")}`;
+  return `${appUrl}/auth/callback?next=${encodeURIComponent("/set-password")}`;
 }
 
 /**

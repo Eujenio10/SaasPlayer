@@ -1,4 +1,6 @@
 import { redirect } from "next/navigation";
+import { AuthGuestLanding } from "@/components/auth-guest-landing";
+import { AuthInviteHashBridge } from "@/components/auth-invite-hash-bridge";
 import { DashboardHomePage } from "@/components/dashboard-home-page";
 import { getSessionContext } from "@/lib/auth/session";
 
@@ -26,7 +28,7 @@ function buildAuthConfirmFromSearchParams(
     const qs = new URLSearchParams();
     qs.set("code", code);
     qs.set("next", "/set-password");
-    return `/auth/confirm?${qs.toString()}`;
+    return `/auth/callback?${qs.toString()}`;
   }
 
   if (tokenHash && type) {
@@ -34,7 +36,7 @@ function buildAuthConfirmFromSearchParams(
     qs.set("token_hash", tokenHash);
     qs.set("type", type);
     qs.set("next", "/set-password");
-    return `/auth/confirm?${qs.toString()}`;
+    return `/auth/callback?${qs.toString()}`;
   }
 
   return null;
@@ -52,7 +54,12 @@ export default async function HomePage({
 
   const session = await getSessionContext();
   if (!session) {
-    redirect("/login");
+    return (
+      <>
+        <AuthInviteHashBridge />
+        <AuthGuestLanding />
+      </>
+    );
   }
   if (!session.organization) {
     redirect("/forbidden");

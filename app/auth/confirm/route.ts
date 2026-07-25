@@ -24,7 +24,9 @@ export async function GET(request: NextRequest) {
     const supabase = createSupabaseResponseClient(response, request);
     const { error } = await supabase.auth.exchangeCodeForSession(code);
     if (error) {
-      return NextResponse.redirect(new URL(`/login?error=1&next=${encodeURIComponent(next)}`, url));
+      return NextResponse.redirect(
+        new URL(`/auth/callback?error=1&next=${encodeURIComponent(next)}`, url)
+      );
     }
     return response;
   }
@@ -38,10 +40,14 @@ export async function GET(request: NextRequest) {
       token_hash: tokenHash
     });
     if (error) {
-      return NextResponse.redirect(new URL(`/login?error=1&next=${encodeURIComponent(next)}`, url));
+      return NextResponse.redirect(
+        new URL(`/auth/callback?error=1&next=${encodeURIComponent(next)}`, url)
+      );
     }
     return response;
   }
 
-  return NextResponse.redirect(new URL(`/login?error=1&next=${encodeURIComponent(next)}`, url));
+  return NextResponse.redirect(
+    new URL(`/auth/callback?error=1&next=${encodeURIComponent(next)}`, url)
+  );
 }
