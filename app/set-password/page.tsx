@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const metadata: Metadata = {
-  title: "Imposta password | Tactical Intelligence Hub"
+  title: "Imposta password | PitchBrain"
 };
 
 export const dynamic = "force-dynamic";
