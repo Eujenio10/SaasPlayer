@@ -337,6 +337,16 @@ export function AuthPanel({ initialMode = "login", nextPath = "/", error }: Auth
 
         {registerSent ? (
           <div className="mt-6 space-y-4">
+            <ol className="space-y-3 text-sm text-slate-300">
+              {registerSteps.map((step, index) => (
+                <li key={step} className="flex gap-3">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-cyan-400/15 text-xs font-bold text-cyan-300">
+                    {index + 1}
+                  </span>
+                  <span className="pt-0.5">{step}</span>
+                </li>
+              ))}
+            </ol>
             <button
               type="button"
               onClick={() => void handleResend()}
