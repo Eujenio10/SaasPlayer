@@ -92,15 +92,16 @@ async function apiFetch<T>(path: string, init?: RequestInit, requireAuth = false
 
 
   if (!res.ok) {
-
-    const body = await parseJsonResponse<{ error?: string }>(res).catch(() => ({} as { error?: string }));
-
+    const body = await parseJsonResponse<{ error?: string; message?: string }>(res).catch(
+      () => ({}) as { error?: string; message?: string }
+    );
     const message =
-
-      typeof body?.error === "string" ? body.error : `request_failed_${res.status}`;
-
+      typeof body?.message === "string" && body.message.trim()
+        ? body.message
+        : typeof body?.error === "string"
+          ? body.error
+          : `request_failed_${res.status}`;
     throw new Error(message);
-
   }
 
 
@@ -135,6 +136,31 @@ export async function fetchUserAccess(): Promise<UserAccessSummary> {
 
   return apiFetch<UserAccessSummary>("/api/user/access", undefined, true);
 
+}
+
+/** Eliminazione definitiva account (App Store guideline 5.1.1). */
+export async function deleteUserAccount(): Promise<void> {
+  await apiFetch<{ ok: boolean }>(
+    "/api/mobile/user/delete-account",
+    {
+      method: "POST",
+      body: JSON.stringify({ confirm: "DELETE" })
+    },
+    true
+  );
+}
+
+/** Invito registrazione: email con link per impostare la password. */
+export async function requestSignUp(email: string): Promise<{
+  ok: boolean;
+  alreadyRegistered: boolean;
+  resent?: boolean;
+  message: string;
+}> {
+  return apiFetch("/api/mobile/auth/request-signup", {
+    method: "POST",
+    body: JSON.stringify({ email })
+  });
 }
 
 
