@@ -62,8 +62,9 @@ function AuthCallbackInner() {
 
       const tokenHash = searchParams.get("token_hash") ?? searchParams.get("token");
       const type = searchParams.get("type");
-      if (tokenHash && type) {
-        window.location.href = `/auth/confirm?token_hash=${encodeURIComponent(tokenHash)}&type=${encodeURIComponent(type)}&next=${encodeURIComponent(next)}`;
+      if (tokenHash) {
+        const otpType = type ?? (next === "/set-password" ? "recovery" : "signup");
+        window.location.href = `/auth/confirm?token_hash=${encodeURIComponent(tokenHash)}&type=${encodeURIComponent(otpType)}&next=${encodeURIComponent(next)}`;
         return;
       }
 

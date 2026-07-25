@@ -2,8 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import type { Session, User } from "@supabase/supabase-js";
 import { deriveUserAccessStatus } from "@/lib/access/user-status";
 import type { SubscriptionEntitlement, UserAccessStatus } from "@/lib/access/types";
-import { authCallbackUrl, passwordResetRedirectUrl } from "@/lib/auth-redirect";
-import { mapAuthError } from "@/lib/auth-errors";
+import { authCallbackUrl, passwordResetRedirectUrl, signupEmailRedirectUrl } from "@/lib/auth-redirect";
 import { fetchUserAccess, deleteUserAccount } from "@/lib/api";
 import {
   refreshUserEntitlements,
@@ -101,18 +100,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       email: email.trim(),
       password
     });
-    if (error) throw new Error(mapAuthError(error));
+    if (error) throw error;
   }, []);
 
   const signUp = useCallback(async (email: string, password: string): Promise<SignUpResult> => {
     const normalizedEmail = email.trim();
-    const emailRedirectTo = authCallbackUrl();
+    const emailRedirectTo = signupEmailRedirectUrl();
     const { data, error } = await supabase.auth.signUp({
       email: normalizedEmail,
       password,
       options: { emailRedirectTo }
     });
-    if (error) throw new Error(mapAuthError(error));
+    if (error) {
+      console.warn("[auth] signUp failed", error.code, error.message);
+      throw error;
+    }
 
     if (data.user?.identities?.length === 0) {
       return {
@@ -137,21 +139,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const { error } = await supabase.auth.resend({
       type: "signup",
       email: email.trim(),
-      options: { emailRedirectTo: authCallbackUrl() }
+      options: { emailRedirectTo: signupEmailRedirectUrl() }
     });
-    if (error) throw new Error(mapAuthError(error));
+    if (error) throw error;
   }, []);
 
   const resetPassword = useCallback(async (email: string) => {
     const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
       redirectTo: passwordResetRedirectUrl()
     });
-    if (error) throw new Error(mapAuthError(error));
+    if (error) throw error;
   }, []);
 
   const updatePassword = useCallback(async (password: string) => {
     const { error } = await supabase.auth.updateUser({ password });
-    if (error) throw new Error(mapAuthError(error));
+    if (error) throw error;
   }, []);
 
   const signOut = useCallback(async () => {

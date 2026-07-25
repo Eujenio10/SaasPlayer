@@ -28,7 +28,32 @@ export function mapAuthError(error: AuthError | Error): string {
     return "Conferma prima la tua email. Controlla la posta o richiedi un nuovo invio.";
   }
 
-  if (message.includes("password") && message.includes("weak")) {
+  if (
+    code === "signup_disabled" ||
+    message.includes("signups not allowed") ||
+    message.includes("signup not allowed")
+  ) {
+    return "La registrazione non è attiva. Contatta support@pitchbrain.it.";
+  }
+
+  if (
+    message.includes("redirect") ||
+    message.includes("redirect_to") ||
+    code === "validation_failed"
+  ) {
+    return "Configurazione redirect non valida. Verifica che pitchbrain://auth/callback sia in Supabase.";
+  }
+
+  if (
+    message.includes("error sending") ||
+    message.includes("confirmation email") ||
+    message.includes("smtp") ||
+    message.includes("mail")
+  ) {
+    return "Invio email non riuscito. Verifica SMTP Aruba in Supabase o riprova tra poco.";
+  }
+
+  if (message.includes("password") && (message.includes("weak") || message.includes("short"))) {
     return "La password è troppo debole. Usa almeno 8 caratteri.";
   }
 
@@ -36,8 +61,22 @@ export function mapAuthError(error: AuthError | Error): string {
     return "Indirizzo email non valido.";
   }
 
-  if (message.includes("signup is disabled")) {
-    return "La registrazione non è al momento disponibile.";
+  if (message.includes("network") || message.includes("fetch")) {
+    return "Connessione non riuscita. Controlla internet e riprova.";
+  }
+
+  if (
+    code === "flow_state_expired" ||
+    code === "otp_expired" ||
+    message.includes("expired") ||
+    message.includes("invalid grant") ||
+    message.includes("flow state")
+  ) {
+    return "Link scaduto o già usato. Richiedi un nuovo invio dall'app.";
+  }
+
+  if (message.includes("code verifier") || message.includes("pkce")) {
+    return "Apri il link sullo stesso dispositivo dove hai richiesto l'email, oppure richiedine uno nuovo.";
   }
 
   return "Operazione non riuscita. Riprova tra qualche istante.";
