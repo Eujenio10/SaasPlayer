@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import type { Session, User } from "@supabase/supabase-js";
 import { deriveUserAccessStatus } from "@/lib/access/user-status";
 import type { SubscriptionEntitlement, UserAccessStatus } from "@/lib/access/types";
-import { authCallbackUrl, passwordResetRedirectUrl, signupEmailRedirectUrl } from "@/lib/auth-redirect";
+import { passwordResetRedirectUrl, signupEmailRedirectUrl } from "@/lib/auth-redirect";
 import { fetchUserAccess, deleteUserAccount } from "@/lib/api";
 import {
   refreshUserEntitlements,
@@ -106,6 +106,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signUp = useCallback(async (email: string, password: string): Promise<SignUpResult> => {
     const normalizedEmail = email.trim();
     const emailRedirectTo = signupEmailRedirectUrl();
+    console.warn("[auth] signUp redirect", emailRedirectTo);
     const { data, error } = await supabase.auth.signUp({
       email: normalizedEmail,
       password,
@@ -145,8 +146,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const resetPassword = useCallback(async (email: string) => {
+    const redirectTo = passwordResetRedirectUrl();
+    console.warn("[auth] reset redirect", redirectTo);
     const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-      redirectTo: passwordResetRedirectUrl()
+      redirectTo
     });
     if (error) throw error;
   }, []);

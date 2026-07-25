@@ -10,44 +10,63 @@ function safeRedirectTarget(next: string | null): string {
   return raw;
 }
 
+function inferOtpType(
+  type: string | null,
+  next: string
+): "signup" | "invite" | "magiclink" | "recovery" | "email_change" {
+  if (type === "signup" || type === "invite" || type === "magiclink" || type === "recovery" || type === "email_change") {
+    return type;
+  }
+  if (next === "/set-password") return "recovery";
+  return "signup";
+}
+
 export async function GET(request: NextRequest) {
   const url = new URL(request.url);
   const code = url.searchParams.get("code");
   const tokenHash = url.searchParams.get("token_hash") ?? url.searchParams.get("token");
-  const type = url.searchParams.get("type");
+  const typeParam = url.searchParams.get("type");
   const next = safeRedirectTarget(url.searchParams.get("next"));
+  const otpType = inferOtpType(typeParam, next);
 
-  // PKCE: i cookie di sessione devono finire sulla stessa Response del redirect.
   if (code) {
-    const destination = new URL(next, url);
+    const destination = new URL(next, url.origin);
     const response = NextResponse.redirect(destination);
     const supabase = createSupabaseResponseClient(response, request);
     const { error } = await supabase.auth.exchangeCodeForSession(code);
     if (error) {
+      console.error("[auth/confirm] exchangeCode failed", error.message);
       return NextResponse.redirect(
-        new URL(`/auth/callback?error=1&next=${encodeURIComponent(next)}`, url)
+        new URL(
+          `/auth/callback?error=exchange_failed&next=${encodeURIComponent(next)}`,
+          url.origin
+        )
       );
     }
     return response;
   }
 
-  if (tokenHash && type) {
-    const destination = new URL(next, url);
+  if (tokenHash) {
+    const destination = new URL(next, url.origin);
     const response = NextResponse.redirect(destination);
     const supabase = createSupabaseResponseClient(response, request);
     const { error } = await supabase.auth.verifyOtp({
-      type: type as "signup" | "invite" | "magiclink" | "recovery" | "email_change",
+      type: otpType,
       token_hash: tokenHash
     });
     if (error) {
+      console.error("[auth/confirm] verifyOtp failed", otpType, error.message);
       return NextResponse.redirect(
-        new URL(`/auth/callback?error=1&next=${encodeURIComponent(next)}`, url)
+        new URL(
+          `/auth/callback?error=verify_failed&next=${encodeURIComponent(next)}`,
+          url.origin
+        )
       );
     }
     return response;
   }
 
   return NextResponse.redirect(
-    new URL(`/auth/callback?error=1&next=${encodeURIComponent(next)}`, url)
+    new URL(`/auth/callback?error=missing_token&next=${encodeURIComponent(next)}`, url.origin)
   );
 }

@@ -28,15 +28,15 @@ function buildAuthConfirmFromSearchParams(
     const qs = new URLSearchParams();
     qs.set("code", code);
     qs.set("next", "/set-password");
-    return `/auth/callback?${qs.toString()}`;
+    return `/auth/confirm?${qs.toString()}`;
   }
 
-  if (tokenHash && type) {
+  if (tokenHash) {
     const qs = new URLSearchParams();
     qs.set("token_hash", tokenHash);
-    qs.set("type", type);
+    if (type) qs.set("type", type);
     qs.set("next", "/set-password");
-    return `/auth/callback?${qs.toString()}`;
+    return `/auth/confirm?${qs.toString()}`;
   }
 
   return null;
