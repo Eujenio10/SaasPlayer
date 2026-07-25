@@ -10,6 +10,18 @@ function safeNextPath(raw: string | null): string {
   return value;
 }
 
+function errorMessage(code: string | null): string | null {
+  switch (code) {
+    case "exchange_failed":
+    case "verify_failed":
+      return "Link scaduto o già usato. Richiedi un nuovo invio dall'app PitchBrain.";
+    case "missing_token":
+      return "Non riusciamo a confermare l'account. Riprova a premere il link nell'email, oppure richiedi un nuovo invio.";
+    default:
+      return code ? "Link non valido o scaduto. Richiedi un nuovo invio dall'app." : null;
+  }
+}
+
 function AuthCallbackInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -17,18 +29,17 @@ function AuthCallbackInner() {
 
   useEffect(() => {
     const next = safeNextPath(searchParams.get("next"));
-    const inviteError = searchParams.get("error");
-
-    if (inviteError) {
-      setMessage(
-        "Link non valido o scaduto. Torna sull'app PitchBrain e richiedi un nuovo invito."
-      );
+    const urlError = searchParams.get("error");
+    const presetError = errorMessage(urlError);
+    if (presetError) {
+      setMessage(presetError);
       return;
     }
 
     const supabase = createSupabaseBrowserClient();
 
     async function completeAuth() {
+      // 1) Token nel fragment (#access_token) — flusso più comune da email Supabase
       const hash = window.location.hash.replace(/^#/, "");
       if (hash) {
         const params = new URLSearchParams(hash);
@@ -40,7 +51,7 @@ function AuthCallbackInner() {
             refresh_token: refreshToken
           });
           if (error) {
-            setMessage("Non siamo riusciti a confermare l'account. Richiedi un nuovo invito.");
+            setMessage("Non riusciamo a confermare l'account. Richiedi un nuovo invio dall'app.");
             return;
           }
           window.history.replaceState({}, "", window.location.pathname + window.location.search);
@@ -49,25 +60,27 @@ function AuthCallbackInner() {
         }
       }
 
+      // 2) PKCE code in query
       const code = searchParams.get("code");
       if (code) {
         const { error } = await supabase.auth.exchangeCodeForSession(code);
         if (error) {
-          setMessage("Link scaduto o già usato. Richiedi un nuovo invito dall'app PitchBrain.");
+          setMessage("Link scaduto o già usato. Richiedi un nuovo invio dall'app PitchBrain.");
           return;
         }
         router.replace(next);
         return;
       }
 
+      // 3) token_hash → verifica server-side
       const tokenHash = searchParams.get("token_hash") ?? searchParams.get("token");
-      const type = searchParams.get("type");
       if (tokenHash) {
-        const otpType = type ?? (next === "/set-password" ? "recovery" : "signup");
-        window.location.href = `/auth/confirm?token_hash=${encodeURIComponent(tokenHash)}&type=${encodeURIComponent(otpType)}&next=${encodeURIComponent(next)}`;
+        const type = searchParams.get("type") ?? (next === "/set-password" ? "recovery" : "signup");
+        window.location.href = `/auth/confirm?token_hash=${encodeURIComponent(tokenHash)}&type=${encodeURIComponent(type)}&next=${encodeURIComponent(next)}`;
         return;
       }
 
+      // 4) Sessione già presente (cookie)
       const {
         data: { session }
       } = await supabase.auth.getSession();
@@ -77,7 +90,7 @@ function AuthCallbackInner() {
       }
 
       setMessage(
-        "Apri di nuovo il link nell'email di invito PitchBrain. Se non funziona, richiedi un nuovo invito dall'app."
+        "Non riusciamo a confermare l'account. Riprova a premere il link nell'email, oppure richiedi un nuovo invio dall'app."
       );
     }
 
