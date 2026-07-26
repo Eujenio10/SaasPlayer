@@ -65,12 +65,16 @@ export async function restorePurchases(userId: string): Promise<{
   const restored = await iap.restore();
 
   if (restored.ok && restored.active) {
-    await syncIapProSubscription({
+    const sync = await syncIapProSubscription({
       active: true,
       expiresAt: restored.expiresAt,
       productId: restored.productId,
       provider: Platform.OS === "ios" ? "app_store" : "play_store"
     });
+    if (!sync.ok) {
+      const entitlement = await refreshUserEntitlements(userId);
+      return { restored: entitlement.state === "active", entitlement };
+    }
   }
 
   const entitlement = await refreshUserEntitlements(userId);
@@ -117,7 +121,7 @@ export async function startProPurchase(userId: string): Promise<{
       };
     }
 
-    await syncIapProSubscription({
+    const sync = await syncIapProSubscription({
       active: true,
       expiresAt: result.expiresAt,
       productId: result.productId,
@@ -127,6 +131,14 @@ export async function startProPurchase(userId: string): Promise<{
           ? "app_store"
           : "play_store"
     });
+
+    if (!sync.ok) {
+      return {
+        completed: false,
+        message:
+          "Pagamento ricevuto ma attivazione non completata. Attendi qualche secondo e usa Ripristina acquisti."
+      };
+    }
 
     void trackMobileEntitlementEvent("pro_subscription_completed", {
       subscriptionTier: "pro",

@@ -2,7 +2,10 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getApiCache, setApiCache } from "@/lib/api-cache";
 import { getApiUser } from "@/lib/auth/get-api-user";
-import { getOrganizationContextForUser } from "@/lib/auth/organization";
+import {
+  ensureConsumerOrganizationMembership,
+  resolveAuthenticatedUserAccess
+} from "@/lib/auth/consumer-membership";
 import { resolveProductOrganizationId } from "@/lib/auth/product-organization";
 import { normalizeCompetitionSlugForInsights } from "@/lib/match-insights-service";
 import { findOrganizationMatchByEventId } from "@/lib/organization-match-insights";
@@ -30,14 +33,14 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
   }
 
-  const organization = await getOrganizationContextForUser(user.id);
-  if (!organization) {
-    return NextResponse.json({ error: "forbidden" }, { status: 403 });
-  }
+  await ensureConsumerOrganizationMembership(user.id);
+  const access = await resolveAuthenticatedUserAccess(user.id);
 
-  if (organization.role !== "admin" && organization.role !== "pro") {
+  if (!access.isPro && !access.isAdmin) {
     return NextResponse.json({ error: "premium_required" }, { status: 403 });
   }
+
+  const isAdmin = access.isAdmin;
 
   const url = new URL(request.url);
   const parsed = querySchema.safeParse({ eventId: url.searchParams.get("eventId") });
@@ -87,8 +90,8 @@ export async function GET(request: Request) {
     awayTeamName: match.awayTeam.name,
     competitionSlug,
     scope,
-    forceRefresh: organization.role === "admin" && forceRefresh,
-    allowProviderFetch: organization.role === "admin" && forceRefresh
+    forceRefresh: isAdmin && forceRefresh,
+    allowProviderFetch: isAdmin && forceRefresh
   });
 
   const homeBlueprint = teamBlueprintFromProviderOnly(tournamentBlueprints.home);

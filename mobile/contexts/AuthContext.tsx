@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import type { Session, User } from "@supabase/supabase-js";
 import { deriveUserAccessStatus } from "@/lib/access/user-status";
 import type { SubscriptionEntitlement, UserAccessStatus } from "@/lib/access/types";
-import { passwordResetRedirectUrl, signupEmailRedirectUrl } from "@/lib/auth-redirect";
+import { ensureWebAuthRedirect, passwordResetRedirectUrl, signupEmailRedirectUrl } from "@/lib/auth-redirect";
 import { fetchUserAccess, deleteUserAccount } from "@/lib/api";
 import {
   refreshUserEntitlements,
@@ -54,17 +54,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setSubscription(defaultSubscription);
       return;
     }
-    try {
-      const [summary, entitlement] = await Promise.all([
-        fetchUserAccess(),
-        refreshUserEntitlements(session.user.id)
-      ]);
-      setAccess(summary);
-      setSubscription(entitlement);
-    } catch {
-      setAccess(null);
-      setSubscription(defaultSubscription);
-    }
+    const userId = session.user.id;
+    const [summary, entitlement] = await Promise.all([
+      fetchUserAccess().catch(() => null),
+      refreshUserEntitlements(userId)
+    ]);
+    setAccess(summary);
+    setSubscription(entitlement);
   }, [session?.user]);
 
   useEffect(() => {
@@ -105,7 +101,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signUp = useCallback(async (email: string, password: string): Promise<SignUpResult> => {
     const normalizedEmail = email.trim();
-    const emailRedirectTo = signupEmailRedirectUrl();
+    const emailRedirectTo = ensureWebAuthRedirect(signupEmailRedirectUrl(), "/account/welcome");
     console.warn("[auth] signUp redirect", emailRedirectTo);
     const { data, error } = await supabase.auth.signUp({
       email: normalizedEmail,
@@ -140,13 +136,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const { error } = await supabase.auth.resend({
       type: "signup",
       email: email.trim(),
-      options: { emailRedirectTo: signupEmailRedirectUrl() }
+      options: { emailRedirectTo: ensureWebAuthRedirect(signupEmailRedirectUrl(), "/account/welcome") }
     });
     if (error) throw error;
   }, []);
 
   const resetPassword = useCallback(async (email: string) => {
-    const redirectTo = passwordResetRedirectUrl();
+    const redirectTo = ensureWebAuthRedirect(passwordResetRedirectUrl(), "/set-password");
     console.warn("[auth] reset redirect", redirectTo);
     const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
       redirectTo

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getApiUser } from "@/lib/auth/get-api-user";
+import { ensureConsumerOrganizationMembership } from "@/lib/auth/consumer-membership";
 import { getOrganizationContextForUser } from "@/lib/auth/organization";
 import { buildUserEntitlements, emptyGuestEntitlements } from "@/lib/entitlements";
 import { isValidDeviceId } from "@/lib/entitlements/subject";
@@ -26,6 +27,7 @@ export async function GET(request: Request) {
   }
 
   if (user) {
+    await ensureConsumerOrganizationMembership(user.id);
     const organization = await getOrganizationContextForUser(user.id);
     const entitlements = await buildUserEntitlements({
       userId: user.id,
