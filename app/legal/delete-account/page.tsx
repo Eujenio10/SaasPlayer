@@ -16,15 +16,6 @@ export default function DeleteAccountPage() {
           <li>Vai alla scheda <strong>Profilo</strong>.</li>
           <li>Tocca <strong>Elimina account</strong> e conferma l&apos;operazione.</li>
         </ol>
-        <p>
-          In alternativa, puoi scrivere a{" "}
-          <a className="text-cyan-300 underline" href="mailto:eugenio.iandoli03@gmail.com">
-            eugenio.iandoli03@gmail.com
-          </a>{" "}
-          indicando l&apos;email dell&apos;account PitchBrain e la richiesta di
-          eliminazione. Elaboreremo la richiesta entro un tempo ragionevole
-          (indicativamente entro 30 giorni).
-        </p>
 
         <h2 className="text-xl font-semibold text-cyan-200">Cosa viene eliminato</h2>
         <ul className="list-disc space-y-2 pl-5">
