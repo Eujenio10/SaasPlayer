@@ -69,4 +69,26 @@ assert.equal(
   true
 );
 
+assert.equal(
+  eventEligibleForPlayerSeasonFallback({
+    event: { tournament: { uniqueTournament: { id: 23 } }, season: { id: 90 } },
+    currentTournamentId: 23,
+    currentSeasonId: 100,
+    previousSeasonId: 90,
+    playerUseAnyCompetition: false
+  }),
+  true
+);
+
+assert.equal(
+  eventEligibleForPlayerSeasonFallback({
+    event: { tournament: { uniqueTournament: { id: 17 } }, season: { id: 55 } },
+    currentTournamentId: 23,
+    currentSeasonId: 100,
+    previousSeasonId: 90,
+    playerUseAnyCompetition: false
+  }),
+  false
+);
+
 console.log("season-fallback tests passed");

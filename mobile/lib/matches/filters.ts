@@ -1,8 +1,20 @@
-import { resolveMatchCompetitionId } from "@/lib/competitions";
+import {
+  resolveMatchCompetitionId,
+  type MonitoredCompetitionId
+} from "@/lib/competitions";
 import { isMatchTodayRome } from "@/lib/match-display";
 import type { UpcomingMatchItem } from "@/lib/types";
 
-export type MatchFilterId = "today" | "world" | "intensity" | "all";
+export type MatchModeFilterId = "today" | "world" | "intensity" | "all";
+
+/** Filtro UI: modalità (oggi/mondiali/…) oppure id competizione monitorata. */
+export type MatchFilterId = MatchModeFilterId | MonitoredCompetitionId;
+
+const MODE_FILTERS = new Set<string>(["today", "world", "intensity", "all"]);
+
+export function isMatchModeFilter(id: MatchFilterId): id is MatchModeFilterId {
+  return MODE_FILTERS.has(id);
+}
 
 /** Coppa del Mondo FIFA maschile — stesso criterio del backend web. */
 export function isWorldCupMatch(match: UpcomingMatchItem): boolean {
@@ -19,6 +31,8 @@ export function filterMatches(
     rows = rows.filter((m) => isMatchTodayRome(m.startTimestamp));
   } else if (filter === "world") {
     rows = rows.filter(isWorldCupMatch);
+  } else if (!isMatchModeFilter(filter)) {
+    rows = rows.filter((m) => resolveMatchCompetitionId(m) === filter);
   }
 
   if (filter === "intensity") {

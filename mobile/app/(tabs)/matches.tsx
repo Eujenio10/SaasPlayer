@@ -12,9 +12,11 @@ import { useGuestPreview } from "@/contexts/GuestPreviewContext";
 import { formatGuestApiError, shouldObscureGuestStats } from "@/lib/access/guest-preview-mode";
 import { useAdminMatchesRefresh } from "@/lib/matches/useAdminMatchesRefresh";
 import { fetchMatches } from "@/lib/api";
+import { competitionIdsWithMatches } from "@/lib/competitions-with-matches";
 import {
   filterMatches,
   groupMatchesByDayLabel,
+  isMatchModeFilter,
   isWorldCupMatch,
   type MatchFilterId
 } from "@/lib/matches/filters";
@@ -61,6 +63,10 @@ export default function MatchesScreen() {
 
   const filtered = useMemo(() => filterMatches(matches, filter), [matches, filter]);
   const sections = useMemo(() => groupMatchesByDayLabel(filtered), [filtered]);
+  const availableCompetitionIds = useMemo(
+    () => competitionIdsWithMatches(matches),
+    [matches]
+  );
   const hasWorldCupMatches = useMemo(() => matches.some(isWorldCupMatch), [matches]);
   const hasTodayMatches = useMemo(
     () => matches.some((m) => isMatchTodayRome(m.startTimestamp)),
@@ -70,7 +76,10 @@ export default function MatchesScreen() {
   useEffect(() => {
     if (filter === "world" && !hasWorldCupMatches) setFilter("all");
     if (filter === "today" && !hasTodayMatches) setFilter("all");
-  }, [filter, hasTodayMatches, hasWorldCupMatches]);
+    if (!isMatchModeFilter(filter) && !availableCompetitionIds.includes(filter)) {
+      setFilter("all");
+    }
+  }, [filter, hasTodayMatches, hasWorldCupMatches, availableCompetitionIds]);
 
   const openMatch = (item: UpcomingMatchItem) => {
     router.push({
@@ -120,6 +129,7 @@ export default function MatchesScreen() {
         onChange={setFilter}
         hasWorldCupMatches={hasWorldCupMatches}
         hasTodayMatches={hasTodayMatches}
+        availableCompetitionIds={availableCompetitionIds}
       />
 
       {error ? (

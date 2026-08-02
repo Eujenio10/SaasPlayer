@@ -18,6 +18,7 @@ import {
 } from "@/lib/sportapi-endpoints";
 import {
   eventEligibleForPlayerSeasonFallback,
+  listTournamentSeasonIds,
   resolveTeamSeasonFallback,
   type TeamSeasonFallbackResolution
 } from "@/lib/season-fallback";
@@ -1547,6 +1548,44 @@ async function getTeamDomesticLeagueContext(
     }
   }
 
+  /**
+   * Inizio stagione / nessuna partita ancora finita: usa l’elenco stagioni del torneo
+   * (corrente = primo id). `resolveTeamSeasonFallback` passerà alla precedente se vuota.
+   */
+  try {
+    const seasonIds = await listTournamentSeasonIds({
+      tournamentId: utId,
+      probeTeamId: teamId,
+      bypassCache,
+      sportApiFetch: sportApiFetch as (
+        endpoint: string,
+        options?: Record<string, unknown>
+      ) => Promise<Response>
+    });
+    const currentSeasonId = seasonIds[0];
+    if (currentSeasonId && currentSeasonId > 0) {
+      const ctx: TeamDomesticLeagueContext = {
+        tournamentId: utId,
+        seasonId: currentSeasonId,
+        slug: slugRaw
+      };
+      console.info("[sportapi] domestic_context_season_list_fallback", {
+        teamId,
+        tournamentId: utId,
+        seasonId: currentSeasonId,
+        seasonsKnown: seasonIds.length
+      });
+      if (!bypassCache) teamDomesticLeagueContextCache.set(teamId, ctx);
+      return ctx;
+    }
+  } catch (error) {
+    console.warn(
+      "[sportapi] domestic_context_season_list_failed:",
+      teamId,
+      error instanceof Error ? error.message : String(error)
+    );
+  }
+
   if (!bypassCache) teamDomesticLeagueContextCache.set(teamId, null);
   return null;
 }
@@ -2193,7 +2232,8 @@ function selectDiscoveredEventsByCompetition(collected: SportApiEvent[]): SportA
       slugNorm === "serie-b" ||
       slugNorm === "italy-serie-b" ||
       (slugNorm.includes("serie-b") && slugNorm.includes("italy")) ||
-      isMonitoredInternationalCompetitionSlug(slugNorm);
+      isMonitoredInternationalCompetitionSlug(slugNorm) ||
+      isUefaClubCompetitionSlug(slugNorm);
 
     if (skipRoundSlice) {
       selected.push(...events);
@@ -2281,6 +2321,112 @@ async function fetchTeamScheduleEvents(
   return extractEvents(payload);
 }
 
+/** UniqueTournament FootApi/SofaScore per Top 5 + UEFA cups (calendario completo, non solo big). */
+const FOOTAPI_CLUB_TOURNAMENT_DEFAULTS: Array<{
+  competitionId: string;
+  tournamentId: number;
+  uefa?: boolean;
+}> = [
+  { competitionId: "premier-league", tournamentId: 17 },
+  { competitionId: "serie-a", tournamentId: 23 },
+  { competitionId: "laliga", tournamentId: 8 },
+  { competitionId: "bundesliga", tournamentId: 35 },
+  { competitionId: "ligue-1", tournamentId: 34 },
+  { competitionId: "uefa-champions-league", tournamentId: 7, uefa: true },
+  { competitionId: "uefa-europa-league", tournamentId: 679, uefa: true },
+  { competitionId: "uefa-europa-conference-league", tournamentId: 17015, uefa: true }
+];
+
+function parseCompetitionTournamentOverrides(): Map<string, number> {
+  const map = new Map<string, number>();
+  const raw = process.env.TACTICAL_COMPETITION_TOURNAMENT_IDS?.trim();
+  if (!raw) return map;
+  for (const token of raw.split(",")) {
+    const [idRaw, tidRaw] = token.split(":").map((part) => part.trim());
+    const tid = Number(tidRaw);
+    if (!idRaw || !Number.isFinite(tid) || tid <= 0) continue;
+    map.set(idRaw.toLowerCase(), Math.floor(tid));
+  }
+  return map;
+}
+
+function resolveClubDiscoveryTournaments(
+  competitionFilter: DiscoverCompetitionFilter
+): Array<{ competitionId: string; tournamentId: number }> {
+  const overrides = parseCompetitionTournamentOverrides();
+  const out: Array<{ competitionId: string; tournamentId: number }> = [];
+  for (const row of FOOTAPI_CLUB_TOURNAMENT_DEFAULTS) {
+    if (competitionFilter === "domestic_top5_only" && row.uefa) continue;
+    if (competitionFilter === "kiosk_top5_and_uefa_cups" || !row.uefa) {
+      const tournamentId = overrides.get(row.competitionId) ?? row.tournamentId;
+      out.push({ competitionId: row.competitionId, tournamentId });
+    }
+  }
+  return out;
+}
+
+/**
+ * FootApi: calendario completo per torneo/stagione (tutte le squadre della giornata),
+ * stesso approccio dei Mondiali. Gli anchor restano solo come fallback/merge.
+ */
+async function discoverClubEventsViaTournamentCalendars(
+  statusPredicate: (event: SportApiEvent) => boolean,
+  competitionFilter: DiscoverCompetitionFilter
+): Promise<SportApiEvent[]> {
+  const tournaments = resolveClubDiscoveryTournaments(competitionFilter);
+  if (!tournaments.length) return [];
+
+  const safeLookaheadDays = resolveTacticalLookaheadDays();
+  const maxKickoff = Math.floor(Date.now() / 1000) + safeLookaheadDays * 24 * 60 * 60;
+  const byEventId = new Map<number, SportApiEvent>();
+
+  for (const tournament of tournaments) {
+    try {
+      const seasonIds = await listTournamentSeasonIds({
+        tournamentId: tournament.tournamentId,
+        sportApiFetch: sportApiFetch as (
+          endpoint: string,
+          options?: Record<string, unknown>
+        ) => Promise<Response>
+      });
+      const seasonId = seasonIds[0];
+      if (!seasonId) {
+        console.warn(
+          "[sportapi] club_calendar_no_season:",
+          tournament.competitionId,
+          tournament.tournamentId
+        );
+        continue;
+      }
+      const pool = await collectUniqueTournamentSeasonEventPool(tournament.tournamentId, seasonId);
+      const filtered = filterDiscoverableFootballEvents(
+        pool,
+        statusPredicate,
+        competitionFilter,
+        maxKickoff
+      );
+      for (const event of filtered) {
+        const id = event.id;
+        if (typeof id !== "number") continue;
+        byEventId.set(id, event);
+      }
+      console.info(
+        "[sportapi] club_calendar:",
+        tournament.competitionId,
+        `tournament=${tournament.tournamentId} season=${seasonId} pool=${pool.length} filtered=${filtered.length}`
+      );
+    } catch (error) {
+      console.warn(
+        "[sportapi] club_calendar_failed:",
+        tournament.competitionId,
+        error instanceof Error ? error.message : String(error)
+      );
+    }
+  }
+
+  return Array.from(byEventId.values());
+}
+
 /** Giorni di discovery calendario club/UEFA: almeno quanto MATCHES_WINDOW_DAYS. */
 function resolveTacticalLookaheadDays(): number {
   const raw = Number(process.env.TACTICAL_LOOKAHEAD_DAYS ?? String(MATCHES_WINDOW_DAYS));
@@ -2327,7 +2473,7 @@ async function discoverTargetEventsViaTeamAnchors(
     }
   }
 
-  return selectDiscoveredEventsByCompetition(Array.from(byEventId.values()));
+  return Array.from(byEventId.values());
 }
 
 /** FootApi: calendario per data vuoto → prossime partite delle nazionali anchor (filtrate su Mundial maschile). */
@@ -2491,7 +2637,23 @@ async function discoverTargetEvents(
   competitionFilter: DiscoverCompetitionFilter = "domestic_top5_only"
 ): Promise<SportApiEvent[]> {
   if (detectSportApiProvider() === "footapi") {
-    return discoverTargetEventsViaTeamAnchors(statusPredicate, competitionFilter);
+    /** Calendario torneo = tutte le squadre della giornata; anchor solo merge/fallback. */
+    const byCalendar = await discoverClubEventsViaTournamentCalendars(
+      statusPredicate,
+      competitionFilter
+    );
+    const byAnchors = await discoverTargetEventsViaTeamAnchors(statusPredicate, competitionFilter);
+    const merged = new Map<number, SportApiEvent>();
+    for (const event of [...byCalendar, ...byAnchors]) {
+      const id = event.id;
+      if (typeof id !== "number") continue;
+      merged.set(id, event);
+    }
+    console.info(
+      "[sportapi] club_discovery_merge:",
+      `calendar=${byCalendar.length} anchors=${byAnchors.length} merged=${merged.size}`
+    );
+    return selectDiscoveredEventsByCompetition(Array.from(merged.values()));
   }
 
   const safeLookaheadDays = resolveTacticalLookaheadDays();

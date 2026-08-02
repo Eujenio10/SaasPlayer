@@ -307,6 +307,7 @@ export function eventEligibleForPlayerSeasonFallback(params: {
   const sid = Number(params.event.season?.id);
   if (!Number.isFinite(sid) || sid <= 0) return false;
 
+  /** Escludi sempre la stagione corrente (ancora vuota / poco popolata). */
   if (
     ut === Number(params.currentTournamentId) &&
     sid === Number(params.currentSeasonId)
@@ -315,9 +316,11 @@ export function eventEligibleForPlayerSeasonFallback(params: {
   }
 
   if (!params.playerUseAnyCompetition) {
+    /** Stesso torneo, solo stagione precedente (ramo stretto). */
     return (
       ut === Number(params.currentTournamentId) &&
-      sid === Number(params.currentSeasonId)
+      params.previousSeasonId != null &&
+      sid === Number(params.previousSeasonId)
     );
   }
 
