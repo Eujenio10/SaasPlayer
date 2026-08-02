@@ -71,11 +71,14 @@ export async function GET(request: Request) {
   const matchUnlocked = requestHasMatchUnlock(entitlements, eventId);
   const insightsMissing = !data || metricsRaw.length === 0;
 
-  // Admin può sempre ricalcolare; utente free/guest solo se ha sbloccato la partita (rADS/Pro)
-  // e lo snapshot manca — altrimenti resterebbe solo Player Performance popolato.
+  // Admin può sempre ricalcolare; Pro / partita sbloccata se lo snapshot manca.
+  const canFullAnalysis =
+    organization.role === "admin" ||
+    entitlements.subscriptionTier === "pro" ||
+    matchUnlocked;
   const shouldCompute =
     (organization.role === "admin" && (forceRefresh || insightsMissing)) ||
-    (matchUnlocked && insightsMissing);
+    (canFullAnalysis && insightsMissing);
 
   if (shouldCompute) {
     try {
@@ -103,7 +106,7 @@ export async function GET(request: Request) {
   const metrics = localizeTacticalMetrics(metricsRaw as TacticalMetrics[]);
 
   const allowProviderFetch =
-    (organization.role === "admin" && forceRefresh) || (matchUnlocked && insightsMissing);
+    (organization.role === "admin" && forceRefresh) || (canFullAnalysis && insightsMissing);
   let teamFormSignals = null;
   try {
     teamFormSignals = await buildTeamFormSignalsForOrganizationMatch({

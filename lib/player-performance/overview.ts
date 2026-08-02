@@ -5,7 +5,11 @@ import type { PlayerPerformanceItem } from "@/lib/player-performance/types";
 export function buildTeamPerformanceOverview(
   players: PlayerPerformanceItem[]
 ): TeamPerformanceOverview {
-  const eligible = players.filter((player) => !player.limitedSample);
+  const withMinutes = players.filter((player) => (player.combined?.minutes ?? 0) > 0);
+  const eligible =
+    withMinutes.filter((player) => !player.limitedSample).length > 0
+      ? withMinutes.filter((player) => !player.limitedSample)
+      : withMinutes;
   const pickMax = (
     list: PlayerPerformanceItem[],
     score: (player: PlayerPerformanceItem) => number | null

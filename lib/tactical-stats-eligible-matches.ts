@@ -49,7 +49,7 @@ export function scopeFromCompetitionSlugForInsights(slug: string): CompetitionSc
 }
 
 /**
- * Target prefetch admin: ogni partita del menu ristretto (1 prossima per squadra), Top 5 + nazionali.
+ * Target prefetch admin: ogni partita del menu (Top 5 + nazionali) nella finestra di analisi.
  * Nessuna partita analizzabile viene saltata.
  */
 export function buildAdminInsightsPrefetchTargets(

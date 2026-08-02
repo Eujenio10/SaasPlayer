@@ -24,7 +24,18 @@ export function isGoalkeeperAppearance(appearance: PlayerMatchTrendStats): boole
 }
 
 export function isValidTrendAppearance(appearance: PlayerMatchTrendStats): boolean {
-  if (!appearance.dataComplete) return false;
+  const hasStats =
+    appearance.dataComplete ||
+    appearance.shots != null ||
+    appearance.shotsOnTarget != null ||
+    appearance.saves != null ||
+    appearance.goals != null ||
+    appearance.assists != null ||
+    appearance.keyPasses != null ||
+    appearance.dribblesSuccess != null ||
+    appearance.matchRating != null ||
+    isGoalkeeperAppearance(appearance);
+  if (!hasStats) return false;
   const isGk = isGoalkeeperAppearance(appearance);
   const minMinutes = isGk
     ? TREND_SAMPLE_REQUIREMENTS.goalkeeper.validMinutes

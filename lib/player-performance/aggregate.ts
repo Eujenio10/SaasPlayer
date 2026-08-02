@@ -33,8 +33,24 @@ export interface AggregatedOffensiveStats {
   hasRating: boolean;
 }
 
+function rowHasUsableMatchStats(row: PlayerMatchTrendStats): boolean {
+  return (
+    row.shots != null ||
+    row.shotsOnTarget != null ||
+    row.saves != null ||
+    row.goals != null ||
+    row.assists != null ||
+    row.keyPasses != null ||
+    row.dribblesSuccess != null ||
+    row.dribblesAttempts != null ||
+    row.matchRating != null ||
+    row.normalizedRole === "GK"
+  );
+}
+
+/** Presenza utilizzabile: minuti > 0 e stats scaricate (anche se `dataComplete` legacy era troppo stretto). */
 export function isValidPerformanceAppearance(row: PlayerMatchTrendStats): boolean {
-  return row.minutesPlayed > 0 && row.dataComplete;
+  return row.minutesPlayed > 0 && (row.dataComplete || rowHasUsableMatchStats(row));
 }
 
 export function aggregatePlayerAppearances(rows: PlayerMatchTrendStats[]): AggregatedOffensiveStats {

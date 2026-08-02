@@ -1,5 +1,9 @@
 import { ingestMatchPlayerTrendStatsIfNeeded } from "@/lib/trends/ingestion";
 
+function sleepMs(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export async function ensureFixturePlayerStatsCached(eventIds: number[]): Promise<{
   ingested: number;
   skipped: number;
@@ -11,23 +15,36 @@ export async function ensureFixturePlayerStatsCached(eventIds: number[]): Promis
   let skipped = 0;
   let errors = 0;
   let rateLimited = false;
+  let consecutiveBundleFailures = 0;
 
   for (const eventId of unique) {
     const result = await ingestMatchPlayerTrendStatsIfNeeded(eventId);
     if (result.skipped) {
       skipped += 1;
+      consecutiveBundleFailures = 0;
       continue;
     }
     if (result.playersSaved > 0) {
       ingested += 1;
+      consecutiveBundleFailures = 0;
       continue;
     }
     errors += 1;
     if (result.error === "footapi_bundle_failed") {
       rateLimited = true;
-      console.warn("[player-performance] ingestion_stopped_rate_limit", { eventId });
-      break;
+      consecutiveBundleFailures += 1;
+      console.warn("[player-performance] ingestion_bundle_failed", {
+        eventId,
+        consecutiveBundleFailures
+      });
+      if (consecutiveBundleFailures >= 3) {
+        console.warn("[player-performance] ingestion_stopped_rate_limit", { eventId });
+        break;
+      }
+      await sleepMs(400 * consecutiveBundleFailures);
+      continue;
     }
+    consecutiveBundleFailures = 0;
   }
 
   return { ingested, skipped, errors, rateLimited };

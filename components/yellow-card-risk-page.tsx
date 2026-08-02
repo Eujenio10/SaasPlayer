@@ -460,7 +460,7 @@ function readValidatedCachedSnapshot(): YellowCardRiskSnapshot | null {
   };
 }
 
-/** Pool: partite future nei top 5 (prima della riduzione a una sola prossima partita per ogni squadra). */
+/** Pool: partite future nei top 5 campionati. */
 function allTopFiveLeagueUpcomingMatches(raw: UpcomingMatchItem[]): UpcomingMatchItem[] {
   return filterMatchesKickoffInFuture(dedupeMatchesByEventIdSorted(raw))
     .filter((row) => isTopLeague(row.competitionSlug))
@@ -1442,7 +1442,7 @@ export function YellowCardRiskPage({ userAccess }: { userAccess: UserAccessSumma
                       <strong className="text-white">{loadProgress.total}</strong>
                     </>
                   ) : (
-                    <span>Raccolta degli incontri: una sola prossima giornata per squadra nei top 5 campionati…</span>
+                    <span>Raccolta degli incontri nei top 5 campionati…</span>
                   )}
                 </p>
                 <p className="mt-1 text-center text-xs text-slate-500">

@@ -5,14 +5,25 @@ export function sortPlayersForMainTab(
   players: PlayerPerformanceItem[],
   tab: PlayerPerformanceMainTab
 ): PlayerPerformanceItem[] {
-  const eligible = players.filter((player) => !player.limitedSample);
+  /** Mostra anche campione limitato se ha minuti reali; i non-limited restano in cima. */
+  const withMinutes = players.filter(
+    (player) => (player.combined?.minutes ?? player.recent?.minutes ?? 0) > 0
+  );
+  const rank = (player: PlayerPerformanceItem) => (player.limitedSample ? 1 : 0);
+  const eligible = [...withMinutes].sort((a, b) => rank(a) - rank(b));
   switch (tab) {
     case "shooting":
       return [...eligible]
-        .filter((player) => (player.shooting?.shotThreatIndex ?? 0) > 0)
-        .sort((a, b) => (b.shooting?.shotThreatIndex ?? 0) - (a.shooting?.shotThreatIndex ?? 0));
+        .filter((player) => (player.shooting?.shotThreatIndex ?? 0) > 0 || (player.combined?.shotsPer90 ?? 0) > 0)
+        .sort((a, b) => {
+          const lim = rank(a) - rank(b);
+          if (lim !== 0) return lim;
+          return (b.shooting?.shotThreatIndex ?? 0) - (a.shooting?.shotThreatIndex ?? 0);
+        });
     case "creation":
       return [...eligible].sort((a, b) => {
+        const lim = rank(a) - rank(b);
+        if (lim !== 0) return lim;
         const aScore = Math.max(a.creation?.creatorIndex ?? 0, a.oneVsOne?.oneVsOneThreatIndex ?? 0);
         const bScore = Math.max(b.creation?.creatorIndex ?? 0, b.oneVsOne?.oneVsOneThreatIndex ?? 0);
         return bScore - aScore;
@@ -21,6 +32,8 @@ export function sortPlayersForMainTab(
       return [...eligible]
         .filter((player) => player.offensiveTrend != null || (player.consistency?.score ?? 0) > 0)
         .sort((a, b) => {
+          const lim = rank(a) - rank(b);
+          if (lim !== 0) return lim;
           const aTrend = Math.abs(a.offensiveTrend ?? 0);
           const bTrend = Math.abs(b.offensiveTrend ?? 0);
           if (bTrend !== aTrend) return bTrend - aTrend;
@@ -33,14 +46,31 @@ export function sortPlayersForMainTab(
 
 export function sortCreators(players: PlayerPerformanceItem[]): PlayerPerformanceItem[] {
   return [...players]
-    .filter((player) => !player.limitedSample && (player.creation?.creatorIndex ?? 0) > 0)
-    .sort((a, b) => (b.creation?.creatorIndex ?? 0) - (a.creation?.creatorIndex ?? 0));
+    .filter(
+      (player) =>
+        (player.combined?.minutes ?? 0) > 0 &&
+        ((player.creation?.creatorIndex ?? 0) > 0 || (player.combined?.keyPassesPer90 ?? 0) > 0)
+    )
+    .sort((a, b) => {
+      const lim = Number(Boolean(a.limitedSample)) - Number(Boolean(b.limitedSample));
+      if (lim !== 0) return lim;
+      return (b.creation?.creatorIndex ?? 0) - (a.creation?.creatorIndex ?? 0);
+    });
 }
 
 export function sortOneVsOne(players: PlayerPerformanceItem[]): PlayerPerformanceItem[] {
   return [...players]
-    .filter((player) => !player.limitedSample && (player.oneVsOne?.oneVsOneThreatIndex ?? 0) > 0)
-    .sort((a, b) => (b.oneVsOne?.oneVsOneThreatIndex ?? 0) - (a.oneVsOne?.oneVsOneThreatIndex ?? 0));
+    .filter(
+      (player) =>
+        (player.combined?.minutes ?? 0) > 0 &&
+        ((player.oneVsOne?.oneVsOneThreatIndex ?? 0) > 0 ||
+          (player.combined?.successfulDribblesPer90 ?? 0) > 0)
+    )
+    .sort((a, b) => {
+      const lim = Number(Boolean(a.limitedSample)) - Number(Boolean(b.limitedSample));
+      if (lim !== 0) return lim;
+      return (b.oneVsOne?.oneVsOneThreatIndex ?? 0) - (a.oneVsOne?.oneVsOneThreatIndex ?? 0);
+    });
 }
 
 export function pickCategoryPlayers(

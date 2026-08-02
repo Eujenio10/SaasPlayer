@@ -3,14 +3,15 @@
  *
  * Ogni regola del prodotto è isolata in una funzione dedicata e documentata, così il flusso è
  * leggibile e modificabile senza effetti collaterali:
- *   1. `filterMonitoredCompetitionMatches`  → solo le 10 competizioni gestite
+ *   1. `filterMonitoredCompetitionMatches`  → solo le competizioni gestite (Top 5)
  *   2. `filterRealTeamMatches`              → niente placeholder tabellone (es. "1A", "Winner 3")
- *   3. `filterMatchesWithinNextDays`        → solo entro i prossimi N giorni (default 7)
+ *   3. `filterMatchesWithinNextDays`        → solo entro i prossimi N giorni (default 30)
  *   4. `dedupeMatchesByEventId`             → nessun duplicato
- *   5. `selectNextMatchPerTeam`             → solo la prossima partita utile per ogni squadra
- *   6. `sortMatchesChronologically`         → ordinamento per calcio d’inizio
+ *   5. `sortMatchesChronologically`         → ordinamento per calcio d’inizio
  *
- * L’orchestratore `buildMonitoredMatchesMenu` applica questi passi nell’ordine corretto.
+ * Nella finestra di analisi restano **tutte** le partite del campionato (tutte le squadre),
+ * non solo la prossima gara per club. L’orchestratore `buildMonitoredMatchesMenu` applica
+ * questi passi nell’ordine corretto.
  */
 import { isMonitoredCompetitionSlug, resolveCompetitionId } from "@/lib/competitions";
 import type { MonitoredCompetitionId } from "@/lib/competitions";
@@ -118,9 +119,9 @@ export function filterRealTeamMatches<
 }
 
 /**
- * Regola “prossima partita per squadra”: conserva, per ogni `teamId` (home o away), solo la sua
- * partita cronologicamente più vicina. Una partita viene quindi inclusa se è la prossima per
- * **almeno una** delle due squadre coinvolte. Nessun duplicato in uscita.
+ * Conserva, per ogni `teamId` (home o away), solo la partita cronologicamente più vicina.
+ * Non usata dal menu Analisi (che mostra tutte le gare nella finestra): tenuta per eventuali
+ * anteprime o viste “prossima gara”.
  */
 export function selectNextMatchPerTeam<
   T extends {
@@ -153,8 +154,8 @@ export interface BuildMatchesMenuOptions {
 
 /**
  * Orchestratore unico del menu: applica, nell’ordine, monitorata → nomi reali → finestra giorni →
- * dedupe → prossima per squadra → ordinamento. Garantisce che nessuna partita valida venga
- * scartata se non per una regola esplicita qui sopra.
+ * dedupe → ordinamento. Tutte le partite valide nella finestra restano visibili (tutte le squadre
+ * del campionato), senza tagliare a “una sola prossima gara per club”.
  */
 export function buildMonitoredMatchesMenu<T extends MenuMatchRow>(
   matches: T[],
@@ -167,13 +168,12 @@ export function buildMonitoredMatchesMenu<T extends MenuMatchRow>(
   const realTeams = filterRealTeamMatches(monitored);
   const inWindow = filterMatchesWithinNextDays(realTeams, windowDays, nowSec);
   const deduped = dedupeMatchesByEventId(inWindow);
-  const nextPerTeam = selectNextMatchPerTeam(deduped);
-  return sortMatchesChronologically(nextPerTeam);
+  return sortMatchesChronologically(deduped);
 }
 
 /**
- * Menu partite condiviso (club Top 5 / UEFA): solo competizioni monitorate, entro 7 giorni,
- * dedupe, al massimo 1 prossima partita per squadra.
+ * Menu partite condiviso (club Top 5): competizioni monitorate, entro la finestra giorni, dedupe.
+ * Nome storico: non limita più a una partita per squadra.
  */
 export function buildEachTeamNextUpcomingMatchesMenu<T extends MenuMatchRow>(matches: T[]): T[] {
   return buildMonitoredMatchesMenu(matches);
@@ -185,9 +185,8 @@ export function buildEachTeamNextInternationalMatchesMenu<T extends MenuMatchRow
 }
 
 /**
- * Unisce menu club (Top 5 / UEFA) e nazionali (Coppa del Mondo / Nations League) e riapplica le
- * regole sull’**insieme completo**, così la “prossima partita per squadra” è valutata globalmente
- * (es. se una squadra gioca prima in Champions e poi in campionato, resta solo la partita di Champions).
+ * Unisce menu club (Top 5) e nazionali e riapplica le regole sull’insieme completo
+ * (finestra giorni + dedupe), senza tagliare a una partita per squadra.
  */
 export function mergeDomesticAndInternationalUpcomingMenus<T extends MenuMatchRow>(
   domestic: T[],
@@ -198,8 +197,7 @@ export function mergeDomesticAndInternationalUpcomingMenus<T extends MenuMatchRo
 
 /**
  * Unisce snapshot già filtrati in refresh admin (domestic + internazionale separati in DB).
- * Riapplica solo monitorata, nomi reali, futuro e finestra 7 giorni — **senza** rifare
- * `selectNextMatchPerTeam` sull’unione (evita di svuotare il menu se gli snapshot sono già menu-ready).
+ * Riapplica solo monitorata, nomi reali, futuro e finestra giorni.
  */
 export function combinePersistedOrganizationMenuSnapshots<T extends MenuMatchRow>(
   domestic: T[],

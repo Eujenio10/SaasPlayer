@@ -116,7 +116,7 @@ export async function GET(request: Request) {
   const away = url.searchParams.get("away")?.trim().toLowerCase() ?? "";
   const competition = url.searchParams.get("competition")?.trim().toLowerCase() ?? "";
   const menuCacheHours = Number(process.env.TACTICAL_MATCHES_MENU_CACHE_HOURS ?? "120");
-  const menuCacheKey = `tactical_matches_menu:v13:${home || "_"}:${away || "_"}:${competition || "_"}`;
+  const menuCacheKey = `tactical_matches_menu:v14:${home || "_"}:${away || "_"}:${competition || "_"}`;
 
   /** Pro/Member: zero SportAPI/RapidAPI — solo copia salvata dall’organizzazione. */
   if (organization.role !== "admin") {

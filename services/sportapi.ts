@@ -375,7 +375,7 @@ function coerceFiniteNumber(value: unknown): number | undefined {
 
 /** Presenze stagionali: non usare rating o metriche per-partita come denominatore. */
 function appearanceCountFromOverall(overall: Record<string, number> | null): number {
-  if (!overall) return 1;
+  if (!overall) return 0;
   const wide = overall as unknown as Record<string, unknown>;
   const keys = [
     "appearances",
@@ -401,18 +401,21 @@ function appearanceCountFromOverall(overall: Record<string, number> | null): num
   if (minutes !== undefined && minutes >= 45) {
     return Math.max(1, Math.round(minutes / 90));
   }
-  return 1;
+  return 0;
 }
 
 function appearancesTrustworthyForOverall(overall: Record<string, number> | null): boolean {
-  return appearanceCountFromOverall(overall) >= 1;
+  if (!overall) return false;
+  if (appearanceCountFromOverall(overall) >= 1) return true;
+  /** Overall presente con campi numerici: medie/totali stagione usabili anche senza conteggio apparizioni. */
+  return Object.keys(overall).length > 0;
 }
 
 function seasonFoulPerMatchFromOverall(
   overall: Record<string, number> | null,
   kind: "committed" | "suffered"
 ): number | null {
-  if (!appearancesTrustworthyForOverall(overall)) return null;
+  if (!overall || !appearancesTrustworthyForOverall(overall)) return null;
   const apps = appearanceCountFromOverall(overall);
   const wide = overall as unknown as Record<string, unknown>;
   const averageKeys =
@@ -442,6 +445,7 @@ function seasonFoulPerMatchFromOverall(
       ? foulsCommittedSeasonTotalFromOverall(overall)
       : foulsSufferedSeasonTotalFromOverall(overall);
   if (total === undefined) return null;
+  if (apps < 1) return null;
 
   /** Alcune risposte API salvano già la media a partita sotto la chiave "fouls". */
   if (apps >= 2 && total <= 8 && total / apps < 0.35) {
@@ -3883,26 +3887,29 @@ export async function fetchSportPerformanceForTeams(params: {
       const starterRows = seasonOverallRows.map(({ starter, overall, heatmapPoints }) => {
         const playerId = starter.player?.id as number;
         const appearancesRaw = appearanceCountFromOverall(overall);
+        const seasonDivisor = appearancesRaw >= 1 ? appearancesRaw : 0;
 
         /** Senza overall API non usiamo la media ultimi-2 come "stagione" (prima risultava duplicata e fuorviante). */
-        const shotsSeasonAvg = overall
-          ? overallNumericMaxAcrossKeys(overall, [
-              "totalShots",
-              "shots",
-              "onTargetScoringAttempt",
-              "shotsOnTarget",
-              "onTargetScoringAttempts"
-            ]) / appearancesRaw
-          : 0;
-        let savesSeasonAvg = overall
-          ? overallNumericMaxAcrossKeys(overall, ["saves", "goalkeeperSaves"]) / appearancesRaw
-          : 0;
+        const shotsSeasonAvg =
+          overall && seasonDivisor >= 1
+            ? overallNumericMaxAcrossKeys(overall, [
+                "totalShots",
+                "shots",
+                "onTargetScoringAttempt",
+                "shotsOnTarget",
+                "onTargetScoringAttempts"
+              ]) / seasonDivisor
+            : 0;
+        let savesSeasonAvg =
+          overall && seasonDivisor >= 1
+            ? overallNumericMaxAcrossKeys(overall, ["saves", "goalkeeperSaves"]) / seasonDivisor
+            : 0;
         let foulsCommittedSeasonAvg = 0;
         let foulsSufferedSeasonAvg = 0;
         const dribblesTotal = dribblesSeasonTotalFromOverall(overall);
         let dribblesSeasonAvg =
-          overall && dribblesTotal !== undefined
-            ? dribblesTotal / appearancesRaw
+          overall && dribblesTotal !== undefined && seasonDivisor >= 1
+            ? dribblesTotal / seasonDivisor
             : 0;
 
         const shotsLastTwoSeries = shotsLastTwoByPlayer.get(playerId) ?? [];
@@ -4028,44 +4035,52 @@ export async function fetchSportPerformanceForTeams(params: {
           opponentShotsOnTargetLastTwoLeagueAvg: Math.max(leagueBaseline, 0.1),
           heatmapPoints,
           shotsLastTwoSampleCount:
-            shotsLastTwoN > 0 ? shotsLastTwoN : appearancesRaw > 0 && shotsSeasonAvg > 0 ? Math.min(capLt, appearancesRaw) : 0,
+            shotsLastTwoN > 0
+              ? shotsLastTwoN
+              : appearancesTrustworthyForOverall(overall) && shotsSeasonAvg > 0
+                ? Math.min(capLt, Math.max(1, appearancesRaw))
+                : 0,
           savesLastTwoSampleCount:
-            savesLastTwoN > 0 ? savesLastTwoN : appearancesRaw > 0 && savesSeasonAvg > 0 ? Math.min(capLt, appearancesRaw) : 0,
+            savesLastTwoN > 0
+              ? savesLastTwoN
+              : appearancesTrustworthyForOverall(overall) && savesSeasonAvg > 0
+                ? Math.min(capLt, Math.max(1, appearancesRaw))
+                : 0,
           foulsCommittedLastTwoSampleCount:
             foulsLastTwoN > 0
               ? foulsLastTwoN
-              : appearancesRaw > 0 && foulsCommittedSeasonAvg > 0
-                ? Math.min(capLt, appearancesRaw)
+              : appearancesTrustworthyForOverall(overall) && foulsCommittedSeasonAvg > 0
+                ? Math.min(capLt, Math.max(1, appearancesRaw))
                 : 0,
           foulsSufferedLastTwoSampleCount:
             fouledLastTwoN > 0
               ? fouledLastTwoN
-              : appearancesRaw > 0 && foulsSufferedSeasonAvg > 0
-                ? Math.min(capLt, appearancesRaw)
+              : appearancesTrustworthyForOverall(overall) && foulsSufferedSeasonAvg > 0
+                ? Math.min(capLt, Math.max(1, appearancesRaw))
                 : 0,
           shotsLastFiveSampleCount:
             shotsLastFiveN > 0
               ? shotsLastFiveN
-              : appearancesRaw > 0 && shotsSeasonAvg > 0
-                ? Math.min(capLf, appearancesRaw)
+              : appearancesTrustworthyForOverall(overall) && shotsSeasonAvg > 0
+                ? Math.min(capLf, Math.max(1, appearancesRaw))
                 : 0,
           savesLastFiveSampleCount:
             savesLastFiveN > 0
               ? savesLastFiveN
-              : appearancesRaw > 0 && savesSeasonAvg > 0
-                ? Math.min(capLf, appearancesRaw)
+              : appearancesTrustworthyForOverall(overall) && savesSeasonAvg > 0
+                ? Math.min(capLf, Math.max(1, appearancesRaw))
                 : 0,
           foulsCommittedLastFiveSampleCount:
             foulsLastFiveN > 0
               ? foulsLastFiveN
-              : appearancesRaw > 0 && foulsCommittedSeasonAvg > 0
-                ? Math.min(capLf, appearancesRaw)
+              : appearancesTrustworthyForOverall(overall) && foulsCommittedSeasonAvg > 0
+                ? Math.min(capLf, Math.max(1, appearancesRaw))
                 : 0,
           foulsSufferedLastFiveSampleCount:
             fouledLastFiveN > 0
               ? fouledLastFiveN
-              : appearancesRaw > 0 && foulsSufferedSeasonAvg > 0
-                ? Math.min(capLf, appearancesRaw)
+              : appearancesTrustworthyForOverall(overall) && foulsSufferedSeasonAvg > 0
+                ? Math.min(capLf, Math.max(1, appearancesRaw))
                 : 0
         } satisfies SportPerformanceInput;
 

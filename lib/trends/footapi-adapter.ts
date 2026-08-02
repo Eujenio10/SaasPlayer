@@ -102,9 +102,20 @@ export function adaptFootApiMatchTrendBundle(
     const shotsOnTargetFaced =
       normalizedRole === "GK" ? (teamShotsOnTarget > 0 ? teamShotsOnTarget : null) : null;
 
+    /** Completo se ha giocato e c’è almeno una metrica utile (non solo tiri: centrocampisti/difensori). */
+    const hasUsableStat =
+      shots != null ||
+      shotsOnTarget != null ||
+      saves != null ||
+      goals != null ||
+      assists != null ||
+      keyPasses != null ||
+      dribblesSuccess != null ||
+      dribblesAttempts != null ||
+      matchRating != null ||
+      (player.statistics != null && Object.keys(player.statistics).length > 0);
     const dataComplete =
-      minutesPlayed > 0 &&
-      (shots != null || shotsOnTarget != null || saves != null || normalizedRole === "GK");
+      minutesPlayed > 0 && (hasUsableStat || normalizedRole === "GK" || player.starter);
 
     return {
       matchId: String(bundle.eventId),

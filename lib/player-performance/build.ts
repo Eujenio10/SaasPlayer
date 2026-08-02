@@ -118,6 +118,12 @@ function buildPlayerItem(params: {
   const trendStatus = trendEligible ? classifyTrendStatus(offensiveTrend) : null;
   const dangerEligible = passesDangerSample(combinedMinutes);
   const coverage = buildCoverageFromRows([...params.recentRows, ...params.baselineRows]);
+  /** Indice calcolato anche con campione ridotto (UI segnala limitedSample). */
+  const dangerIndex = calculateDangerIndex(combinedInput, {
+    playerId: params.latest.playerId,
+    roleGroup,
+    cohort: params.cohortInputs
+  });
 
   return {
     playerId: Number(params.latest.playerId),
@@ -127,13 +133,7 @@ function buildPlayerItem(params: {
     teamName: params.teamName,
     position: params.latest.rawPosition ?? null,
     roleGroup,
-    dangerIndex: dangerEligible
-      ? calculateDangerIndex(combinedInput, {
-          playerId: params.latest.playerId,
-          roleGroup,
-          cohort: params.cohortInputs
-        })
-      : 0,
+    dangerIndex: dangerEligible || combinedMinutes > 0 ? dangerIndex : 0,
     offensiveTrend,
     trendStatus,
     recent: recentMetrics,
@@ -200,26 +200,38 @@ function buildTeamPerformance(params: BuildTeamParams & {
   });
 
   const dangerousPlayers = items
-    .filter((item) => !item.limitedSample && item.dangerIndex > 0)
-    .sort((a, b) => b.dangerIndex - a.dangerIndex);
+    .filter((item) => item.dangerIndex > 0 && (item.combined?.minutes ?? 0) > 0)
+    .sort((a, b) => {
+      const lim = Number(Boolean(a.limitedSample)) - Number(Boolean(b.limitedSample));
+      if (lim !== 0) return lim;
+      return b.dangerIndex - a.dangerIndex;
+    });
 
   const risingPlayers = items
     .filter(
       (item) =>
-        !item.limitedSample &&
         item.offensiveTrend != null &&
-        isRisingTrendStatus(item.trendStatus)
+        isRisingTrendStatus(item.trendStatus) &&
+        (item.combined?.minutes ?? 0) > 0
     )
-    .sort((a, b) => (b.offensiveTrend ?? 0) - (a.offensiveTrend ?? 0));
+    .sort((a, b) => {
+      const lim = Number(Boolean(a.limitedSample)) - Number(Boolean(b.limitedSample));
+      if (lim !== 0) return lim;
+      return (b.offensiveTrend ?? 0) - (a.offensiveTrend ?? 0);
+    });
 
   const decliningPlayers = items
     .filter(
       (item) =>
-        !item.limitedSample &&
         item.offensiveTrend != null &&
-        isDecliningTrendStatus(item.trendStatus)
+        isDecliningTrendStatus(item.trendStatus) &&
+        (item.combined?.minutes ?? 0) > 0
     )
-    .sort((a, b) => (a.offensiveTrend ?? 0) - (b.offensiveTrend ?? 0));
+    .sort((a, b) => {
+      const lim = Number(Boolean(a.limitedSample)) - Number(Boolean(b.limitedSample));
+      if (lim !== 0) return lim;
+      return (a.offensiveTrend ?? 0) - (b.offensiveTrend ?? 0);
+    });
 
   return {
     teamId: params.teamId,
@@ -338,7 +350,8 @@ export async function buildMatchPlayerPerformance(
     allRows: homeRows,
     cohortInputs,
     opponentRows: awayRows,
-    opponentRecentMatchIds: homeFixtureIds.slice(0, PLAYER_PERFORMANCE_CONFIG.recentTeamMatches),
+    /** Matchup: ultime gare dell’avversario (away), non della squadra stessa. */
+    opponentRecentMatchIds: awayFixtureIds.slice(0, PLAYER_PERFORMANCE_CONFIG.recentTeamMatches),
     coverage,
     isHomeTeam: true
   });
@@ -350,7 +363,7 @@ export async function buildMatchPlayerPerformance(
     allRows: awayRows,
     cohortInputs,
     opponentRows: homeRows,
-    opponentRecentMatchIds: awayFixtureIds.slice(0, PLAYER_PERFORMANCE_CONFIG.recentTeamMatches),
+    opponentRecentMatchIds: homeFixtureIds.slice(0, PLAYER_PERFORMANCE_CONFIG.recentTeamMatches),
     coverage,
     isHomeTeam: false
   });
