@@ -119,9 +119,16 @@ class RevenueCatIapService implements IapService {
       if (err?.userCancelled || err?.code === "1" || err?.code === "PURCHASE_CANCELLED") {
         return { ok: false, cancelled: true, message: "Acquisto annullato." };
       }
+      const main = err?.message ? String(err.message) : "Acquisto non riuscito.";
+      const underlying =
+        err?.underlyingErrorMessage ??
+        err?.userInfo?.underlyingErrorMessage ??
+        err?.readableErrorCode ??
+        err?.userInfo?.readable_error_code ??
+        null;
       return {
         ok: false,
-        message: err?.message ? String(err.message) : "Acquisto non riuscito."
+        message: underlying ? `${main} (${String(underlying)})` : main
       };
     }
   }

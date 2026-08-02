@@ -89,9 +89,9 @@ const markings = redactDifficultMarkingsList({
   results: [{ id: 1 }, { id: 2 }, { id: 3 }, { id: 4 }],
   tier: "free"
 });
-assert.equal(markings.results.length, ENTITLEMENT_FLAGS.freeDifficultMarkingsLimit);
-assert.equal(markings.lockedCount, 2);
-assert.equal(markings.accessMode, "preview");
+assert.equal(markings.results.length, 0);
+assert.equal(markings.lockedCount, 4);
+assert.equal(markings.accessMode, "locked");
 
 const trends = redactTrendsList({
   results: [

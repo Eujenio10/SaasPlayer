@@ -28,6 +28,9 @@
     },
     "android": {
       "package": "com.ildodicesimo.tacticalhub",
+      "permissions": [
+        "com.android.vending.BILLING"
+      ],
       "adaptiveIcon": {
         "backgroundColor": "#000000",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -43,7 +46,6 @@
     "plugins": [
       "expo-router",
       "expo-secure-store",
-      "expo-dev-client",
       [
         "expo-splash-screen",
         {

@@ -7,9 +7,9 @@ export const FEATURE_ACCESS: Record<FeatureId, FeatureAccessLevel> = {
   basicMatchPreview: "free",
   basicStats: "free",
   basicTrends: "free",
-  matchSimulator: "free",
-  /** Anteprima Free (prime 2); completa solo Pro — enforcement anche in API. */
-  difficultMarkings: "free",
+  matchSimulator: "pro",
+  /** Completa solo Pro — Free e Guest vedono lock / paywall. */
+  difficultMarkings: "pro",
   fullPreMatchReport: "pro",
   advancedMatchAnalysis: "pro",
   advancedTrends: "pro",

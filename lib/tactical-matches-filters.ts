@@ -16,7 +16,7 @@ import { isMonitoredCompetitionSlug, resolveCompetitionId } from "@/lib/competit
 import type { MonitoredCompetitionId } from "@/lib/competitions";
 
 /** Finestra temporale di default: mostra solo le partite entro i prossimi 7 giorni. */
-export const MATCHES_WINDOW_DAYS = 7;
+export const MATCHES_WINDOW_DAYS = 30;
 
 const SECONDS_PER_DAY = 24 * 60 * 60;
 

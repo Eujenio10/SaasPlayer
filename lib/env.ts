@@ -56,5 +56,12 @@ export const env = {
   },
   get ODDSAPI_RAPIDAPI_HOST() {
     return process.env.ODDSAPI_RAPIDAPI_HOST ?? "odds-api.p.rapidapi.com";
+  },
+  /** Resend — invio email registrazione (bypass limite 2/ora di Supabase). */
+  get RESEND_API_KEY() {
+    return process.env.RESEND_API_KEY ?? "";
+  },
+  get AUTH_EMAIL_FROM() {
+    return process.env.AUTH_EMAIL_FROM?.trim() || "PitchBrain <onboarding@resend.dev>";
   }
 };

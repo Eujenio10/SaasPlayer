@@ -59,7 +59,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       fetchUserAccess().catch(() => null),
       refreshUserEntitlements(userId)
     ]);
-    setAccess(summary);
+    // Allinea access locale se Pro risulta attivo da entitlements/IAP ma /access
+    // risponde ancora come member (es. attivazione manuale DB appena fatta).
+    const reconciled =
+      summary && entitlement.state === "active" && !summary.isAdmin && !summary.isPro
+        ? {
+            ...summary,
+            role: "pro" as const,
+            isPro: true,
+            isMember: false,
+            matchUsage: {
+              ...summary.matchUsage,
+              limit: null,
+              remaining: null
+            },
+            yellowCardVisibleRows: null
+          }
+        : summary;
+    setAccess(reconciled);
     setSubscription(entitlement);
   }, [session?.user]);
 

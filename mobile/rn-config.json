@@ -1,0 +1,17 @@
+﻿node : 
+In C:\Users\Eugenio\AppData\Local\Temp\ps-script-f0a0047b-a0a0-4c3d-920f-0fee5360c2bb.ps1:104 car:56
++ ... ta\mobile"; node node_modules/react-native/cli.js config 2>&1 | Out-F ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+ÔÜá´©Å react-native depends on @react-native-community/cli for cli commands. To fix update your package.json to 
+include:
+
+
+  "devDependencies": {
+    "@react-native-community/cli": "latest",
+  }
+
+
+

@@ -208,7 +208,7 @@ export function IntensityAnalysisView({
 
   homeTeamId,
 
-  guestPreviewMode = "full",
+  guestPreviewMode = "locked",
 
   guestFoulProfilesOnly = false,
 

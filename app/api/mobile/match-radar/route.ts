@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { resolveApiAccessContext } from "@/lib/auth/resolve-api-access";
+import { resolveRequestEntitlements } from "@/lib/entitlements/request";
 import { isMatchRadarProAccess } from "@/lib/match-radar/access";
 import {
   buildMatchRadarListResponse,
@@ -20,12 +21,13 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "invalid_params", details: parsed.error.flatten() }, { status: 400 });
   }
 
+  const entitlements = await resolveRequestEntitlements(ctx, request);
   const payload = await buildMatchRadarListResponse({
     date: parsed.data.date,
     mode: parsed.data.mode,
     competitionId: parsed.data.competitionId,
     locale: parsed.data.locale ?? "it",
-    isPro: isMatchRadarProAccess(ctx)
+    isPro: isMatchRadarProAccess(ctx, entitlements.subscriptionTier)
   });
 
   return NextResponse.json(payload);

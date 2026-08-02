@@ -1,0 +1,115 @@
+﻿[
+  {
+    "id": "f9ccc5f1-c70c-441a-8af9-a9311ec8eb72",
+    "status": "IN_QUEUE",
+    "platform": "ANDROID",
+    "artifacts": {},
+    "initiatingActor": {
+      "id": "bab4ae03-5fbd-47ba-acae-55b2cafb6f6b",
+      "displayName": "eujenio03"
+    },
+    "project": {
+      "id": "1be236be-aedf-4f24-9df9-1377b81fa1a2",
+      "name": "tactical-intelligence-hub",
+      "slug": "tactical-intelligence-hub",
+      "ownerAccount": {
+        "id": "b343ca20-7f3a-46d6-9b2e-fc7820555419",
+        "name": "eujenio03"
+      }
+    },
+    "distribution": "STORE",
+    "buildProfile": "production",
+    "sdkVersion": "54.0.0",
+    "appVersion": "1.0.0",
+    "appBuildVersion": "4",
+    "gitCommitHash": "c77bd5186cdba65173c68746731a65af47ed753c",
+    "gitCommitMessage": "fix: attivazione Pro IAP end-to-end per utenti mobile",
+    "priority": "NORMAL",
+    "createdAt": "2026-07-28T15:34:01.807Z",
+    "updatedAt": "2026-07-28T15:34:03.521Z",
+    "expirationDate": "2026-08-27T15:34:01.883Z",
+    "isForIosSimulator": false
+  },
+  {
+    "id": "0284c14c-7a2e-4d8a-94cd-6eb7f846aa60",
+    "status": "ERRORED",
+    "platform": "ANDROID",
+    "error": {
+      "errorCode": "EAS_BUILD_UNKNOWN_GRADLE_ERROR",
+      "message": "Gradle build failed with unknown error. See logs for the \"Run gradlew\" phase for more information."
+    },
+    "artifacts": {},
+    "initiatingActor": {
+      "id": "bab4ae03-5fbd-47ba-acae-55b2cafb6f6b",
+      "displayName": "eujenio03"
+    },
+    "project": {
+      "id": "1be236be-aedf-4f24-9df9-1377b81fa1a2",
+      "name": "tactical-intelligence-hub",
+      "slug": "tactical-intelligence-hub",
+      "ownerAccount": {
+        "id": "b343ca20-7f3a-46d6-9b2e-fc7820555419",
+        "name": "eujenio03"
+      }
+    },
+    "distribution": "STORE",
+    "buildProfile": "production",
+    "sdkVersion": "54.0.0",
+    "appVersion": "1.0.0",
+    "appBuildVersion": "3",
+    "gitCommitHash": "c77bd5186cdba65173c68746731a65af47ed753c",
+    "gitCommitMessage": "fix: attivazione Pro IAP end-to-end per utenti mobile",
+    "priority": "NORMAL",
+    "createdAt": "2026-07-28T12:42:56.822Z",
+    "updatedAt": "2026-07-28T13:41:06.736Z",
+    "completedAt": "2026-07-28T13:41:06.155Z",
+    "expirationDate": "2026-08-27T12:42:56.885Z",
+    "isForIosSimulator": false,
+    "metrics": {
+      "buildWaitTime": 4294,
+      "buildQueueTime": 3264650,
+      "buildDuration": 220389
+    }
+  },
+  {
+    "id": "85010375-4e56-4970-b8dc-eefab20a0f4b",
+    "status": "ERRORED",
+    "platform": "ANDROID",
+    "error": {
+      "errorCode": "EAS_BUILD_UNKNOWN_GRADLE_ERROR",
+      "message": "Gradle build failed with unknown error. See logs for the \"Run gradlew\" phase for more information."
+    },
+    "artifacts": {},
+    "initiatingActor": {
+      "id": "bab4ae03-5fbd-47ba-acae-55b2cafb6f6b",
+      "displayName": "eujenio03"
+    },
+    "project": {
+      "id": "1be236be-aedf-4f24-9df9-1377b81fa1a2",
+      "name": "tactical-intelligence-hub",
+      "slug": "tactical-intelligence-hub",
+      "ownerAccount": {
+        "id": "b343ca20-7f3a-46d6-9b2e-fc7820555419",
+        "name": "eujenio03"
+      }
+    },
+    "distribution": "STORE",
+    "buildProfile": "production",
+    "sdkVersion": "54.0.0",
+    "appVersion": "1.0.0",
+    "appBuildVersion": "2",
+    "gitCommitHash": "c77bd5186cdba65173c68746731a65af47ed753c",
+    "gitCommitMessage": "fix: attivazione Pro IAP end-to-end per utenti mobile",
+    "priority": "NORMAL",
+    "createdAt": "2026-07-28T10:05:43.509Z",
+    "updatedAt": "2026-07-28T14:00:49.418Z",
+    "completedAt": "2026-07-28T10:22:04.807Z",
+    "expirationDate": "2026-08-27T10:05:43.542Z",
+    "isForIosSimulator": false,
+    "metrics": {
+      "buildWaitTime": 4569,
+      "buildQueueTime": 738004,
+      "buildDuration": 238725
+    }
+  }
+]

@@ -1,59 +1,22 @@
 import type { Metadata } from "next";
+import { AuthPanel } from "@/components/account/auth-panel";
 
 export const metadata: Metadata = {
-  title: "Accesso B2B | Tactical Intelligence Hub"
+  title: "Accedi | PitchBrain"
 };
 
 export default function LoginPage({
   searchParams
 }: {
-  searchParams: { next?: string; error?: string };
+  searchParams: { next?: string; error?: string; mode?: string };
 }) {
-  const nextPath = searchParams.next ?? "/";
-  const error = searchParams.error;
+  const initialMode = searchParams.mode === "register" ? "register" : "login";
 
   return (
-    <section className="mx-auto flex min-h-[65dvh] max-w-lg items-center px-1 sm:px-0">
-      <div className="w-full rounded-2xl border border-cyan-300/30 bg-graphite/80 p-5 shadow-broadcast sm:p-8">
-        <h1 className="text-2xl font-bold text-cyan-300 sm:text-3xl">Accesso Operatore</h1>
-        <p className="mt-3 text-sm text-slate-300 sm:text-base">
-          Inserisci credenziali autorizzate per entrare nell&apos;area monitor.
-        </p>
-
-        {error ? (
-          <p className="mt-4 rounded-lg border border-cyan-400/30 bg-darkGray/70 px-3 py-2 text-sm text-cyan-200">
-            Credenziali non valide o account non autorizzato.
-          </p>
-        ) : null}
-
-        <form action="/auth/login" method="post" className="mt-6 space-y-4">
-          <input type="hidden" name="next" value={nextPath} />
-          <label className="block space-y-2">
-            <span className="text-sm text-slate-300">Email aziendale</span>
-            <input
-              type="email"
-              name="email"
-              required
-              className="w-full rounded-xl border border-cyan-400/30 bg-darkGray px-3 py-2 text-slate-100 outline-none focus:border-cyan-300"
-            />
-          </label>
-          <label className="block space-y-2">
-            <span className="text-sm text-slate-300">Password</span>
-            <input
-              type="password"
-              name="password"
-              required
-              className="w-full rounded-xl border border-cyan-400/30 bg-darkGray px-3 py-2 text-slate-100 outline-none focus:border-cyan-300"
-            />
-          </label>
-          <button
-            type="submit"
-            className="w-full rounded-xl bg-techBlue px-4 py-2 font-semibold text-darkGray transition hover:brightness-110"
-          >
-            Accedi
-          </button>
-        </form>
-      </div>
-    </section>
+    <AuthPanel
+      initialMode={initialMode}
+      nextPath={searchParams.next ?? "/"}
+      error={searchParams.error}
+    />
   );
 }

@@ -22,6 +22,7 @@ import {
   type TeamSeasonFallbackResolution
 } from "@/lib/season-fallback";
 import { isMonitoredInternationalCompetitionSlug, resolveCompetitionId } from "@/lib/competitions";
+import { MATCHES_WINDOW_DAYS } from "@/lib/tactical-matches-filters";
 import { createSupabaseServiceClient } from "@/lib/supabase/server";
 import type {
   CompetitionScope,
@@ -2265,29 +2266,45 @@ async function fetchTeamScheduleEvents(
   return extractEvents(payload);
 }
 
+/** Giorni di discovery calendario club/UEFA: allineato a MATCHES_WINDOW_DAYS se env assente. */
+function resolveTacticalLookaheadDays(): number {
+  const raw = Number(process.env.TACTICAL_LOOKAHEAD_DAYS ?? String(MATCHES_WINDOW_DAYS));
+  if (!Number.isFinite(raw) || raw < 1) return MATCHES_WINDOW_DAYS;
+  return Math.min(90, Math.floor(raw));
+}
+
 /** FootApi: il calendario `/api/matches/d/m/y` risponde spesso `[]`; discovery via prossime partite squadre anchor. */
 async function discoverTargetEventsViaTeamAnchors(
   statusPredicate: (event: SportApiEvent) => boolean,
   competitionFilter: DiscoverCompetitionFilter = "domestic_top5_only"
 ): Promise<SportApiEvent[]> {
-  const lookaheadDays = Number(process.env.TACTICAL_LOOKAHEAD_DAYS ?? "14");
-  const safeLookaheadDays =
-    Number.isFinite(lookaheadDays) && lookaheadDays >= 1 ? Math.floor(lookaheadDays) : 14;
+  const safeLookaheadDays = resolveTacticalLookaheadDays();
   const maxKickoff = Math.floor(Date.now() / 1000) + safeLookaheadDays * 24 * 60 * 60;
   const byEventId = new Map<number, SportApiEvent>();
+  /** Con lookahead lungo serve più di una page “next” per squadra. */
+  const maxPagesPerTeam = Math.min(
+    8,
+    Math.max(1, Math.ceil(safeLookaheadDays / 7), parsePositiveInt(process.env.TACTICAL_ANCHOR_NEXT_PAGES, 1))
+  );
 
   for (const teamId of footApiDiscoveryAnchorTeamIds()) {
     try {
-      const events = filterDiscoverableFootballEvents(
-        await fetchTeamScheduleEvents(teamId, "next", 0),
-        statusPredicate,
-        competitionFilter,
-        maxKickoff
-      );
-      for (const event of events) {
-        const id = event.id;
-        if (typeof id !== "number") continue;
-        byEventId.set(id, event);
+      for (let page = 0; page < maxPagesPerTeam; page += 1) {
+        const events = filterDiscoverableFootballEvents(
+          await fetchTeamScheduleEvents(teamId, "next", page),
+          statusPredicate,
+          competitionFilter,
+          maxKickoff
+        );
+        if (!events.length) break;
+        let addedOnPage = 0;
+        for (const event of events) {
+          const id = event.id;
+          if (typeof id !== "number") continue;
+          if (!byEventId.has(id)) addedOnPage += 1;
+          byEventId.set(id, event);
+        }
+        if (addedOnPage === 0) break;
       }
     } catch {
       // Best-effort per squadra anchor: non bloccare l'intero menu.
@@ -2461,9 +2478,7 @@ async function discoverTargetEvents(
     return discoverTargetEventsViaTeamAnchors(statusPredicate, competitionFilter);
   }
 
-  const lookaheadDays = Number(process.env.TACTICAL_LOOKAHEAD_DAYS ?? "14");
-  const safeLookaheadDays =
-    Number.isFinite(lookaheadDays) && lookaheadDays >= 1 ? Math.floor(lookaheadDays) : 14;
+  const safeLookaheadDays = resolveTacticalLookaheadDays();
   const collected: SportApiEvent[] = [];
   for (let dayOffset = 0; dayOffset <= safeLookaheadDays; dayOffset += 1) {
     const endpoint = sportApiScheduledEventsPath(dateToken(dayOffset));

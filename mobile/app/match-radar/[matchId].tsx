@@ -1,6 +1,10 @@
+import { useEffect } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
-import { Stack, useLocalSearchParams } from "expo-router";
+import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { Screen } from "@/components/Screen";
+import { useAccessFlow } from "@/contexts/AccessFlowContext";
+import { useAuth } from "@/contexts/AuthContext";
+import { canAccessFeatureId } from "@/lib/access/features";
 import { useMatchRadarDetail } from "@/lib/match-radar/useMatchRadarDetail";
 import { MATCH_RADAR_UI_TEXT, translateMatchRadarReason } from "@/lib/match-radar/text";
 import { formatKickoffInRome } from "@/lib/match-radar/date";
@@ -23,10 +27,31 @@ function DimRow({ label, value }: { label: string; value: number | null | undefi
 }
 
 export default function MatchRadarDetailScreen() {
+  const router = useRouter();
   const { matchId } = useLocalSearchParams<{ matchId: string }>();
-  const { detail, loading, error } = useMatchRadarDetail(matchId);
+  const { userStatus } = useAuth();
+  const { openPaywall } = useAccessFlow();
+  const isPro = canAccessFeatureId(userStatus, "proFilters");
+  const { detail, loading, error } = useMatchRadarDetail(isPro ? matchId : undefined);
   const locale: "it" | "en" = "it";
   const ui = MATCH_RADAR_UI_TEXT[locale];
+
+  useEffect(() => {
+    if (isPro) return;
+    openPaywall("proFilters", { type: "open_feature", feature: "proFilters" });
+    router.replace("/match-radar");
+  }, [isPro, openPaywall, router]);
+
+  if (!isPro) {
+    return (
+      <>
+        <Stack.Screen options={{ title: ui.title }} />
+        <Screen>
+          <Text style={styles.muted}>Funzione Pro: apri il piano Pro per il dettaglio Match Radar.</Text>
+        </Screen>
+      </>
+    );
+  }
 
   return (
     <>

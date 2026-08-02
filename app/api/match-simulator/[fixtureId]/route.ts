@@ -28,7 +28,8 @@ export async function GET(
   const redacted = redactSimulationDetail({
     simulation: payload.simulation,
     tier: entitlements.subscriptionTier,
-    matchUnlocked
+    matchUnlocked,
+    authenticatedFree: Boolean(ctx.userId) && entitlements.subscriptionTier !== "pro"
   });
 
   return NextResponse.json({

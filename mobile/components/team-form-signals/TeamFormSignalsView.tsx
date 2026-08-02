@@ -123,7 +123,7 @@ function PartialDataNotice() {
 
 export function TeamFormSignalsView({
   report,
-  showFullDetail = true,
+  showFullDetail = false,
   onDiscoverPro,
   onWatchAd,
   onRefresh

@@ -1,0 +1,6 @@
+android/
+ios/
+.expo/
+.kotlin/
+build-view.json
+eas-log.txt

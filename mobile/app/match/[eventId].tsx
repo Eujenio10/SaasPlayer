@@ -56,13 +56,12 @@ export default function MatchDetailScreen() {
   const canAccessPreMatch = canAccessFeatureId(userStatus, "fullPreMatchReport");
   const matchAnalysisUnlocked =
     isPro || isMatchUnlocked(eventId) || canAccessFeature("match_full_analysis", eventId);
-  const showTeamFormFullDetail =
-    matchAnalysisUnlocked ||
-    isGuest ||
-    userStatus === "authenticated_pro" ||
-    Boolean(access?.isPro) ||
-    Boolean(access?.isAdmin);
-  const guestPreviewMode = resolveGuestPreviewMode(userStatus, featuresPreviewActive);
+  /** Analisi completa solo se Pro o sblocco rADS partita — Free senza unlock = come Guest locked. */
+  const showTeamFormFullDetail = matchAnalysisUnlocked;
+  const guestPreviewMode = resolveGuestPreviewMode(userStatus, featuresPreviewActive, {
+    contentUnlocked: matchAnalysisUnlocked
+  });
+  const analysisLocked = !matchAnalysisUnlocked;
 
   const openProPaywall = useCallback(() => {
     openPaywall("advancedMatchAnalysis", {
@@ -176,7 +175,7 @@ export default function MatchDetailScreen() {
       {!isPro ? <RemainingUnlocksIndicator /> : null}
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
-      {!matchAnalysisUnlocked ? (
+      {analysisLocked ? (
         <View style={styles.lockWrap}>
           <LockedContentPreview
             title="Analisi completa della partita"
@@ -194,8 +193,11 @@ export default function MatchDetailScreen() {
           <IntensityAnalysisView
             metrics={metrics}
             homeTeamId={homeTeamId}
-            guestFoulProfilesOnly={isGuest && !matchAnalysisUnlocked}
-            guestFeaturesPreviewActive={featuresPreviewActive || matchAnalysisUnlocked}
+            guestPreviewMode={guestPreviewMode}
+            guestFoulProfilesOnly={analysisLocked}
+            guestFeaturesPreviewActive={
+              (isGuest && featuresPreviewActive) || matchAnalysisUnlocked
+            }
             onWatchAd={() => openAdModal("features")}
             onDiscoverPro={openProPaywall}
           />
@@ -232,7 +234,7 @@ export default function MatchDetailScreen() {
             awayName={awayDisplay || params.away}
             competition={competitionDisplay}
             canAccess={canAccessPreMatch}
-            guestPreviewMode={isGuest ? "locked" : guestPreviewMode}
+            guestPreviewMode={canAccessPreMatch ? "full" : "locked"}
             onDiscoverPro={openProPaywall}
           />
         )}

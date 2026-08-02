@@ -1,4 +1,4 @@
-import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
+import { Alert, Linking, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { Screen } from "@/components/Screen";
 import { useAccessFlow } from "@/contexts/AccessFlowContext";
@@ -29,14 +29,33 @@ function roleFeatures(role: string | undefined): string[] {
   ];
 }
 
+async function openStoreSubscriptionManagement(): Promise<void> {
+  const url =
+    Platform.OS === "ios"
+      ? "https://apps.apple.com/account/subscriptions"
+      : "https://play.google.com/store/account/subscriptions";
+  try {
+    await Linking.openURL(url);
+  } catch {
+    Alert.alert(
+      "Gestione abbonamento",
+      Platform.OS === "ios"
+        ? "Apri Impostazioni → Apple ID → Abbonamenti per gestire PitchBrain Pro."
+        : "Apri Play Store → Profilo → Pagamenti e abbonamenti per gestire PitchBrain Pro."
+    );
+  }
+}
+
 export default function ProfileScreen() {
   const router = useRouter();
-  const { user, access, userStatus, signOut, deleteAccount } = useAuth();
+  const { user, access, userStatus, signOut, deleteAccount, refreshAccess } = useAuth();
   const { openPaywall, handleRestorePurchases } = useAccessFlow();
   const [deleting, setDeleting] = useState(false);
 
   const email = user?.email ?? "—";
-  const features = roleFeatures(access?.role);
+  const isProActive =
+    userStatus === "authenticated_pro" || Boolean(access?.isPro) || Boolean(access?.isAdmin);
+  const features = roleFeatures(access?.isAdmin ? "admin" : isProActive ? "pro" : access?.role);
 
   const confirmDeleteAccount = () => {
     Alert.alert(
@@ -144,7 +163,7 @@ export default function ProfileScreen() {
         ))}
       </View>
 
-      {access?.isMember && access.matchUsage.limit != null ? (
+      {!isProActive && access?.isMember && access.matchUsage.limit != null ? (
         <View style={styles.card}>
           <Text style={styles.cardLabel}>Utilizzo settimanale</Text>
           <Text style={styles.feature}>
@@ -154,7 +173,7 @@ export default function ProfileScreen() {
         </View>
       ) : null}
 
-      {userStatus === "authenticated_free" || userStatus === "expired_pro" ? (
+      {!isProActive && (userStatus === "authenticated_free" || userStatus === "expired_pro") ? (
         <Pressable
           style={({ pressed }) => [styles.primaryBtn, pressed && { opacity: 0.92 }]}
           onPress={() => openPaywall("fullPreMatchReport")}
@@ -167,15 +186,27 @@ export default function ProfileScreen() {
 
       <Pressable
         style={({ pressed }) => [styles.secondaryBtn, pressed && { opacity: 0.9 }]}
-        onPress={() => void handleRestorePurchases()}
+        onPress={() => void handleRestorePurchases().then(() => refreshAccess())}
       >
         <Text style={styles.secondaryBtnText}>Ripristina acquisti</Text>
       </Pressable>
 
-      {userStatus === "authenticated_pro" ? (
+      {isProActive ? (
         <Pressable
           style={({ pressed }) => [styles.secondaryBtn, pressed && { opacity: 0.9 }]}
-          onPress={() => openPaywall("fullPreMatchReport")}
+          onPress={() => {
+            Alert.alert(
+              "PitchBrain Pro attivo",
+              "Il piano Pro è già attivo su questo account. Se l’hai acquistato dallo store, puoi gestirlo/cancellarlo dalle impostazioni Google Play o App Store.",
+              [
+                { text: "Chiudi", style: "cancel" },
+                {
+                  text: "Apri store",
+                  onPress: () => void openStoreSubscriptionManagement()
+                }
+              ]
+            );
+          }}
         >
           <Text style={styles.secondaryBtnText}>Gestisci abbonamento</Text>
         </Pressable>

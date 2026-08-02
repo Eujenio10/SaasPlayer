@@ -14,7 +14,7 @@ export function resolveContentAccessMode(params: {
   return "locked";
 }
 
-/** Limita le marcature Free alle N più difficili (già ordinate per score). */
+/** Limita le marcature: solo Pro vede la lista; Free/Guest → locked. */
 export function redactDifficultMarkingsList<T>(params: {
   results: T[];
   tier: SubscriptionTier;
@@ -36,13 +36,12 @@ export function redactDifficultMarkingsList<T>(params: {
       lockedCount: 0
     };
   }
-  const results = params.results.slice(0, freeLimit);
   return {
-    results,
-    accessMode: "preview",
+    results: [],
+    accessMode: "locked",
     totalAvailable,
-    freeLimit,
-    lockedCount: Math.max(0, totalAvailable - results.length)
+    freeLimit: 0,
+    lockedCount: totalAvailable
   };
 }
 
@@ -100,23 +99,22 @@ export function redactTrendsList<T>(params: {
   };
 }
 
-/** Simulazione Free: solo riepilogo sintetico. */
+/** Simulazione: Pro / sblocco partita → full. Guest anteprima sintetica. Free autenticato → locked. */
 export function redactSimulationDetail(params: {
   simulation: unknown;
   tier: SubscriptionTier;
   matchUnlocked: boolean;
+  /** Account autenticato Free: niente anteprima (solo Guest/Pro). */
+  authenticatedFree?: boolean;
 }): { simulation: unknown; accessMode: ContentAccessMode } {
-  if (!params.simulation) {
-    return {
-      simulation: null,
-      accessMode: params.tier === "pro" || params.matchUnlocked ? "full" : "preview"
-    };
-  }
   if (params.tier === "pro" || params.matchUnlocked) {
     return { simulation: params.simulation, accessMode: "full" };
   }
-  if (!ENTITLEMENT_FLAGS.freeSimulationPreviewEnabled) {
+  if (params.authenticatedFree || !ENTITLEMENT_FLAGS.freeSimulationPreviewEnabled) {
     return { simulation: null, accessMode: "locked" };
+  }
+  if (!params.simulation) {
+    return { simulation: null, accessMode: "preview" };
   }
 
   const src = params.simulation as MatchSimulationResultLike;

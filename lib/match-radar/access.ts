@@ -1,8 +1,14 @@
 import type { ApiAccessContext } from "@/lib/auth/resolve-api-access";
+import type { SubscriptionTier } from "@/lib/entitlements/types";
 
-/** Pro, admin e member autenticati vedono Match Radar completo (feature già protetta a livello prodotto). */
-export function isMatchRadarProAccess(ctx: ApiAccessContext): boolean {
+/**
+ * Match Radar completo solo per Pro/admin (ruolo org o subscription IAP).
+ * Member free autenticati restano in anteprima limitata, come i guest.
+ */
+export function isMatchRadarProAccess(
+  ctx: ApiAccessContext,
+  subscriptionTier?: SubscriptionTier
+): boolean {
   if (ctx.role === "admin" || ctx.role === "pro") return true;
-  if (ctx.mode === "authenticated" && ctx.role === "member") return true;
-  return false;
+  return subscriptionTier === "pro";
 }
