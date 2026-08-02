@@ -2281,11 +2281,12 @@ async function fetchTeamScheduleEvents(
   return extractEvents(payload);
 }
 
-/** Giorni di discovery calendario club/UEFA: allineato a MATCHES_WINDOW_DAYS se env assente. */
+/** Giorni di discovery calendario club/UEFA: almeno quanto MATCHES_WINDOW_DAYS. */
 function resolveTacticalLookaheadDays(): number {
   const raw = Number(process.env.TACTICAL_LOOKAHEAD_DAYS ?? String(MATCHES_WINDOW_DAYS));
-  if (!Number.isFinite(raw) || raw < 1) return MATCHES_WINDOW_DAYS;
-  return Math.min(90, Math.floor(raw));
+  const fromEnv = Number.isFinite(raw) && raw >= 1 ? Math.floor(raw) : MATCHES_WINDOW_DAYS;
+  /** Mai meno della finestra menu: altrimenti partite “nel menu” non vengono mai scaricate. */
+  return Math.min(90, Math.max(fromEnv, MATCHES_WINDOW_DAYS));
 }
 
 /** FootApi: il calendario `/api/matches/d/m/y` risponde spesso `[]`; discovery via prossime partite squadre anchor. */

@@ -11,7 +11,8 @@ import { analyzeFoulRisk } from "@/lib/foul-risk-analysis";
 import {
   buildEachTeamNextInternationalMatchesMenu,
   filterMatchesKickoffInFuture,
-  dedupeMatchesByEventId
+  dedupeMatchesByEventId,
+  MATCHES_WINDOW_DAYS
 } from "@/lib/tactical-matches-filters";
 import type { FoulRiskAggressorBrief, FoulRiskEntry } from "@/lib/foul-risk-analysis";
 import type { UserAccessSummary } from "@/lib/auth/user-access";
@@ -1562,16 +1563,29 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
                       if (mountedRef.current) {
                         const total = body.insightsTotal ?? 0;
                         const done = body.insightsProcessed ?? 0;
+                        const domesticCount = body.domesticMatchesCount ?? 0;
+                        const intlMenuCount = body.internationalMatchesCount ?? 0;
+                        const intlDiscovery = body.internationalDiscoveryCount ?? 0;
+                        const matchesCount = body.matchesCount ?? domesticCount + intlMenuCount;
                         setAdminBulkProgress({ current: done, total });
-                        if (
-                          (body.internationalMatchesCount ?? 0) === 0 &&
-                          (body.internationalDiscoveryCount ?? 0) === 0
-                        ) {
-                          setMatchInsightsError(
-                            "Menu aggiornato ma nessuna partita Mondiali trovata. Controlla TACTICAL_WORLD_CUP_TOURNAMENT_ID/SEASON_ID e il provider FootApi."
-                          );
-                        } else if ((body.matchesCount ?? 0) > 0) {
+                        if (matchesCount > 0) {
                           setMatchesError(null);
+                          setMatchInsightsError(null);
+                        } else if (domesticCount === 0 && intlMenuCount === 0) {
+                          const hints: string[] = [];
+                          if (intlDiscovery === 0) {
+                            hints.push(
+                              "Nessuna gara internazionale futura (i Mondiali 2026 sono conclusi; Nations League può essere oltre la finestra giorni)."
+                            );
+                          } else {
+                            hints.push(
+                              `Trovate ${intlDiscovery} gare internazionali in discovery ma fuori dalla finestra menu (${MATCHES_WINDOW_DAYS} giorni).`
+                            );
+                          }
+                          hints.push(
+                            "Per Top 5/UEFA: su Vercel imposta TACTICAL_LOOKAHEAD_DAYS≥35, ridistribuisci e rilancia Aggiorna dati admin."
+                          );
+                          setMatchInsightsError(hints.join(" "));
                         } else if (total > 0 && done === 0) {
                           setMatchInsightsError(
                             "Menu aggiornato ma nessun insight precaricato. Controlla i limiti RapidAPI o riprova."
