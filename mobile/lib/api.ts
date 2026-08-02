@@ -224,7 +224,7 @@ export async function refreshAdminMatches(): Promise<{
 
   const controller = new AbortController();
 
-  const timeout = setTimeout(() => controller.abort(), 8 * 60 * 1000);
+  const timeout = setTimeout(() => controller.abort(), 14 * 60 * 1000);
 
   try {
 

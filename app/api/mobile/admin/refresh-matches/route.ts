@@ -5,7 +5,8 @@ import { resolveProductOrganizationId } from "@/lib/auth/product-organization";
 import { runAdminMatchesRefresh } from "@/lib/mobile/admin-refresh-matches";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 300;
+/** Tempo massimo Vercel Pro: più headroom per prefetch completo Top 5. */
+export const maxDuration = 800;
 
 export async function POST(request: Request) {
   const user = await getApiUser(request);

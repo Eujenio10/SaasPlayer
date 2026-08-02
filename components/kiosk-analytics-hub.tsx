@@ -35,7 +35,7 @@ import {
   sufferedFoulSignalForRisk
 } from "@/lib/tactical-fouls-signals";
 import {
-  MONITORED_COMPETITIONS,
+  ACTIVE_MENU_COMPETITIONS,
   getCompetitionLabel,
   isMonitoredInternationalCompetitionSlug,
   isTop5DomesticCompetitionSlug,
@@ -652,7 +652,7 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
       const id = resolveCompetitionId(m.competitionSlug);
       if (id) present.add(id);
     }
-    return MONITORED_COMPETITIONS.filter((c) => present.has(c.id)).map((c) => c.id);
+    return ACTIVE_MENU_COMPETITIONS.filter((c) => present.has(c.id)).map((c) => c.id);
   }, [upcomingMatches]);
 
   useEffect(() => {
@@ -1528,7 +1528,7 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
                       );
                       let res: Response;
                       const controller = new AbortController();
-                      const refreshTimeout = setTimeout(() => controller.abort(), 8 * 60 * 1000);
+                      const refreshTimeout = setTimeout(() => controller.abort(), 14 * 60 * 1000);
                       try {
                         res = await fetch("/api/tactical/admin-refresh-matches", {
                           method: "POST",
@@ -1583,7 +1583,7 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
                             );
                           }
                           hints.push(
-                            "Per Top 5/UEFA: su Vercel imposta TACTICAL_LOOKAHEAD_DAYS≥35, ridistribuisci e rilancia Aggiorna dati admin."
+                            "Per i Top 5: su Vercel imposta TACTICAL_LOOKAHEAD_DAYS≥35, ridistribuisci e rilancia Aggiorna dati admin."
                           );
                           setMatchInsightsError(hints.join(" "));
                         } else if (total > 0 && done === 0) {
@@ -1703,9 +1703,8 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
           {playerDetailLevel === "team_only" ? (
             <p className="rounded-2xl border border-amber-300/20 bg-amber-300/10 px-4 py-3 text-sm text-amber-100">
               Per questa competizione il menu ibrido non carica l&apos;analisi giocatori (es.{" "}
-              <strong>Serie B</strong>). Restano attive <strong>Serie A</strong>,{" "}
-              <strong>Champions League</strong>, <strong>Europa League</strong> e{" "}
-              <strong>Conference League</strong> (con squadre di Serie A) per scontri e heatmap.
+              <strong>Serie B</strong>). Restano attive le analisi sui <strong>Top 5 campionati</strong>{" "}
+              (Serie A, Premier League, LaLiga, Bundesliga, Ligue 1).
             </p>
           ) : null}
         </div>
@@ -1718,8 +1717,8 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
                 Per questa lega non sono disponibili scontri in campo nè heatmap giocatori nel menu ibrido.
               </p>
               <p className="mt-2 text-sm text-slate-400">
-                Le analisi giocatori restano attive per Serie A, Champions League, Europa League e Conference League
-                (con squadre di Serie A), per limitare le chiamate API.
+                Le analisi giocatori restano attive per i Top 5 campionati (Serie A, Premier League, LaLiga,
+                Bundesliga, Ligue 1). Champions, Europa e Conference sono temporaneamente escluse.
               </p>
             </div>
           ) : (

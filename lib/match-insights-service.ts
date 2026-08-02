@@ -666,7 +666,9 @@ export async function computeMatchInsightsPayload(
     }
 
     if (!performance.length && !skipPlayerPerformance) {
-      throw new Error("SportAPI error: no_performance_rows");
+      console.warn(
+        `[match-insights] no_performance_rows eventId=${eventId} — nessun dato giocatore reale`
+      );
     }
 
     const homeTeamIdForHeatmap =

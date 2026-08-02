@@ -4,6 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { GuestLockedSectionPanel } from "@/components/access/GuestLockedSectionPanel";
 import { ReportProgressBar } from "@/components/prematch/ReportProgressBar";
 import type { SignalScore, TeamFormSignalsReport, TeamSignalStats } from "@/lib/team-form-signals/types";
+import { MATCH_DATA_UNAVAILABLE_MESSAGE } from "@/lib/analysis-unavailable";
 import {
   formatDecimal,
   levelBadgeColor,
@@ -84,11 +85,11 @@ function EmptySignalsState({
   return (
     <SectionCard>
       <Ionicons name="analytics-outline" size={28} color={colors.textDim} />
-      <Text style={styles.emptyTitle}>Dati insufficienti</Text>
+      <Text style={styles.emptyTitle}>{MATCH_DATA_UNAVAILABLE_MESSAGE}</Text>
       <Text style={styles.emptyBody}>
         {canRetryCompute
-          ? "Le statistiche di forma non sono ancora pronte per questa partita. Riprova tra poco: lo sblocco può avviare il recupero dati."
-          : "Non sono disponibili abbastanza statistiche per generare segnali affidabili su tiri, corner e cartellini per questa partita."}
+          ? "Quando i dati ufficiali saranno disponibili, potrai aggiornare questa sezione."
+          : "Servono statistiche reali di squadra per generare segnali su tiri, corner e cartellini."}
       </Text>
       {onRefresh && canRetryCompute ? (
         <Pressable style={styles.refreshBtn} onPress={onRefresh}>

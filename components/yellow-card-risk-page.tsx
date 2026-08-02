@@ -479,9 +479,7 @@ function buildRowsFromHeuristicFallback(match: UpcomingMatchItem, metrics: Tacti
 }
 
 function buildRowsFromMatch(match: UpcomingMatchItem, metrics: TacticalMetrics[]): YellowCardRiskPlayer[] {
-  const fromSpark = buildRowsFromSparkDuels(match, metrics);
-  if (fromSpark.length > 0) return fromSpark;
-  return buildRowsFromHeuristicFallback(match, metrics);
+  return buildRowsFromSparkDuels(match, metrics);
 }
 
 /** Etichetta partita stabile: nomi squadra ordinati così casa/trasferta non crea duplicati. */

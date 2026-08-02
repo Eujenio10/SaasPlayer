@@ -1,6 +1,5 @@
 import {
   averagePositionCompatibilityScore,
-  estimatedMarkingZoneGrids,
   heatmapOverlap,
   heatmapQualityFromPointCount,
   overlapGridFromLayers
@@ -468,19 +467,14 @@ export function computeDifficultMarkingsForMatch(params: {
           attackerGrid = attacker.offensiveHeatmap;
           defenderGrid = defender.offensiveHeatmap;
         } else {
-          const estimated = estimatedMarkingZoneGrids(attacker.formationSide, defender.formationSide);
-          attackerGrid = estimated.attackerGrid;
-          defenderGrid = estimated.defenderGrid;
-          usedHeatmapForScore = false;
+          /** Solo heatmap reali: niente zone stimate da ruolo. */
+          continue;
         }
 
         let overlap = heatmapOverlap(attackerGrid, defenderGrid);
         if (usedHeatmapForScore && overlap < 0.35) {
-          const estimated = estimatedMarkingZoneGrids(attacker.formationSide, defender.formationSide);
-          attackerGrid = estimated.attackerGrid;
-          defenderGrid = estimated.defenderGrid;
-          overlap = heatmapOverlap(attackerGrid, defenderGrid);
-          usedHeatmapForScore = false;
+          /** Senza overlap reale sufficiente non pubblichiamo il duello (niente zone stimate). */
+          continue;
         }
 
         const matchupScore = computeMatchupScore({

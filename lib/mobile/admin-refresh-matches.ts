@@ -42,7 +42,7 @@ import { fetchUpcomingInternationalTournamentMatches } from "@/services/sportapi
 
 export interface AdminMatchesRefreshResult {
   ok: boolean;
-  /** Partite domestiche salvate (Top 5 + eventuale UEFA nel menu, senza stats UEFA). */
+  /** Partite domestiche salvate (solo Top 5; UEFA club esclusi). */
   domesticMatchesCount: number;
   /** Partite Mondiali salvate nello snapshot internazionale. */
   internationalMatchesCount: number;
@@ -214,7 +214,7 @@ async function runAdminMatchesRefreshInner(
   invalidateTrendsSnapshotMemory(organizationId);
   invalidateDifficultMarkingsSnapshotMemory(organizationId);
 
-  // 2) Recupera il calendario aggiornato (Top 5 domestici + Mondiali).
+  // 2) Recupera il calendario aggiornato (solo Top 5 domestici; UEFA club esclusi).
   let domesticMenu: UpcomingMatchItem[];
   try {
     domesticMenu = await getOrRefreshTacticalMatchesMenuFull({ forceRefresh: true });
@@ -222,6 +222,9 @@ async function runAdminMatchesRefreshInner(
     const message = e instanceof Error ? e.message : "matches_refresh_failed";
     return { ...empty, error: message };
   }
+
+  /** Solo Top 5: scarta eventuali residui UEFA da cache/provider. */
+  domesticMenu = domesticMenu.filter((m) => isTopFiveLeagueSlug(m.competitionSlug));
 
   let internationalDiscoveryCount = 0;
   let international: UpcomingMatchItem[] = [];
@@ -264,7 +267,7 @@ async function runAdminMatchesRefreshInner(
         .maybeSingle();
       const { normalizePersistedMenuRows } = await import("@/lib/match-simulator/fixtures-menu");
       const previousClub = normalizePersistedMenuRows(data?.matches).filter(
-        (m) => !isNationalTeamCompetitionSlug(m.competitionSlug)
+        (m) => isTopFiveLeagueSlug(m.competitionSlug)
       );
       if (previousClub.length > 0) {
         console.warn(
@@ -313,7 +316,7 @@ async function runAdminMatchesRefreshInner(
     };
   }
 
-  // 4) Prefetch insight per ogni partita del menu (Top 5 + Mondiali): nessuna saltata.
+  // 4) Prefetch insight per ogni partita del menu (Top 5 + Mondiali): sequenziale per stabilità API.
   const targets = buildAdminInsightsPrefetchTargets(domesticMenu, international);
   const topFiveInsightsTotal = targets.filter((m) => isTopFiveLeagueSlug(m.competitionSlug)).length;
   const worldCupInsightsTotal = targets.filter((m) => isNationalTeamCompetitionSlug(m.competitionSlug)).length;
@@ -321,7 +324,9 @@ async function runAdminMatchesRefreshInner(
   const insightsSnap = Math.floor(Date.now() / 1000);
   const cacheTtlHours = Number(process.env.TACTICAL_MATCH_INSIGHTS_CACHE_HOURS ?? "120");
   let insightsProcessed = 0;
-  const concurrency = 2;
+  /** Concorrenza 1 + pause più lunghe: meno 429/timeout FootApi. */
+  const concurrency = 1;
+  const pauseBetweenMatchesMs = Number(process.env.TACTICAL_ADMIN_REFRESH_PAUSE_MS ?? "900");
 
   for (let i = 0; i < targets.length; i += concurrency) {
     const slice = targets.slice(i, i + concurrency);
@@ -330,7 +335,7 @@ async function runAdminMatchesRefreshInner(
     );
     insightsProcessed += results.filter(Boolean).length;
     if (i + concurrency < targets.length) {
-      await sleep(400);
+      await sleep(Math.max(400, pauseBetweenMatchesMs));
     }
   }
 

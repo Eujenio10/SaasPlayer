@@ -1,4 +1,5 @@
 import { env } from "@/lib/env";
+import { performanceRowHasRealSample } from "@/lib/analysis-unavailable";
 import {
   detectSportApiProvider,
   isBulkScheduledEventsEndpoint,
@@ -2686,9 +2687,9 @@ async function discoverUpcomingTargetEvents(): Promise<SportApiEvent[]> {
   return discoverTargetEvents(isUpcomingEvent, "domestic_top5_only");
 }
 
-/** Menu kiosk/API tactical: top 5 domestic + Champions League + Europa League. */
+/** Menu kiosk/API tactical: solo Top 5 domestici (UEFA club temporaneamente esclusi). */
 async function discoverUpcomingKioskMenuEvents(): Promise<SportApiEvent[]> {
-  return discoverTargetEvents(isUpcomingEvent, "kiosk_top5_and_uefa_cups");
+  return discoverTargetEvents(isUpcomingEvent, "domestic_top5_only");
 }
 
 /**
@@ -2913,64 +2914,13 @@ async function fetchPlayersByFixtureId(fixtureId: string): Promise<SportPerforma
   );
 }
 
-async function fetchFallbackPlayersForTeam(params: {
+async function fetchFallbackPlayersForTeam(_params: {
   teamId: number;
   teamName: string;
   clubColor: string;
 }): Promise<SportPerformanceInput[]> {
-  const response = await sportApiFetch(sportApiTeamPlayersPath(params.teamId), {
-    requestType: "snapshot",
-    teamId: params.teamId,
-    revalidateSeconds: 300
-  });
-  if (!response.ok) {
-    return [];
-  }
-
-  const payload = (await response.json()) as SportApiTeamPlayersResponse;
-  const roster = (payload.players ?? []).slice(0, 18);
-  return roster.map((entry, index) => ({
-    athleteId: undefined,
-    athleteName: entry.player?.name ?? entry.player?.shortName ?? `PLAYER_${index + 1}`,
-    team: params.teamName,
-    teamId: params.teamId,
-    jerseyNumber: 0,
-    role: "midfielder",
-    clubColor: params.clubColor,
-    shotsTotal: 0,
-    shotsLastTwoAvg: 0,
-    shotsLastFiveAvg: 0,
-    shotsSeasonAvg: 0.1,
-    opponentShotsConcededTotal: 0,
-    leagueAvgShotsConceded: 1,
-    foulsCommitted: 0,
-    foulsSuffered: 0,
-    foulsCommittedSeasonAvg: 0,
-    foulsCommittedLastTwoAvg: 0,
-    foulsCommittedLastFiveAvg: 0,
-    foulsSufferedSeasonAvg: 0,
-    foulsSufferedLastTwoAvg: 0,
-    foulsSufferedLastFiveAvg: 0,
-    dribblesSeasonAvg: 0,
-    opponentExpectedGoalsCreated: 0,
-    savePercentage: 65,
-    savesSeasonAvg: 0,
-    savesLastTwoAvg: 0,
-    savesLastFiveAvg: 0,
-    opponentShotsOnTargetSeasonAvg: 0,
-    opponentShotsOnTargetLeagueAvg: 4.6,
-    opponentShotsOnTargetLastTwoAvg: 0,
-    opponentShotsOnTargetLastTwoLeagueAvg: 4.6,
-    heatmapPoints: [],
-    shotsLastTwoSampleCount: 0,
-    savesLastTwoSampleCount: 0,
-    foulsCommittedLastTwoSampleCount: 0,
-    foulsSufferedLastTwoSampleCount: 0,
-    shotsLastFiveSampleCount: 0,
-    savesLastFiveSampleCount: 0,
-    foulsCommittedLastFiveSampleCount: 0,
-    foulsSufferedLastFiveSampleCount: 0
-  }));
+  /** Policy: mai roster sintetico a zeri — solo dati reali da partite/stagione. */
+  return [];
 }
 
 async function fetchRecentPlayersForTeam(params: {
@@ -2985,7 +2935,7 @@ async function fetchRecentPlayersForTeam(params: {
   });
 
   if (!teamEventsResponse.ok) {
-    return fetchFallbackPlayersForTeam(params);
+    return [];
   }
 
   const payload = (await teamEventsResponse.json()) as SportApiTeamEventsResponse;
@@ -2999,7 +2949,7 @@ async function fetchRecentPlayersForTeam(params: {
     .find((event) => event.hasEventPlayerStatistics);
 
   if (!recentEvent?.id) {
-    return fetchFallbackPlayersForTeam(params);
+    return [];
   }
 
   try {
@@ -3009,10 +2959,10 @@ async function fetchRecentPlayersForTeam(params: {
       return teamPlayers;
     }
   } catch {
-    // fallback below
+    // Nessun fallback sintetico.
   }
 
-  return fetchFallbackPlayersForTeam(params);
+  return [];
 }
 
 function mapLineupsToNationalTeams(params: {
@@ -3140,48 +3090,6 @@ export async function fetchSportPerformanceForTeams(params: {
     menuHomeTeamId: params.homeTeamId,
     menuAwayTeamId: params.awayTeamId
   });
-
-  function buildLineupBaselineRows(
-    teamId: number,
-    teamName: string,
-    clubColor: string
-  ): SportPerformanceInput[] {
-    const starters = (lineupsByTeam.get(teamId) ?? [])
-      .filter((player) => player.substitute !== true)
-      .filter((player) => Boolean(player.player?.id))
-      .slice(0, 11);
-    if (!starters.length) return [];
-    const leagueBaseline = leagueShotsOnTargetBaseline(normalizedCompetition);
-    return starters.map((player) =>
-      mapLineupPlayerToPerformance({
-        player,
-        teamName,
-        teamId,
-        clubColor,
-        opponentShotsOnTarget: 0,
-        leagueShotsOnTargetAvg: leagueBaseline
-      })
-    );
-  }
-
-  function performancePlayerKey(row: SportPerformanceInput): string {
-    const id = row.athleteId ?? 0;
-    if (id > 0) return `id:${id}`;
-    return `name:${normalizePlayerNameKey(row.athleteName)}`;
-  }
-
-  function mergeEnrichedWithBaseline(
-    enriched: SportPerformanceInput[],
-    baseline: SportPerformanceInput[],
-    teamId: number
-  ): SportPerformanceInput[] {
-    const teamRows = enriched.filter((row) => row.teamId === teamId);
-    if (!baseline.length) return teamRows;
-    const byKey = new Map<string, SportPerformanceInput>();
-    for (const row of baseline) byKey.set(performancePlayerKey(row), row);
-    for (const row of teamRows) byKey.set(performancePlayerKey(row), row);
-    return Array.from(byKey.values());
-  }
 
   async function sleepBetweenTeams(ms: number): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, ms));
@@ -3447,14 +3355,15 @@ export async function fetchSportPerformanceForTeams(params: {
   }
 
     async function finalizeTeamRows(rows: SportPerformanceInput[]): Promise<SportPerformanceInput[]> {
-      if (rows.length > 0) return rows;
+      const realRows = rows.filter((row) => performanceRowHasRealSample(row));
+      if (realRows.length > 0) return realRows;
 
       const lineupStarters = (lineupsByTeam.get(team.teamId) ?? [])
         .filter((player) => player.substitute !== true)
         .filter((player) => Boolean(player.player?.id))
         .slice(0, 11);
       if (!lineupStarters.length) {
-        return fetchFallbackPlayersForTeam(team);
+        return [];
       }
 
       const leagueBaseline = leagueShotsOnTargetBaseline(normalizedCompetition);
@@ -3465,16 +3374,16 @@ export async function fetchSportPerformanceForTeams(params: {
           fetchPlayerSeasonOverall(playerId, tournamentId, seasonId),
           resolvePlayerSeasonHeatmapOnly(playerId)
         ]);
-        const foulsCommittedSeasonAvg = seasonFoulPerMatchFromSources(
-          [foulsCommittedFromLineupStats(starter.statistics)],
-          overall,
-          "committed"
-        );
-        const foulsSufferedSeasonAvg = seasonFoulPerMatchFromSources(
-          [foulsSufferedFromLineupStats(starter.statistics)],
-          overall,
-          "suffered"
-        );
+        const hasOverall = appearancesTrustworthyForOverall(overall);
+        const hasHeatmap = (heatmapPoints?.length ?? 0) >= 3;
+        if (!hasOverall && !hasHeatmap) {
+          continue;
+        }
+
+        const foulsCommittedSeasonAvg = seasonFoulPerMatchFromOverall(overall, "committed") ?? 0;
+        const foulsSufferedSeasonAvg = seasonFoulPerMatchFromOverall(overall, "suffered") ?? 0;
+        const apps = appearanceCountFromOverall(overall);
+        const sampleN = hasOverall ? Math.max(1, apps) : hasHeatmap ? 1 : 0;
 
         quickRows.push({
           athleteId: playerId,
@@ -3489,7 +3398,7 @@ export async function fetchSportPerformanceForTeams(params: {
           shotsTotal: starter.statistics?.totalShots ?? 0,
           shotsLastTwoAvg: starter.statistics?.totalShots ?? 0,
           shotsLastFiveAvg: starter.statistics?.totalShots ?? 0,
-          shotsSeasonAvg: Math.max(starter.statistics?.totalShots ?? 0, 0.1),
+          shotsSeasonAvg: Math.max(starter.statistics?.totalShots ?? 0, 0),
           opponentShotsConcededTotal: 0,
           leagueAvgShotsConceded: Math.max(leagueBaseline, 0.1),
           foulsCommitted: foulsCommittedSeasonAvg,
@@ -3502,7 +3411,7 @@ export async function fetchSportPerformanceForTeams(params: {
           foulsSufferedLastFiveAvg: foulsSufferedSeasonAvg,
           dribblesSeasonAvg: dribblesFromLineupStats(starter.statistics),
           opponentExpectedGoalsCreated: 0,
-          savePercentage: 65,
+          savePercentage: 0,
           savesSeasonAvg: savesFromLineupStats(starter.statistics),
           savesLastTwoAvg: savesFromLineupStats(starter.statistics),
           savesLastFiveAvg: savesFromLineupStats(starter.statistics),
@@ -3511,17 +3420,17 @@ export async function fetchSportPerformanceForTeams(params: {
           opponentShotsOnTargetLastTwoAvg: 0,
           opponentShotsOnTargetLastTwoLeagueAvg: Math.max(leagueBaseline, 0.1),
           heatmapPoints,
-          shotsLastTwoSampleCount: 1,
-          savesLastTwoSampleCount: 1,
-          foulsCommittedLastTwoSampleCount: 1,
-          foulsSufferedLastTwoSampleCount: 1,
-          shotsLastFiveSampleCount: 1,
-          savesLastFiveSampleCount: 1,
-          foulsCommittedLastFiveSampleCount: 1,
-          foulsSufferedLastFiveSampleCount: 1
+          shotsLastTwoSampleCount: sampleN > 0 ? Math.min(2, sampleN) : 0,
+          savesLastTwoSampleCount: sampleN > 0 ? Math.min(2, sampleN) : 0,
+          foulsCommittedLastTwoSampleCount: sampleN > 0 ? Math.min(2, sampleN) : 0,
+          foulsSufferedLastTwoSampleCount: sampleN > 0 ? Math.min(2, sampleN) : 0,
+          shotsLastFiveSampleCount: sampleN,
+          savesLastFiveSampleCount: sampleN,
+          foulsCommittedLastFiveSampleCount: sampleN,
+          foulsSufferedLastFiveSampleCount: sampleN
         });
       }
-      return quickRows.length ? quickRows : fetchFallbackPlayersForTeam(team);
+      return quickRows.filter((row) => performanceRowHasRealSample(row));
     }
 
     async function fetchHeatmapsBatched(
@@ -3559,11 +3468,6 @@ export async function fetchSportPerformanceForTeams(params: {
     const currentRosterNameSet = new Set<string>();
     for (const starter of startersFromSelectedMatch) {
       const n = normalizePlayerNameKey(starter.player?.name ?? starter.player?.shortName ?? "");
-      if (n) currentRosterNameSet.add(n);
-    }
-    const fallbackCurrentRoster = await fetchFallbackPlayersForTeam(team);
-    for (const row of fallbackCurrentRoster) {
-      const n = normalizePlayerNameKey(row.athleteName);
       if (n) currentRosterNameSet.add(n);
     }
 
@@ -3840,10 +3744,7 @@ export async function fetchSportPerformanceForTeams(params: {
 
     if (useStarterMode && isMonitoredInternationalCompetitionSlug(normalizedCompetition)) {
       const aggregateRows = await rowsFromTeamMatchAggregates(false);
-      if (aggregateRows.length) {
-        return finalizeTeamRows(aggregateRows);
-      }
-      return finalizeTeamRows(await rowsFromTeamMatchAggregates(true));
+      return finalizeTeamRows(aggregateRows);
     }
 
     if (useStarterMode) {
@@ -4173,7 +4074,7 @@ export async function fetchSportPerformanceForTeams(params: {
       return finalizeTeamRows(merged);
     }
 
-    return finalizeTeamRows(await rowsFromTeamMatchAggregates(true));
+    return finalizeTeamRows(await rowsFromTeamMatchAggregates(false));
   }
 
   let homeRows: SportPerformanceInput[] = [];
@@ -4194,7 +4095,7 @@ export async function fetchSportPerformanceForTeams(params: {
     );
   }
 
-  await sleepBetweenTeams(350);
+  await sleepBetweenTeams(550);
 
   try {
     awayRows = await buildTeamRows(
@@ -4212,66 +4113,8 @@ export async function fetchSportPerformanceForTeams(params: {
     );
   }
 
-  const homeBaseline = buildLineupBaselineRows(
-    params.homeTeamId,
-    params.homeTeamName,
-    "#2D6CDF"
-  );
-  const awayBaseline = buildLineupBaselineRows(
-    params.awayTeamId,
-    params.awayTeamName,
-    "#E11D48"
-  );
-
-  async function appendMissingTeamRows(
-    combined: SportPerformanceInput[],
-    teamId: number,
-    teamName: string,
-    clubColor: string
-  ): Promise<SportPerformanceInput[]> {
-    if (combined.some((row) => row.teamId === teamId)) return combined;
-
-    const lineupStarters = (lineupsByTeam.get(teamId) ?? [])
-      .filter((player) => player.substitute !== true)
-      .filter((player) => Boolean(player.player?.id))
-      .slice(0, 11);
-    if (lineupStarters.length) {
-      const leagueBaseline = leagueShotsOnTargetBaseline(normalizedCompetition);
-      return [
-        ...combined,
-        ...lineupStarters.map((player) =>
-          mapLineupPlayerToPerformance({
-            player,
-            teamName,
-            teamId,
-            clubColor,
-            opponentShotsOnTarget: 0,
-            leagueShotsOnTargetAvg: leagueBaseline
-          })
-        )
-      ];
-    }
-
-    const fallback = await fetchFallbackPlayersForTeam({ teamId, teamName, clubColor });
-    return fallback.length ? [...combined, ...fallback] : combined;
-  }
-
-  let combined = [
-    ...mergeEnrichedWithBaseline(homeRows, homeBaseline, params.homeTeamId),
-    ...mergeEnrichedWithBaseline(awayRows, awayBaseline, params.awayTeamId)
-  ];
-  combined = await appendMissingTeamRows(
-    combined,
-    params.homeTeamId,
-    params.homeTeamName,
-    "#2D6CDF"
-  );
-  combined = await appendMissingTeamRows(
-    combined,
-    params.awayTeamId,
-    params.awayTeamName,
-    "#E11D48"
-  );
+  /** Solo righe con campioni reali: niente baseline lineup né roster a zeri. */
+  const combined = [...homeRows, ...awayRows].filter((row) => performanceRowHasRealSample(row));
 
   const rosterTeamIds = new Set(combined.map((row) => row.teamId));
   if (!rosterTeamIds.has(params.homeTeamId) || !rosterTeamIds.has(params.awayTeamId)) {

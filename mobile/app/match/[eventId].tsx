@@ -17,6 +17,7 @@ import { useEntitlements } from "@/contexts/EntitlementsContext";
 import { useGuestPreview } from "@/contexts/GuestPreviewContext";
 import { canAccessFeatureId } from "@/lib/access/features";
 import { isGuestUser, resolveGuestPreviewMode } from "@/lib/access/guest-preview-mode";
+import { MATCH_DATA_UNAVAILABLE_MESSAGE } from "@/lib/analysis-unavailable";
 import type { TeamFormSignalsReport } from "@/lib/team-form-signals/types";
 import { consumeMemberMatch, fetchMatchInsights } from "@/lib/api";
 import { translateCompetitionName, translateTeamName } from "@/lib/italian-display";
@@ -101,24 +102,22 @@ export default function MatchDetailScreen() {
       const data = await fetchMatchInsights(eventId);
       setMetrics(data.metrics ?? []);
       setTeamFormSignals(data.teamFormSignals ?? null);
-      if (!data.metrics?.length && !data.teamFormSignals) {
-        setError(
-          matchAnalysisUnlocked
-            ? "Analisi ancora in preparazione per questa partita. Riprova tra poco oppure chiedi all'admin di aggiornare i dati."
-            : "Nessun insight disponibile per questa partita."
-        );
+      const hasMetrics = Boolean(data.metrics?.length);
+      const hasTeamForm = Boolean(data.teamFormSignals?.sufficient);
+      if (!hasMetrics && !hasTeamForm) {
+        setError(MATCH_DATA_UNAVAILABLE_MESSAGE);
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : "";
       setError(
         msg === "public_access_unavailable"
           ? "Esplorazione Guest non disponibile: configura PITCHBRAIN_PUBLIC_ORG_ID sul server."
-          : "Impossibile caricare l'analisi."
+          : MATCH_DATA_UNAVAILABLE_MESSAGE
       );
     } finally {
       setLoading(false);
     }
-  }, [eventId, access?.isMember, refreshAccess, matchAnalysisUnlocked]);
+  }, [eventId, access?.isMember, refreshAccess]);
 
   useEffect(() => {
     void load();

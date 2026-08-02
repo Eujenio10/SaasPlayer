@@ -1,4 +1,5 @@
 import type { TeamPerformanceBlueprint, TacticalMetrics } from "@/lib/types";
+import { MATCH_DATA_UNAVAILABLE_MESSAGE } from "@/lib/analysis-unavailable";
 import { teamShotsTrendFromMetrics } from "@/lib/prematch-report/build-blueprint-from-metrics";
 import { isBlueprintPerMatchPlausible } from "@/lib/prematch-report/blueprint-validation";
 import { aggregateMetricsTeam } from "./aggregate-metrics";
@@ -178,7 +179,7 @@ function emptyReport(
     partialData: true,
     dataSource: "metrics_only",
     mainSignal: "none",
-    mainSignalLabel: "Dati insufficienti",
+    mainSignalLabel: MATCH_DATA_UNAVAILABLE_MESSAGE,
     overallSignalScore: 0,
     shotSignal: neutral,
     cornerSignal: neutral,
@@ -188,8 +189,7 @@ function emptyReport(
       label: "Bassa",
       reasons: ["Statistiche insufficienti per calcolare segnali affidabili"]
     },
-    explanation:
-      "Non sono disponibili abbastanza statistiche per generare segnali affidabili su tiri, corner e cartellini per questa partita.",
+    explanation: MATCH_DATA_UNAVAILABLE_MESSAGE,
     keyFactors: [],
     teamComparison: {
       home: { teamName: homeTeam },

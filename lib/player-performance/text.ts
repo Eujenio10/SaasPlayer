@@ -1,6 +1,7 @@
 import type { PlayerPerformanceBadgeId, PlayerPerformanceMainTab } from "@/lib/player-performance/advanced-types";
 import type { ConsistencyClassification, FinishingFormStatus } from "@/lib/player-performance/advanced-types";
 import type { PlayerTrendStatus } from "@/lib/player-performance/types";
+import { MATCH_DATA_UNAVAILABLE_MESSAGE } from "@/lib/analysis-unavailable";
 
 export const PLAYER_PERFORMANCE_TEXT = {
   title: "Player Performance",
@@ -88,9 +89,8 @@ export const PLAYER_PERFORMANCE_TEXT = {
   emptyOneVsOne: "Le statistiche relative all'uno contro uno non sono disponibili per questa competizione.",
   emptyTrends: "Non sono disponibili abbastanza presenze recenti per calcolare un trend affidabile.",
   loading: "Caricamento Player Performance…",
-  error: "Impossibile caricare Player Performance.",
-  notReady:
-    "Player Performance non ancora disponibile. I dati vengono aggiornati ogni mattina alle 08:00.",
+  error: MATCH_DATA_UNAVAILABLE_MESSAGE,
+  notReady: MATCH_DATA_UNAVAILABLE_MESSAGE,
   matchAlreadyStarted:
     "Player Performance è disponibile solo prima del calcio d'inizio. La partita selezionata è già iniziata.",
   limitedSample: "Campione limitato",

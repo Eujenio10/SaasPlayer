@@ -10,29 +10,27 @@ import { ReportSectionNav, type ReportSectionId } from "./ReportSectionNav";
 import { ReportSkeleton } from "./ReportSkeleton";
 import { ReportSummaryCard } from "./ReportSummaryCard";
 import { fetchPreMatchReport } from "@/lib/prematch-report/api";
-import { getMockPreMatchReport } from "@/lib/prematch-report/mock";
 import type { PreMatchReport } from "@/lib/prematch-report/types";
 import type { GuestPreviewMode } from "@/lib/access/guest-preview-mode";
+import { MATCH_DATA_UNAVAILABLE_MESSAGE } from "@/lib/analysis-unavailable";
 import { useAccessFlow } from "@/contexts/AccessFlowContext";
 import { colors, radii, spacing } from "@/lib/theme";
 
-const USE_MOCK = process.env.EXPO_PUBLIC_USE_PREMATCH_MOCK === "1";
-
 function resolveErrorMessage(error: unknown): string {
-  if (!(error instanceof Error)) return "Impossibile caricare il report.";
+  if (!(error instanceof Error)) return MATCH_DATA_UNAVAILABLE_MESSAGE;
   const userMessage = (error as Error & { userMessage?: string }).userMessage;
   if (userMessage) return userMessage;
   switch (error.message) {
     case "premium_required":
       return "Il Report Pre-Partita è disponibile per gli account Pro e Admin.";
     case "insufficient_data":
-      return "Dati insufficienti per generare un report affidabile per questa partita.";
+      return MATCH_DATA_UNAVAILABLE_MESSAGE;
     case "match_not_found":
       return "Partita non trovata nel calendario organizzazione.";
     case "not_authenticated":
       return "Accedi per consultare il report.";
     default:
-      return "Impossibile caricare il report. Riprova tra poco.";
+      return MATCH_DATA_UNAVAILABLE_MESSAGE;
   }
 }
 
@@ -91,7 +89,7 @@ export function PreMatchReportView({
         return;
       }
 
-      if (!canAccess && !USE_MOCK) {
+      if (!canAccess) {
         setPremiumLocked(true);
         setLoading(false);
         return;
@@ -104,11 +102,6 @@ export function PreMatchReportView({
       setPremiumLocked(false);
 
       try {
-        if (USE_MOCK) {
-          await new Promise((r) => setTimeout(r, 400));
-          setReport(getMockPreMatchReport(eventId));
-          return;
-        }
         const data = await fetchPreMatchReport(eventId, { refresh });
         setReport(data);
       } catch (e) {
@@ -366,7 +359,7 @@ export function PreMatchReportView({
   }
 
   if (!report) {
-    return <EmptyReportState message="Nessun report disponibile." />;
+    return <EmptyReportState message={MATCH_DATA_UNAVAILABLE_MESSAGE} />;
   }
 
   return (

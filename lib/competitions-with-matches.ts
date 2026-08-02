@@ -1,5 +1,5 @@
 import {
-  MONITORED_COMPETITIONS,
+  ACTIVE_MENU_COMPETITIONS,
   resolveMatchCompetitionId,
   type MonitoredCompetition,
   type MonitoredCompetitionId
@@ -17,7 +17,7 @@ export function competitionIdsWithMatches(
     });
     if (id) present.add(id);
   }
-  return MONITORED_COMPETITIONS.filter((c) => present.has(c.id)).map((c) => c.id);
+  return ACTIVE_MENU_COMPETITIONS.filter((c) => present.has(c.id)).map((c) => c.id);
 }
 
 /** Pulsanti/select: solo competizioni con almeno una partita. */
@@ -25,16 +25,16 @@ export function monitoredCompetitionsWithMatches(
   matches: Array<{ competitionSlug?: string; competitionName?: string }>
 ): MonitoredCompetition[] {
   const ids = new Set(competitionIdsWithMatches(matches));
-  return MONITORED_COMPETITIONS.filter((c) => ids.has(c.id));
+  return ACTIVE_MENU_COMPETITIONS.filter((c) => ids.has(c.id));
 }
 
 export function filterCompetitionsByAvailableIds(
   availableIds: Iterable<string> | null | undefined
 ): MonitoredCompetition[] {
-  if (availableIds == null) return [...MONITORED_COMPETITIONS];
+  if (availableIds == null) return [...ACTIVE_MENU_COMPETITIONS];
   const set = new Set(
     [...availableIds].map((id) => id.trim().toLowerCase()).filter(Boolean)
   );
   if (set.size === 0) return [];
-  return MONITORED_COMPETITIONS.filter((c) => set.has(c.id));
+  return ACTIVE_MENU_COMPETITIONS.filter((c) => set.has(c.id));
 }
