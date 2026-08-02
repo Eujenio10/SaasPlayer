@@ -18,7 +18,7 @@ import {
 import { buildEachTeamNextInternationalMatchesMenu } from "@/lib/tactical-matches-filters";
 import { filterUpcomingMenuMatches } from "@/lib/trends/fixture-eligibility";
 import { getOrRefreshTacticalMatchesMenuFull } from "@/lib/tactical-matches-menu-cache";
-import { metricsHaveBothTeamsFoulData } from "@/lib/organization-match-insights";
+import { metricsHaveBothTeamsFoulDataSoft } from "@/lib/organization-match-insights";
 import { regenerateDifficultMarkingsSnapshotForOrganization } from "@/lib/difficult-markings/snapshot";
 import { invalidateDifficultMarkingsSnapshotMemory } from "@/lib/difficult-markings/snapshot-memory-cache";
 import { regenerateMatchRadarForMatches } from "@/lib/match-radar/service";
@@ -165,10 +165,16 @@ async function prefetchInsightsForMatch(
       );
 
       const metrics = Array.isArray(payload.metrics) ? payload.metrics : [];
-      if (!metrics.length) return false;
-      if (!metricsHaveBothTeamsFoulData(metrics, match.homeTeam.id, match.awayTeam.id)) {
+      if (!metrics.length) {
         console.warn(
-          `[admin-refresh] incomplete_foul_data eventId=${match.eventId} home=${match.homeTeam.id} away=${match.awayTeam.id}`
+          `[admin-refresh] empty_metrics eventId=${match.eventId} home=${match.homeTeam.id} away=${match.awayTeam.id}`
+        );
+        return false;
+      }
+      /** Soft: a inizio stagione bastano medie overall reali (non 3+ giocatori con sample). */
+      if (!metricsHaveBothTeamsFoulDataSoft(metrics, match.homeTeam.id, match.awayTeam.id)) {
+        console.warn(
+          `[admin-refresh] incomplete_foul_data eventId=${match.eventId} home=${match.homeTeam.id} away=${match.awayTeam.id} players=${metrics.length}`
         );
         return false;
       }

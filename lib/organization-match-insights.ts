@@ -24,6 +24,8 @@ export function metricsIncludeBothTeams(
 
 /** Numero minimo di giocatori con dati falli reali richiesti per ciascuna squadra. */
 const MIN_PLAYERS_WITH_FOUL_DATA_PER_TEAM = 3;
+/** Soglia soft (inizio stagione / dati parziali): almeno 1 per squadra. */
+const MIN_PLAYERS_WITH_FOUL_DATA_SOFT = 1;
 
 type FoulMetricRow = {
   teamId: number;
@@ -44,6 +46,21 @@ function playerHasRealFoulData(row: FoulMetricRow): boolean {
   );
 }
 
+function countPlayersWithFoulDataPerTeam(
+  metrics: FoulMetricRow[],
+  homeTeamId: number,
+  awayTeamId: number
+): { homeWithData: number; awayWithData: number } {
+  let homeWithData = 0;
+  let awayWithData = 0;
+  for (const row of metrics) {
+    if (!playerHasRealFoulData(row)) continue;
+    if (row.teamId === homeTeamId) homeWithData += 1;
+    else if (row.teamId === awayTeamId) awayWithData += 1;
+  }
+  return { homeWithData, awayWithData };
+}
+
 /**
  * Verifica che ENTRAMBE le squadre abbiano dati falli reali (non solo presenza del teamId):
  * scarta le partite dove una squadra è popolata solo dal roster di fallback a zero falli,
@@ -55,18 +72,35 @@ export function metricsHaveBothTeamsFoulData(
   awayTeamId: number
 ): boolean {
   if (!metricsIncludeBothTeams(metrics, homeTeamId, awayTeamId)) return false;
-
-  let homeWithData = 0;
-  let awayWithData = 0;
-  for (const row of metrics) {
-    if (!playerHasRealFoulData(row)) continue;
-    if (row.teamId === homeTeamId) homeWithData += 1;
-    else if (row.teamId === awayTeamId) awayWithData += 1;
-  }
-
+  const { homeWithData, awayWithData } = countPlayersWithFoulDataPerTeam(
+    metrics,
+    homeTeamId,
+    awayTeamId
+  );
   return (
     homeWithData >= MIN_PLAYERS_WITH_FOUL_DATA_PER_TEAM &&
     awayWithData >= MIN_PLAYERS_WITH_FOUL_DATA_PER_TEAM
+  );
+}
+
+/**
+ * Criterio soft per il refresh admin a inizio stagione: entrambe le squadre con
+ * almeno un giocatore con falli reali (anche solo overall stagione precedente).
+ */
+export function metricsHaveBothTeamsFoulDataSoft(
+  metrics: FoulMetricRow[],
+  homeTeamId: number,
+  awayTeamId: number
+): boolean {
+  if (!metricsIncludeBothTeams(metrics, homeTeamId, awayTeamId)) return false;
+  const { homeWithData, awayWithData } = countPlayersWithFoulDataPerTeam(
+    metrics,
+    homeTeamId,
+    awayTeamId
+  );
+  return (
+    homeWithData >= MIN_PLAYERS_WITH_FOUL_DATA_SOFT &&
+    awayWithData >= MIN_PLAYERS_WITH_FOUL_DATA_SOFT
   );
 }
 

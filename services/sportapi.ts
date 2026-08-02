@@ -405,7 +405,7 @@ function appearanceCountFromOverall(overall: Record<string, number> | null): num
 }
 
 function appearancesTrustworthyForOverall(overall: Record<string, number> | null): boolean {
-  return appearanceCountFromOverall(overall) > 1;
+  return appearanceCountFromOverall(overall) >= 1;
 }
 
 function seasonFoulPerMatchFromOverall(
@@ -4027,14 +4027,46 @@ export async function fetchSportPerformanceForTeams(params: {
           opponentShotsOnTargetLastTwoAvg: concededLastTwoAvg,
           opponentShotsOnTargetLastTwoLeagueAvg: Math.max(leagueBaseline, 0.1),
           heatmapPoints,
-          shotsLastTwoSampleCount: shotsLastTwoN,
-          savesLastTwoSampleCount: savesLastTwoN,
-          foulsCommittedLastTwoSampleCount: foulsLastTwoN,
-          foulsSufferedLastTwoSampleCount: fouledLastTwoN,
-          shotsLastFiveSampleCount: shotsLastFiveN,
-          savesLastFiveSampleCount: savesLastFiveN,
-          foulsCommittedLastFiveSampleCount: foulsLastFiveN,
-          foulsSufferedLastFiveSampleCount: fouledLastFiveN
+          shotsLastTwoSampleCount:
+            shotsLastTwoN > 0 ? shotsLastTwoN : appearancesRaw > 0 && shotsSeasonAvg > 0 ? Math.min(capLt, appearancesRaw) : 0,
+          savesLastTwoSampleCount:
+            savesLastTwoN > 0 ? savesLastTwoN : appearancesRaw > 0 && savesSeasonAvg > 0 ? Math.min(capLt, appearancesRaw) : 0,
+          foulsCommittedLastTwoSampleCount:
+            foulsLastTwoN > 0
+              ? foulsLastTwoN
+              : appearancesRaw > 0 && foulsCommittedSeasonAvg > 0
+                ? Math.min(capLt, appearancesRaw)
+                : 0,
+          foulsSufferedLastTwoSampleCount:
+            fouledLastTwoN > 0
+              ? fouledLastTwoN
+              : appearancesRaw > 0 && foulsSufferedSeasonAvg > 0
+                ? Math.min(capLt, appearancesRaw)
+                : 0,
+          shotsLastFiveSampleCount:
+            shotsLastFiveN > 0
+              ? shotsLastFiveN
+              : appearancesRaw > 0 && shotsSeasonAvg > 0
+                ? Math.min(capLf, appearancesRaw)
+                : 0,
+          savesLastFiveSampleCount:
+            savesLastFiveN > 0
+              ? savesLastFiveN
+              : appearancesRaw > 0 && savesSeasonAvg > 0
+                ? Math.min(capLf, appearancesRaw)
+                : 0,
+          foulsCommittedLastFiveSampleCount:
+            foulsLastFiveN > 0
+              ? foulsLastFiveN
+              : appearancesRaw > 0 && foulsCommittedSeasonAvg > 0
+                ? Math.min(capLf, appearancesRaw)
+                : 0,
+          foulsSufferedLastFiveSampleCount:
+            fouledLastFiveN > 0
+              ? fouledLastFiveN
+              : appearancesRaw > 0 && foulsSufferedSeasonAvg > 0
+                ? Math.min(capLf, appearancesRaw)
+                : 0
         } satisfies SportPerformanceInput;
 
         params.savesDiagnosticsCollector?.({
