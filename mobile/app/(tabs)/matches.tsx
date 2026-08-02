@@ -120,6 +120,7 @@ export default function MatchesScreen() {
           refreshing={adminRefresh.refreshing}
           error={adminRefresh.error}
           successMessage={adminRefresh.successMessage}
+          progress={adminRefresh.progress}
           onPress={() => void adminRefresh.refresh()}
         />
       ) : null}

@@ -6,6 +6,7 @@ interface AdminRefreshMatchesButtonProps {
   refreshing: boolean;
   error?: string | null;
   successMessage?: string | null;
+  progress?: { current: number; total: number; phase: string } | null;
   onPress: () => void;
   compact?: boolean;
 }
@@ -14,9 +15,17 @@ export function AdminRefreshMatchesButton({
   refreshing,
   error,
   successMessage,
+  progress,
   onPress,
   compact = false
 }: AdminRefreshMatchesButtonProps) {
+  const progressLabel =
+    refreshing && progress && progress.total > 0
+      ? `Aggiornamento… ${progress.current}/${progress.total}`
+      : refreshing
+        ? "Aggiornamento…"
+        : "Aggiorna dati partite";
+
   return (
     <View style={compact ? undefined : styles.wrap}>
       <Pressable
@@ -34,14 +43,12 @@ export function AdminRefreshMatchesButton({
         ) : (
           <Ionicons name="refresh" size={18} color={colors.background} />
         )}
-        <Text style={[styles.label, compact && styles.labelCompact]}>
-          {refreshing ? "Aggiornamento…" : "Aggiorna dati partite"}
-        </Text>
+        <Text style={[styles.label, compact && styles.labelCompact]}>{progressLabel}</Text>
       </Pressable>
       {!compact ? (
         <Text style={styles.hint}>
           <Text style={styles.hintIcon}>🛡 </Text>
-          Solo admin · aggiorna menu Top 5 + Mondiali e precarica le statistiche consentite
+          Solo admin · aggiorna menu Top 5 e precarica le statistiche a fasi (evita timeout)
         </Text>
       ) : null}
       {error ? <Text style={styles.error}>{error}</Text> : null}

@@ -199,49 +199,105 @@ export async function fetchHomeDashboard(): Promise<HomeDashboardData> {
 
 
 
-export async function refreshAdminMatches(): Promise<{
-
+export type AdminRefreshPhaseResult = {
   ok: boolean;
-
+  done: boolean;
+  phase: "start" | "insights" | "finalize";
+  nextPhase?: "start" | "insights" | "finalize";
+  nextInsightsOffset?: number;
+  insightsSnap?: number;
   matchesCount: number;
-
   domesticMatchesCount: number;
-
   internationalMatchesCount: number;
-
+  internationalDiscoveryCount?: number;
   insightsProcessed: number;
-
   insightsTotal: number;
-
   topFiveInsightsTotal: number;
-
   worldCupInsightsTotal: number;
-
   insightsPartial?: boolean;
   trendsCount?: number;
   markingsCount?: number;
-}> {
+  error?: string;
+};
 
-  const controller = new AbortController();
+/**
+ * Refresh admin a fasi (anti-504 Hobby): start → insights (batch) → finalize.
+ * Esegue più richieste finché `done` non è true.
+ */
+export async function refreshAdminMatches(
+  onProgress?: (progress: { current: number; total: number; phase: string }) => void
+): Promise<AdminRefreshPhaseResult> {
+  let phase: "start" | "insights" | "finalize" = "start";
+  let insightsOffset = 0;
+  let insightsSnap: number | undefined;
+  let insightsSucceeded = 0;
+  let last: AdminRefreshPhaseResult | null = null;
+  let guard = 0;
 
-  const timeout = setTimeout(() => controller.abort(), 5 * 60 * 1000);
+  while (guard < 250) {
+    guard += 1;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 2.5 * 60 * 1000);
+    try {
+      const result = await apiFetch<AdminRefreshPhaseResult>(
+        "/api/tactical/admin-refresh-matches",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            phase,
+            insightsOffset,
+            insightsSnap
+          }),
+          signal: controller.signal
+        },
+        true
+      );
+      last = result;
+      if (!result.ok) {
+        throw new Error(result.error ?? "refresh_failed");
+      }
+      if (typeof result.insightsSnap === "number") {
+        insightsSnap = result.insightsSnap;
+      }
+      if (phase === "insights") {
+        insightsSucceeded += result.insightsProcessed ?? 0;
+      }
+      const current =
+        typeof result.nextInsightsOffset === "number"
+          ? result.nextInsightsOffset
+          : phase === "finalize"
+            ? result.insightsTotal
+            : insightsSucceeded;
+      onProgress?.({
+        current,
+        total: result.insightsTotal ?? 0,
+        phase: result.phase
+      });
 
-  try {
+      if (result.done) {
+        return {
+          ...result,
+          insightsProcessed: Math.max(insightsSucceeded, result.insightsProcessed ?? 0)
+        };
+      }
 
-    return await apiFetch("/api/tactical/admin-refresh-matches", {
-
-      method: "POST",
-
-      signal: controller.signal
-
-    }, true);
-
-  } finally {
-
-    clearTimeout(timeout);
-
+      phase = result.nextPhase ?? "finalize";
+      insightsOffset = result.nextInsightsOffset ?? insightsOffset;
+    } catch (error) {
+      throw mapFetchTransportError(error);
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
+  if (!last) {
+    throw new Error("refresh_failed");
+  }
+  return {
+    ...last,
+    insightsProcessed: insightsSucceeded,
+    insightsPartial: true
+  };
 }
 
 

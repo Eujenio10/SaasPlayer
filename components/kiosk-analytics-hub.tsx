@@ -1526,30 +1526,15 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
                           detail: { snap }
                         })
                       );
-                      let res: Response;
-                      const controller = new AbortController();
-                      const refreshTimeout = setTimeout(() => controller.abort(), 5 * 60 * 1000);
-                      try {
-                        res = await fetch("/api/tactical/admin-refresh-matches", {
-                          method: "POST",
-                          credentials: "include",
-                          signal: controller.signal
-                        });
-                      } catch (error) {
-                        if (
-                          error instanceof DOMException &&
-                          error.name === "AbortError"
-                        ) {
-                          throw new Error(
-                            "Operazione troppo lunga (timeout). Menu e statistiche potrebbero essere comunque in aggiornamento: attendi qualche minuto e ricarica."
-                          );
-                        }
-                        throw new Error("Connessione al server persa (timeout o rete). Riprova.");
-                      } finally {
-                        clearTimeout(refreshTimeout);
-                      }
-                      const body = (await res.json().catch(() => ({}))) as {
+
+                      type PhaseResult = {
+                        ok?: boolean;
+                        done?: boolean;
                         error?: string;
+                        phase?: string;
+                        nextPhase?: "start" | "insights" | "finalize";
+                        nextInsightsOffset?: number;
+                        insightsSnap?: number;
                         insightsProcessed?: number;
                         insightsTotal?: number;
                         internationalMatchesCount?: number;
@@ -1557,12 +1542,71 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
                         domesticMatchesCount?: number;
                         matchesCount?: number;
                       };
-                      if (!res.ok) {
-                        throw new Error(body.error ?? `Errore server ${res.status}.`);
+
+                      let phase: "start" | "insights" | "finalize" = "start";
+                      let insightsOffset = 0;
+                      let insightsSnap: number | undefined;
+                      let body: PhaseResult = {};
+                      let guard = 0;
+                      let insightsSucceeded = 0;
+
+                      while (guard < 250) {
+                        guard += 1;
+                        const controller = new AbortController();
+                        const refreshTimeout = setTimeout(() => controller.abort(), 2.5 * 60 * 1000);
+                        let res: Response;
+                        try {
+                          res = await fetch("/api/tactical/admin-refresh-matches", {
+                            method: "POST",
+                            credentials: "include",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                              phase,
+                              insightsOffset,
+                              insightsSnap
+                            }),
+                            signal: controller.signal
+                          });
+                        } catch (error) {
+                          if (
+                            error instanceof DOMException &&
+                            error.name === "AbortError"
+                          ) {
+                            throw new Error(
+                              "Operazione troppo lunga (timeout). Riprova: le fasi già completate restano salvate."
+                            );
+                          }
+                          throw new Error("Connessione al server persa (timeout o rete). Riprova.");
+                        } finally {
+                          clearTimeout(refreshTimeout);
+                        }
+
+                        body = (await res.json().catch(() => ({}))) as PhaseResult;
+                        if (!res.ok) {
+                          throw new Error(body.error ?? `Errore server ${res.status}.`);
+                        }
+
+                        if (typeof body.insightsSnap === "number") {
+                          insightsSnap = body.insightsSnap;
+                        }
+                        if (phase === "insights") {
+                          insightsSucceeded += body.insightsProcessed ?? 0;
+                        }
+                        if (mountedRef.current) {
+                          setAdminBulkProgress({
+                            current: body.nextInsightsOffset ?? insightsSucceeded,
+                            total: body.insightsTotal ?? 0
+                          });
+                        }
+
+                        if (body.done) break;
+                        phase = body.nextPhase ?? "finalize";
+                        insightsOffset = body.nextInsightsOffset ?? insightsOffset;
                       }
+
                       if (mountedRef.current) {
                         const total = body.insightsTotal ?? 0;
-                        const done = body.insightsProcessed ?? 0;
+                        const done = Math.max(insightsSucceeded, body.insightsProcessed ?? 0);
                         const domesticCount = body.domesticMatchesCount ?? 0;
                         const intlMenuCount = body.internationalMatchesCount ?? 0;
                         const intlDiscovery = body.internationalDiscoveryCount ?? 0;

@@ -6,6 +6,9 @@ export function useAdminMatchesRefresh(onSuccess?: () => void) {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [progress, setProgress] = useState<{ current: number; total: number; phase: string } | null>(
+    null
+  );
   const [lastResult, setLastResult] = useState<{
     matchesCount: number;
     domesticMatchesCount: number;
@@ -22,8 +25,9 @@ export function useAdminMatchesRefresh(onSuccess?: () => void) {
     setRefreshing(true);
     setError(null);
     setSuccessMessage(null);
+    setProgress({ current: 0, total: 0, phase: "start" });
     try {
-      const result = await refreshAdminMatches();
+      const result = await refreshAdminMatches((p) => setProgress(p));
       setLastResult({
         matchesCount: result.matchesCount,
         domesticMatchesCount: result.domesticMatchesCount,
@@ -41,8 +45,8 @@ export function useAdminMatchesRefresh(onSuccess?: () => void) {
         const markingsPart =
           result.markingsCount != null ? ` Marcature: ${result.markingsCount}.` : "";
         setSuccessMessage(
-          result.insightsProcessed === result.insightsTotal
-            ? `Statistiche aggiornate per ${result.insightsProcessed} partite.${trendsPart}${markingsPart}`
+          result.insightsProcessed >= result.insightsTotal && !result.insightsPartial
+            ? `Statistiche aggiornate per ${result.insightsTotal} partite.${trendsPart}${markingsPart}`
             : `Statistiche aggiornate per ${result.insightsProcessed} di ${result.insightsTotal} partite.${trendsPart}${markingsPart}`
         );
       } else {
@@ -51,11 +55,17 @@ export function useAdminMatchesRefresh(onSuccess?: () => void) {
       notifyAdminCatalogRefresh();
       onSuccess?.();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Aggiornamento non riuscito.");
+      const raw = e instanceof Error ? e.message : "Aggiornamento non riuscito.";
+      setError(
+        raw.includes("504") || raw.includes("request_failed_504")
+          ? "Il server ha interrotto una fase per tempo scaduto. Riprova: l’aggiornamento riprende a fasi senza azzerare i dati già salvati."
+          : raw
+      );
     } finally {
       setRefreshing(false);
+      setProgress(null);
     }
   }, [onSuccess]);
 
-  return { refreshing, error, successMessage, lastResult, refresh };
+  return { refreshing, error, successMessage, lastResult, progress, refresh };
 }

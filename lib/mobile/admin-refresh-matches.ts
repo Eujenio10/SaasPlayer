@@ -9,15 +9,13 @@ import {
   scopeFromCompetitionSlugForInsights
 } from "@/lib/tactical-stats-eligible-matches";
 import {
-  purgeOrganizationKioskDerivedSnapshots,
+  purgeOrganizationKioskAuxiliarySnapshots,
   pruneOrganizationMatchInsightsOutsideEventIds,
   upsertInternationalMatchesMenuSnapshotForOrganization,
   upsertKioskMatchInsightsForOrganization,
   upsertMatchesMenuSnapshotForOrganization
 } from "@/lib/supabase/org-tactical-shared-writes";
-import {
-  buildEachTeamNextInternationalMatchesMenu
-} from "@/lib/tactical-matches-filters";
+import { buildEachTeamNextInternationalMatchesMenu } from "@/lib/tactical-matches-filters";
 import { filterUpcomingMenuMatches } from "@/lib/trends/fixture-eligibility";
 import { getOrRefreshTacticalMatchesMenuFull } from "@/lib/tactical-matches-menu-cache";
 import { metricsHaveBothTeamsFoulData } from "@/lib/organization-match-insights";
@@ -39,32 +37,56 @@ import type { UpcomingMatchItem } from "@/services/sportapi";
 import type { DataRefreshTrigger } from "@/lib/data-refresh/config";
 import { recordDataRefreshCompletion } from "@/lib/data-refresh/state";
 import { fetchUpcomingInternationalTournamentMatches } from "@/services/sportapi";
+import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
+
+export type AdminRefreshPhase = "start" | "insights" | "finalize";
 
 export interface AdminMatchesRefreshResult {
   ok: boolean;
-  /** Partite domestiche salvate (solo Top 5; UEFA club esclusi). */
+  phase: AdminRefreshPhase;
+  /** True quando menu + insight + snapshot derivati sono completati. */
+  done: boolean;
+  nextPhase?: AdminRefreshPhase;
+  nextInsightsOffset?: number;
   domesticMatchesCount: number;
-  /** Partite Mondiali salvate nello snapshot internazionale. */
   internationalMatchesCount: number;
-  /** Partite Mondiali/Nations trovate in discovery prima del filtro menu 7 giorni. */
   internationalDiscoveryCount: number;
-  /** Totale voci menu unite (domestic + mondiali, senza dedupe eventId). */
   matchesCount: number;
   insightsProcessed: number;
   insightsTotal: number;
   topFiveInsightsTotal: number;
   worldCupInsightsTotal: number;
   insightsPartial?: boolean;
-  /** Trend in calcolo in background (menu e insight già aggiornati). */
   trendsPending?: boolean;
   trendsCount?: number;
   markingsCount?: number;
   playerPerformanceCount?: number;
   matchSimulatorCount?: number;
+  insightsSnap?: number;
   error?: string;
 }
 
+export interface AdminMatchesRefreshOptions {
+  trigger?: DataRefreshTrigger;
+  /**
+   * start = solo menu; insights = batch insight; finalize = marcature/trend/etc.
+   * Se omesso: cron esegue start+insight a budget+finalize se resta tempo.
+   */
+  phase?: AdminRefreshPhase;
+  insightsOffset?: number;
+  /** Quante partite elaborare per richiesta (Hobby: batch piccoli anti-504). */
+  insightsBatchSize?: number;
+  /** Budget ms per singola invocazione serverless (sotto i 300s Hobby). */
+  timeBudgetMs?: number;
+  insightsSnap?: number;
+}
+
+/** Budget conservativo: lascia margine rispetto a maxDuration 300 e al gateway (anti-504). */
+const DEFAULT_TIME_BUDGET_MS = Number(process.env.TACTICAL_ADMIN_REFRESH_BUDGET_MS ?? "90000");
+const DEFAULT_INSIGHTS_BATCH = Number(process.env.TACTICAL_ADMIN_REFRESH_BATCH_SIZE ?? "1");
+
 let refreshInFlight: Promise<AdminMatchesRefreshResult> | null = null;
+let refreshInFlightKey: string | null = null;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -82,13 +104,46 @@ function isRetryableInsightError(error: unknown): boolean {
   );
 }
 
+async function loadOrganizationMenus(organizationId: string): Promise<{
+  domestic: UpcomingMatchItem[];
+  international: UpcomingMatchItem[];
+}> {
+  const sb = createSupabaseServiceClient();
+  const { normalizePersistedMenuRows } = await import("@/lib/match-simulator/fixtures-menu");
+
+  const [{ data: domesticRow }, { data: intlRow }] = await Promise.all([
+    sb
+      .from("organization_matches_menu_snapshot")
+      .select("matches")
+      .eq("organization_id", organizationId)
+      .maybeSingle(),
+    sb
+      .from("organization_international_matches_snapshot")
+      .select("matches")
+      .eq("organization_id", organizationId)
+      .maybeSingle()
+  ]);
+
+  const domestic = normalizePersistedMenuRows(domesticRow?.matches).filter((m) =>
+    isTopFiveLeagueSlug(m.competitionSlug)
+  );
+  const international = normalizePersistedMenuRows(intlRow?.matches).filter((m) =>
+    isNationalTeamCompetitionSlug(m.competitionSlug)
+  );
+
+  return {
+    domestic: filterUpcomingMenuMatches(domestic),
+    international: filterUpcomingMenuMatches(international)
+  };
+}
+
 async function prefetchInsightsForMatch(
   organizationId: string,
   match: UpcomingMatchItem,
   insightsSnap: number,
   cacheTtlHours: number
 ): Promise<boolean> {
-  const maxAttempts = 3;
+  const maxAttempts = 2;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
@@ -154,7 +209,7 @@ async function prefetchInsightsForMatch(
       return true;
     } catch (error) {
       if (attempt < maxAttempts && isRetryableInsightError(error)) {
-        await sleep(700 * attempt);
+        await sleep(500 * attempt);
         continue;
       }
       console.warn(
@@ -168,33 +223,14 @@ async function prefetchInsightsForMatch(
   return false;
 }
 
-/**
- * Admin unificato (kiosk web + app mobile): menu Top 5, calendario Mondiali, snapshot organizzazione
- * e prefetch insight solo per Top 5 + Mondiali maschili FIFA.
- */
-export async function runAdminMatchesRefresh(
-  organizationId: string,
-  options?: { trigger?: DataRefreshTrigger }
-): Promise<AdminMatchesRefreshResult> {
-  const trigger = options?.trigger ?? "admin_manual";
-
-  if (refreshInFlight) {
-    console.info("[admin-refresh] coalesced_duplicate_request", { organizationId });
-    return refreshInFlight;
-  }
-
-  refreshInFlight = runAdminMatchesRefreshInner(organizationId, trigger).finally(() => {
-    refreshInFlight = null;
-  });
-  return refreshInFlight;
-}
-
-async function runAdminMatchesRefreshInner(
-  organizationId: string,
-  trigger: DataRefreshTrigger
-): Promise<AdminMatchesRefreshResult> {
-  const empty = {
+function emptyResult(
+  phase: AdminRefreshPhase,
+  partial?: Partial<AdminMatchesRefreshResult>
+): AdminMatchesRefreshResult {
+  return {
     ok: false,
+    phase,
+    done: false,
     domesticMatchesCount: 0,
     internationalMatchesCount: 0,
     internationalDiscoveryCount: 0,
@@ -202,28 +238,29 @@ async function runAdminMatchesRefreshInner(
     insightsProcessed: 0,
     insightsTotal: 0,
     topFiveInsightsTotal: 0,
-    worldCupInsightsTotal: 0
-  } as const;
+    worldCupInsightsTotal: 0,
+    ...partial
+  };
+}
 
-  // 1) Elimina insight giocatori e cache derivate prima di ricalcolare il menu.
-  const purged = await purgeOrganizationKioskDerivedSnapshots(organizationId);
-  if (!purged.ok) {
-    return { ...empty, error: "purge_failed" };
-  }
-
+async function runStartPhase(
+  organizationId: string,
+  startedAt: number,
+  timeBudgetMs: number
+): Promise<AdminMatchesRefreshResult> {
+  /** Non cancellare gli insight esistenti: in caso di timeout restano i dati precedenti. */
   invalidateTrendsSnapshotMemory(organizationId);
   invalidateDifficultMarkingsSnapshotMemory(organizationId);
+  await purgeOrganizationKioskAuxiliarySnapshots(organizationId).catch(() => undefined);
 
-  // 2) Recupera il calendario aggiornato (solo Top 5 domestici; UEFA club esclusi).
   let domesticMenu: UpcomingMatchItem[];
   try {
     domesticMenu = await getOrRefreshTacticalMatchesMenuFull({ forceRefresh: true });
   } catch (e) {
     const message = e instanceof Error ? e.message : "matches_refresh_failed";
-    return { ...empty, error: message };
+    return emptyResult("start", { error: message });
   }
 
-  /** Solo Top 5: scarta eventuali residui UEFA da cache/provider. */
   domesticMenu = domesticMenu.filter((m) => isTopFiveLeagueSlug(m.competitionSlug));
 
   let internationalDiscoveryCount = 0;
@@ -232,16 +269,6 @@ async function runAdminMatchesRefreshInner(
     const rawInternational = await fetchUpcomingInternationalTournamentMatches();
     internationalDiscoveryCount = rawInternational.length;
     international = buildEachTeamNextInternationalMatchesMenu(rawInternational);
-    console.info(
-      "[admin-refresh] international_discovery:",
-      internationalDiscoveryCount,
-      "menu:",
-      international.length,
-      "domestic_menu:",
-      domesticMenu.length,
-      "matches_total:",
-      domesticMenu.length + international.length
-    );
   } catch (e) {
     console.warn(
       "[admin-refresh] international_matches_skipped:",
@@ -249,34 +276,18 @@ async function runAdminMatchesRefreshInner(
     );
   }
 
-  // 3) Salva il menu (partite future nella finestra, max 1 prossima per squadra).
   domesticMenu = filterUpcomingMenuMatches(domesticMenu);
   international = filterUpcomingMenuMatches(international);
 
-  /**
-   * Non sovrascrivere uno snapshot domestic pieno con `[]` se la discovery fallisce.
-   * I Mondiali restano aggiornabili separatamente.
-   */
   if (domesticMenu.length === 0) {
     try {
-      const sb = (await import("@/lib/supabase/service-client")).createSupabaseServiceClient();
-      const { data } = await sb
-        .from("organization_matches_menu_snapshot")
-        .select("matches")
-        .eq("organization_id", organizationId)
-        .maybeSingle();
-      const { normalizePersistedMenuRows } = await import("@/lib/match-simulator/fixtures-menu");
-      const previousClub = normalizePersistedMenuRows(data?.matches).filter(
-        (m) => isTopFiveLeagueSlug(m.competitionSlug)
-      );
-      if (previousClub.length > 0) {
+      const previous = await loadOrganizationMenus(organizationId);
+      if (previous.domestic.length > 0) {
         console.warn(
           "[admin-refresh] domestic_discovery_empty_keep_previous:",
-          previousClub.length
+          previous.domestic.length
         );
-        domesticMenu = filterUpcomingMenuMatches(previousClub);
-      } else {
-        console.warn("[admin-refresh] domestic_discovery_empty_skip_wipe");
+        domesticMenu = previous.domestic;
       }
     } catch (e) {
       console.warn(
@@ -292,13 +303,12 @@ async function runAdminMatchesRefreshInner(
       matches: domesticMenu
     });
     if (!persistDomestic.ok) {
-      return {
-        ...empty,
+      return emptyResult("start", {
         domesticMatchesCount: domesticMenu.length,
         internationalMatchesCount: international.length,
         matchesCount: domesticMenu.length + international.length,
         error: persistDomestic.message ?? "menu_persist_failed"
-      };
+      });
     }
   }
 
@@ -307,41 +317,124 @@ async function runAdminMatchesRefreshInner(
     matches: international
   });
   if (!persistIntl.ok) {
-    return {
-      ...empty,
+    return emptyResult("start", {
       domesticMatchesCount: domesticMenu.length,
       internationalMatchesCount: international.length,
       matchesCount: domesticMenu.length + international.length,
       error: persistIntl.message ?? "intl_menu_persist_failed"
-    };
+    });
   }
 
-  // 4) Prefetch insight per ogni partita del menu (Top 5 + Mondiali): sequenziale per stabilità API.
   const targets = buildAdminInsightsPrefetchTargets(domesticMenu, international);
-  const topFiveInsightsTotal = targets.filter((m) => isTopFiveLeagueSlug(m.competitionSlug)).length;
-  const worldCupInsightsTotal = targets.filter((m) => isNationalTeamCompetitionSlug(m.competitionSlug)).length;
-
   const insightsSnap = Math.floor(Date.now() / 1000);
-  const cacheTtlHours = Number(process.env.TACTICAL_MATCH_INSIGHTS_CACHE_HOURS ?? "120");
-  let insightsProcessed = 0;
-  /** Concorrenza 1 + pause più lunghe: meno 429/timeout FootApi. */
-  const concurrency = 1;
-  const pauseBetweenMatchesMs = Number(process.env.TACTICAL_ADMIN_REFRESH_PAUSE_MS ?? "900");
+  const elapsed = Date.now() - startedAt;
 
-  for (let i = 0; i < targets.length; i += concurrency) {
-    const slice = targets.slice(i, i + concurrency);
-    const results = await Promise.all(
-      slice.map((match) => prefetchInsightsForMatch(organizationId, match, insightsSnap, cacheTtlHours))
+  console.info("[admin-refresh] start_ok", {
+    domestic: domesticMenu.length,
+    international: international.length,
+    targets: targets.length,
+    elapsedMs: elapsed,
+    budgetMs: timeBudgetMs
+  });
+
+  return {
+    ok: true,
+    phase: "start",
+    done: false,
+    nextPhase: targets.length === 0 ? "finalize" : "insights",
+    nextInsightsOffset: 0,
+    domesticMatchesCount: domesticMenu.length,
+    internationalMatchesCount: international.length,
+    internationalDiscoveryCount,
+    matchesCount: domesticMenu.length + international.length,
+    insightsProcessed: 0,
+    insightsTotal: targets.length,
+    topFiveInsightsTotal: targets.filter((m) => isTopFiveLeagueSlug(m.competitionSlug)).length,
+    worldCupInsightsTotal: targets.filter((m) =>
+      isNationalTeamCompetitionSlug(m.competitionSlug)
+    ).length,
+    insightsPartial: targets.length > 0,
+    insightsSnap
+  };
+}
+
+async function runInsightsPhase(
+  organizationId: string,
+  options: {
+    offset: number;
+    batchSize: number;
+    insightsSnap: number;
+    startedAt: number;
+    timeBudgetMs: number;
+  }
+): Promise<AdminMatchesRefreshResult> {
+  const menus = await loadOrganizationMenus(organizationId);
+  const targets = buildAdminInsightsPrefetchTargets(menus.domestic, menus.international);
+  const cacheTtlHours = Number(process.env.TACTICAL_MATCH_INSIGHTS_CACHE_HOURS ?? "120");
+  const pauseMs = Number(process.env.TACTICAL_ADMIN_REFRESH_PAUSE_MS ?? "400");
+
+  let offset = Math.max(0, options.offset);
+  let processedThisBatch = 0;
+  const endExclusive = Math.min(targets.length, offset + Math.max(1, options.batchSize));
+
+  while (offset < endExclusive) {
+    if (Date.now() - options.startedAt > options.timeBudgetMs) {
+      console.warn("[admin-refresh] insights_budget_exhausted", {
+        offset,
+        processedThisBatch,
+        total: targets.length
+      });
+      break;
+    }
+
+    const match = targets[offset];
+    const ok = await prefetchInsightsForMatch(
+      organizationId,
+      match,
+      options.insightsSnap,
+      cacheTtlHours
     );
-    insightsProcessed += results.filter(Boolean).length;
-    if (i + concurrency < targets.length) {
-      await sleep(Math.max(400, pauseBetweenMatchesMs));
+    if (ok) processedThisBatch += 1;
+    offset += 1;
+
+    if (offset < endExclusive) {
+      await sleep(Math.max(200, pauseMs));
     }
   }
 
-  const insightsPartial = insightsProcessed < targets.length;
+  const insightsDone = offset >= targets.length;
 
-  const allMenuMatches = filterUpcomingMenuMatches([...domesticMenu, ...international]);
+  return {
+    ok: true,
+    phase: "insights",
+    done: false,
+    nextPhase: insightsDone ? "finalize" : "insights",
+    nextInsightsOffset: offset,
+    domesticMatchesCount: menus.domestic.length,
+    internationalMatchesCount: menus.international.length,
+    internationalDiscoveryCount: menus.international.length,
+    matchesCount: menus.domestic.length + menus.international.length,
+    insightsProcessed: processedThisBatch,
+    insightsTotal: targets.length,
+    topFiveInsightsTotal: targets.filter((m) => isTopFiveLeagueSlug(m.competitionSlug)).length,
+    worldCupInsightsTotal: targets.filter((m) =>
+      isNationalTeamCompetitionSlug(m.competitionSlug)
+    ).length,
+    insightsPartial: !insightsDone,
+    insightsSnap: options.insightsSnap,
+    trendsPending: !insightsDone
+  };
+}
+
+async function runFinalizePhase(
+  organizationId: string,
+  insightsSnap: number,
+  trigger: DataRefreshTrigger
+): Promise<AdminMatchesRefreshResult> {
+  const menus = await loadOrganizationMenus(organizationId);
+  const allMenuMatches = filterUpcomingMenuMatches([...menus.domestic, ...menus.international]);
+  const targets = buildAdminInsightsPrefetchTargets(menus.domestic, menus.international);
+
   await pruneOrganizationMatchInsightsOutsideEventIds(
     organizationId,
     allMenuMatches.map((match) => match.eventId)
@@ -359,168 +452,79 @@ async function runAdminMatchesRefreshInner(
       insightsSnap,
       forceReplace: true
     });
-    if (!markings.ok) {
-      console.warn(
-        "[admin-refresh] difficult_markings_snapshot_failed:",
-        markings.message ?? "unknown"
-      );
-    } else {
-      console.info("[admin-refresh] difficult_markings_snapshot_ok", {
-        matchups: Object.keys(markings.snapshot?.matchupIndex ?? {}).length,
-        rounds: markings.snapshot?.rounds?.length ?? 0
-      });
+    if (markings.ok) {
       markingsCount = Object.keys(markings.snapshot?.matchupIndex ?? {}).length;
     }
-  } catch (markingsError) {
+  } catch (e) {
     console.warn(
       "[admin-refresh] difficult_markings_snapshot_error:",
-      markingsError instanceof Error ? markingsError.message : String(markingsError)
+      e instanceof Error ? e.message : String(e)
     );
   }
 
-  const trendsTablesReady = await areTrendDatabaseTablesAvailable();
-  if (!trendsTablesReady) {
-    console.warn(
-      "[admin-refresh] trends_skipped: applica la migration supabase/migrations/20260704140000_player_trend_stats.sql"
-    );
-  }
-
-  const radarTablesReady = await areMatchRadarDatabaseTablesAvailable();
-  if (radarTablesReady) {
+  if (await areMatchRadarDatabaseTablesAvailable()) {
     try {
-      const radar = await regenerateMatchRadarForMatches({
-        matches: targets
-      });
-      if (!radar.ok) {
-        console.warn("[admin-refresh] match_radar_failed:", radar.message ?? "unknown");
-      } else {
-        console.info("[admin-refresh] match_radar_ok", {
-          processed: radar.processed,
-          saved: radar.saved
-        });
-      }
-    } catch (radarError) {
+      await regenerateMatchRadarForMatches({ matches: targets });
+    } catch (e) {
       console.warn(
         "[admin-refresh] match_radar_error:",
-        radarError instanceof Error ? radarError.message : String(radarError)
+        e instanceof Error ? e.message : String(e)
       );
     }
-  } else {
-    console.warn(
-      "[admin-refresh] match_radar_skipped: applica la migration supabase/migrations/20260708120000_match_radar.sql"
-    );
   }
 
-  const playerPerformanceTablesReady = await arePlayerPerformanceSnapshotTablesAvailable();
-  if (playerPerformanceTablesReady) {
+  if (await arePlayerPerformanceSnapshotTablesAvailable()) {
     try {
       const playerPerformance = await regeneratePlayerPerformanceSnapshotsForOrganization({
         organizationId,
         matches: allMenuMatches,
         insightsSnap
       });
-      if (!playerPerformance.ok) {
-        console.warn(
-          "[admin-refresh] player_performance_failed:",
-          playerPerformance.message ?? "unknown"
-        );
-      } else {
-        console.info("[admin-refresh] player_performance_ok", {
-          saved: playerPerformance.saved,
-          failed: playerPerformance.failed
-        });
-        playerPerformanceCount = playerPerformance.saved;
-      }
-    } catch (playerPerformanceError) {
+      if (playerPerformance.ok) playerPerformanceCount = playerPerformance.saved;
+    } catch (e) {
       console.warn(
         "[admin-refresh] player_performance_error:",
-        playerPerformanceError instanceof Error
-          ? playerPerformanceError.message
-          : String(playerPerformanceError)
+        e instanceof Error ? e.message : String(e)
       );
     }
-  } else {
-    console.warn(
-      "[admin-refresh] player_performance_skipped: applica la migration supabase/migrations/20260717120000_organization_player_performance_snapshot.sql"
-    );
   }
 
-  // Trend dopo PP: backfill Broad + ingest condiviso hanno più chance di avere sample storici.
-  if (trendsTablesReady) {
+  if (await areTrendDatabaseTablesAvailable()) {
     try {
       const trends = await regenerateTrendsSnapshotForOrganization({
         organizationId,
         matches: allMenuMatches,
         insightsSnap,
-        backfillMaxEvents: 15,
+        backfillMaxEvents: 10,
         forceReplace: true
       });
-      if (!trends.ok) {
-        console.warn("[admin-refresh] trends_snapshot_failed:", trends.message ?? "unknown");
-      } else {
-        console.info("[admin-refresh] trends_snapshot_ok", {
-          trends: Object.keys(trends.snapshot?.trendIndex ?? {}).length,
-          rounds: trends.snapshot?.rounds?.length ?? 0
-        });
-        trendsCount = Object.keys(trends.snapshot?.trendIndex ?? {}).length;
-      }
-    } catch (trendsError) {
+      if (trends.ok) trendsCount = Object.keys(trends.snapshot?.trendIndex ?? {}).length;
+    } catch (e) {
       console.warn(
         "[admin-refresh] trends_snapshot_error:",
-        trendsError instanceof Error ? trendsError.message : String(trendsError)
+        e instanceof Error ? e.message : String(e)
       );
     }
   }
 
-  const simulatorTablesReady = await areMatchSimulatorDatabaseTablesAvailable();
-  if (simulatorTablesReady) {
+  if (await areMatchSimulatorDatabaseTablesAvailable()) {
     try {
       const simulator = await regenerateMatchSimulatorSnapshotForOrganization({
         organizationId,
         matches: allMenuMatches,
         insightsSnap,
-        maxMatches: allMenuMatches.length
+        maxMatches: Math.min(allMenuMatches.length, 25)
       });
-      if (!simulator.ok) {
-        console.warn(
-          "[admin-refresh] match_simulator_failed:",
-          simulator.message ?? "unknown"
-        );
-      } else {
+      if (simulator.ok) {
         matchSimulatorCount = Object.keys(simulator.snapshot?.simulationIndex ?? {}).length;
-        console.info("[admin-refresh] match_simulator_ok", {
-          indexed: matchSimulatorCount
-        });
       }
-    } catch (simulatorError) {
+    } catch (e) {
       console.warn(
         "[admin-refresh] match_simulator_error:",
-        simulatorError instanceof Error ? simulatorError.message : String(simulatorError)
+        e instanceof Error ? e.message : String(e)
       );
     }
-  } else {
-    console.warn(
-      "[admin-refresh] match_simulator_skipped: applica la migration supabase/migrations/20260705120000_match_simulator.sql"
-    );
   }
-
-  const result: AdminMatchesRefreshResult = {
-    ok: true,
-    domesticMatchesCount: domesticMenu.length,
-    internationalMatchesCount: international.length,
-    internationalDiscoveryCount,
-    matchesCount: domesticMenu.length + international.length,
-    insightsProcessed,
-    insightsTotal: targets.length,
-    topFiveInsightsTotal,
-    worldCupInsightsTotal,
-    insightsPartial,
-    trendsPending: false,
-    trendsCount,
-    markingsCount,
-    playerPerformanceCount,
-    matchSimulatorCount
-  };
 
   await recordDataRefreshCompletion({
     organizationId,
@@ -528,5 +532,129 @@ async function runAdminMatchesRefreshInner(
     ok: true
   });
 
-  return result;
+  return {
+    ok: true,
+    phase: "finalize",
+    done: true,
+    domesticMatchesCount: menus.domestic.length,
+    internationalMatchesCount: menus.international.length,
+    internationalDiscoveryCount: menus.international.length,
+    matchesCount: menus.domestic.length + menus.international.length,
+    insightsProcessed: targets.length,
+    insightsTotal: targets.length,
+    topFiveInsightsTotal: targets.filter((m) => isTopFiveLeagueSlug(m.competitionSlug)).length,
+    worldCupInsightsTotal: targets.filter((m) =>
+      isNationalTeamCompetitionSlug(m.competitionSlug)
+    ).length,
+    insightsPartial: false,
+    trendsPending: false,
+    trendsCount,
+    markingsCount,
+    playerPerformanceCount,
+    matchSimulatorCount,
+    insightsSnap
+  };
+}
+
+/**
+ * Admin unificato (kiosk web + app mobile).
+ * Su Hobby Vercel il lavoro è a fasi: start → insights (batch) → finalize,
+ * così ogni richiesta resta sotto il limite e non torna 504.
+ */
+export async function runAdminMatchesRefresh(
+  organizationId: string,
+  options?: AdminMatchesRefreshOptions
+): Promise<AdminMatchesRefreshResult> {
+  const trigger = options?.trigger ?? "admin_manual";
+  const phase = options?.phase ?? (trigger === "scheduled_cron" ? undefined : "start");
+  const timeBudgetMs = Math.max(30_000, options?.timeBudgetMs ?? DEFAULT_TIME_BUDGET_MS);
+  const batchSize = Math.max(1, options?.insightsBatchSize ?? DEFAULT_INSIGHTS_BATCH);
+  const insightsOffset = Math.max(0, options?.insightsOffset ?? 0);
+  const insightsSnap = options?.insightsSnap ?? Math.floor(Date.now() / 1000);
+  const startedAt = Date.now();
+
+  const flightKey = `${organizationId}:${phase ?? "cron"}:${insightsOffset}`;
+  if (refreshInFlight && refreshInFlightKey === flightKey) {
+    console.info("[admin-refresh] coalesced_duplicate_request", { flightKey });
+    return refreshInFlight;
+  }
+
+  const run = (async (): Promise<AdminMatchesRefreshResult> => {
+    if (phase === "start") {
+      return runStartPhase(organizationId, startedAt, timeBudgetMs);
+    }
+
+    if (phase === "insights") {
+      return runInsightsPhase(organizationId, {
+        offset: insightsOffset,
+        batchSize,
+        insightsSnap,
+        startedAt,
+        timeBudgetMs
+      });
+    }
+
+    if (phase === "finalize") {
+      return runFinalizePhase(organizationId, insightsSnap, trigger);
+    }
+
+    /** Cron / full: esegue quante più fasi possibile nel budget. */
+    const start = await runStartPhase(organizationId, startedAt, timeBudgetMs);
+    if (!start.ok) return start;
+
+    const snap = start.insightsSnap ?? insightsSnap;
+    let offset = 0;
+    let totalProcessed = 0;
+
+    while (Date.now() - startedAt < timeBudgetMs * 0.75 && offset < start.insightsTotal) {
+      const batch = await runInsightsPhase(organizationId, {
+        offset,
+        batchSize,
+        insightsSnap: snap,
+        startedAt,
+        timeBudgetMs
+      });
+      if (!batch.ok) return batch;
+      totalProcessed += batch.insightsProcessed;
+      offset = batch.nextInsightsOffset ?? offset + batchSize;
+      if (batch.nextPhase === "finalize") break;
+    }
+
+    if (offset < start.insightsTotal) {
+      return {
+        ...start,
+        ok: true,
+        phase: "insights",
+        done: false,
+        nextPhase: "insights",
+        nextInsightsOffset: offset,
+        insightsProcessed: totalProcessed,
+        insightsPartial: true,
+        insightsSnap: snap
+      };
+    }
+
+    if (Date.now() - startedAt > timeBudgetMs * 0.85) {
+      return {
+        ...start,
+        ok: true,
+        phase: "insights",
+        done: false,
+        nextPhase: "finalize",
+        nextInsightsOffset: offset,
+        insightsProcessed: totalProcessed,
+        insightsPartial: false,
+        insightsSnap: snap
+      };
+    }
+
+    return runFinalizePhase(organizationId, snap, trigger);
+  })();
+
+  refreshInFlightKey = flightKey;
+  refreshInFlight = run.finally(() => {
+    refreshInFlight = null;
+    refreshInFlightKey = null;
+  });
+  return refreshInFlight;
 }
