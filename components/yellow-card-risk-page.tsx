@@ -205,25 +205,12 @@ function hasRecentPlayingSample(m: TacticalMetrics): boolean {
 }
 
 type RoleBand = "gk" | "def" | "mid" | "att";
-type Lane = -1 | 0 | 1;
 
 function roleBand(player: TacticalMetrics): RoleBand {
   if (player.roleIcon === "🧤") return "gk";
   if (player.roleIcon === "🛡️") return "def";
   if (player.roleIcon === "🎯") return "att";
   return "mid";
-}
-
-function positionLane(positionCode?: string): Lane {
-  const s = (positionCode ?? "").toUpperCase().trim().replace(/\s+/g, "");
-  if (!s || s === "G" || s.startsWith("GK")) return 0;
-  if (/^(DL|LWB|LB|ML|AML|LW|LM|WL)(\/|$)/.test(s)) return -1;
-  if (/^(DR|RWB|RB|MR|AMR|RW|RM|WR)(\/|$)/.test(s)) return 1;
-  const last = s[s.length - 1];
-  const first = s[0];
-  if (last === "L" && /^[DAMFW]/.test(first)) return -1;
-  if (last === "R" && /^[DAMFW]/.test(first)) return 1;
-  return 0;
 }
 
 function riskScore(target: TacticalMetrics, marker: TacticalMetrics, markingScore: number): number {
@@ -407,72 +394,6 @@ function buildRowsFromSparkDuels(match: UpcomingMatchItem, metrics: TacticalMetr
       riskLevel: riskLevel(score),
       matchupWeight: Math.round(markingScore),
       reason: reasonSpark
-    });
-  }
-  return rows;
-}
-
-/** Fallback se `match-insights` non espone `sparkDuel` per nessun giocatore (es. heatmap insufficienti). */
-function findMarkerHeuristic(target: TacticalMetrics, metrics: TacticalMetrics[]): {
-  marker: TacticalMetrics;
-  markingScore: number;
-} | null {
-  const targetLane = positionLane(target.positionCode);
-  const candidates = metrics
-    .filter((opponent) => opponent.teamId !== target.teamId)
-    .filter((opponent) => roleBand(opponent) === "def")
-    .map((opponent) => {
-      const markerLane = positionLane(opponent.positionCode);
-      const mirroredWide = targetLane !== 0 && markerLane !== 0 && targetLane === -markerLane;
-      const sameProviderWide = targetLane !== 0 && markerLane !== 0 && targetLane === markerLane;
-      const bothCentral = targetLane === 0 && markerLane === 0;
-      const oneWideOneUnknown = (targetLane !== 0 && markerLane === 0) || (targetLane === 0 && markerLane !== 0);
-      const roleScore = 28;
-      const laneScore = mirroredWide ? 64 : sameProviderWide ? 44 : bothCentral ? 34 : oneWideOneUnknown ? 18 : 0;
-      const aggressionScore = Math.min(28, committedFoulSignalForRisk(opponent) * 12);
-      return { marker: opponent, markingScore: Math.min(100, laneScore + roleScore + aggressionScore) };
-    })
-    .filter((candidate) => candidate.markingScore >= 48)
-    .sort((a, b) => b.markingScore - a.markingScore);
-  return candidates[0] ?? null;
-}
-
-function buildRowsFromHeuristicFallback(match: UpcomingMatchItem, metrics: TacticalMetrics[]): YellowCardRiskPlayer[] {
-  const rows: YellowCardRiskPlayer[] = [];
-  const reasonHeuristic =
-    "Stima di marcatura per fascia posizionale: i dati duello completi non erano disponibili per questo match.";
-  for (const target of metrics) {
-    if (target.roleIcon === "🧤") continue;
-    const fouls = targetFouls(target);
-    const dribbles = dribbleSignal(target);
-    if (fouls < MIN_TARGET_FOULS || dribbles < MIN_TARGET_DRIBBLES) continue;
-    const markerHit = findMarkerHeuristic(target, metrics);
-    if (!markerHit) continue;
-    if (!hasRecentPlayingSample(target) || !hasRecentPlayingSample(markerHit.marker)) continue;
-    const score = riskScore(target, markerHit.marker, markerHit.markingScore);
-    if (score < 8) continue;
-    rows.push({
-      id: `${match.eventId}-${playerKey(markerHit.marker)}-${playerKey(target)}`,
-      eventId: match.eventId,
-      rank: 0,
-      playerName: markerHit.marker.playerName,
-      playerInitials: initials(markerHit.marker.playerName),
-      role: roleLabel(markerHit.marker),
-      teamName: markerHit.marker.team,
-      teamCode: teamCode(markerHit.marker.team),
-      opponentName: target.playerName,
-      opponentTeamName: target.team,
-      opponentTeamCode: teamCode(target.team),
-      match: `${match.homeTeam.name} vs ${match.awayTeam.name}`,
-      competitionSlug: match.competitionSlug,
-      defenderFoulsCommittedAvg: foulsCommittedPerMatchForDisplay(markerHit.marker),
-      opponentFoulsReceivedAvg: fouls,
-      opponentSuccessfulDribblesAvg: dribbles,
-      recentYellowCards: Math.round(numeric(markerHit.marker.h2hYellowCards)),
-      riskScore: Math.round(score * 10) / 10,
-      riskLevel: riskLevel(score),
-      matchupWeight: Math.round(markerHit.markingScore),
-      reason: reasonHeuristic
     });
   }
   return rows;

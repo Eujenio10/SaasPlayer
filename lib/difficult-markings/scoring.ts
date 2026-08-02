@@ -459,7 +459,6 @@ export function computeDifficultMarkingsForMatch(params: {
 
         let attackerGrid: number[];
         let defenderGrid: number[];
-        let usedHeatmapForScore = usedHeatmap;
         if (usedHeatmap && attacker.offensiveHeatmap && defender.defensiveHeatmap) {
           attackerGrid = attacker.offensiveHeatmap;
           defenderGrid = defender.defensiveHeatmap;
@@ -471,8 +470,9 @@ export function computeDifficultMarkingsForMatch(params: {
           continue;
         }
 
-        let overlap = heatmapOverlap(attackerGrid, defenderGrid);
-        if (usedHeatmapForScore && overlap < 0.35) {
+        const usedHeatmapForScore = true;
+        const overlap = heatmapOverlap(attackerGrid, defenderGrid);
+        if (overlap < 0.35) {
           /** Senza overlap reale sufficiente non pubblichiamo il duello (niente zone stimate). */
           continue;
         }
