@@ -12,7 +12,7 @@ import {
 } from "@/lib/difficult-markings/text";
 import type { DifficultMarkingMatchup } from "@/lib/difficult-markings/types";
 import type { DifficultMarkingFilterKey, DifficultMarkingSortKey } from "@/lib/difficult-markings/publish";
-import { MONITORED_COMPETITIONS } from "@/lib/competitions";
+import { useWebCompetitionsWithMatches } from "@/components/competitions/use-web-competitions-with-matches";
 import { KIOSK_ADMIN_INSIGHTS_REFRESH_EVENT } from "@/lib/kiosk-persisted-insights";
 import { translateTeamName } from "@/lib/italian-sports-display";
 import {
@@ -41,6 +41,7 @@ function formatUpdatedAt(iso: string | null): string {
 }
 
 export function DifficultMarkingsPage() {
+  const { competitions: availableCompetitions } = useWebCompetitionsWithMatches();
   const [competitionId, setCompetitionId] = useState("serie-a");
   const [round, setRound] = useState<string>("");
   const [filter, setFilter] = useState<DifficultMarkingFilterKey>("all");
@@ -51,6 +52,13 @@ export function DifficultMarkingsPage() {
   const [availableRounds, setAvailableRounds] = useState<string[]>([]);
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
   const [officialLineupsUsed, setOfficialLineupsUsed] = useState(false);
+
+  useEffect(() => {
+    if (!availableCompetitions.length) return;
+    if (!availableCompetitions.some((c) => c.id === competitionId)) {
+      setCompetitionId(availableCompetitions[0].id);
+    }
+  }, [availableCompetitions, competitionId]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -123,7 +131,7 @@ export function DifficultMarkingsPage() {
               }}
               className="w-full rounded-xl border border-white/10 bg-slate-950/70 px-3 py-2 text-sm text-white"
             >
-              {MONITORED_COMPETITIONS.map((c) => (
+              {availableCompetitions.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.label}
                 </option>

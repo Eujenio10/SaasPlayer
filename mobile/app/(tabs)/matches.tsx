@@ -15,8 +15,10 @@ import { fetchMatches } from "@/lib/api";
 import {
   filterMatches,
   groupMatchesByDayLabel,
+  isWorldCupMatch,
   type MatchFilterId
 } from "@/lib/matches/filters";
+import { isMatchTodayRome } from "@/lib/match-display";
 import type { UpcomingMatchItem } from "@/lib/types";
 import { colors, radii, spacing } from "@/lib/theme";
 
@@ -59,6 +61,16 @@ export default function MatchesScreen() {
 
   const filtered = useMemo(() => filterMatches(matches, filter), [matches, filter]);
   const sections = useMemo(() => groupMatchesByDayLabel(filtered), [filtered]);
+  const hasWorldCupMatches = useMemo(() => matches.some(isWorldCupMatch), [matches]);
+  const hasTodayMatches = useMemo(
+    () => matches.some((m) => isMatchTodayRome(m.startTimestamp)),
+    [matches]
+  );
+
+  useEffect(() => {
+    if (filter === "world" && !hasWorldCupMatches) setFilter("all");
+    if (filter === "today" && !hasTodayMatches) setFilter("all");
+  }, [filter, hasTodayMatches, hasWorldCupMatches]);
 
   const openMatch = (item: UpcomingMatchItem) => {
     router.push({
@@ -103,7 +115,12 @@ export default function MatchesScreen() {
         />
       ) : null}
 
-      <MatchFilterBar active={filter} onChange={setFilter} />
+      <MatchFilterBar
+        active={filter}
+        onChange={setFilter}
+        hasWorldCupMatches={hasWorldCupMatches}
+        hasTodayMatches={hasTodayMatches}
+      />
 
       {error ? (
         <View style={styles.notice}>

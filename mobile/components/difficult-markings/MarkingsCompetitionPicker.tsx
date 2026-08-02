@@ -1,17 +1,41 @@
+import { useEffect, useMemo } from "react";
 import { Pressable, ScrollView, StyleSheet, Text } from "react-native";
-import { MARKINGS_COMPETITIONS } from "@/lib/difficult-markings/types";
+import { filterCompetitionsByAvailableIds } from "@/lib/competitions-with-matches";
 import { colors, radii, spacing } from "@/lib/theme";
 
 export function MarkingsCompetitionPicker({
   active,
-  onChange
+  onChange,
+  availableIds
 }: {
   active: string;
   onChange: (competitionId: string) => void;
+  /** Se valorizzato, mostra solo questi campionati (con almeno 1 partita). */
+  availableIds?: string[] | null;
 }) {
+  const options = useMemo(
+    () => filterCompetitionsByAvailableIds(availableIds),
+    [availableIds]
+  );
+
+  useEffect(() => {
+    if (options.length === 0) return;
+    if (!options.some((c) => c.id === active)) {
+      onChange(options[0].id);
+    }
+  }, [active, onChange, options]);
+
+  if (options.length === 0) {
+    return (
+      <Text style={styles.empty}>
+        Nessun campionato con partite da analizzare al momento.
+      </Text>
+    );
+  }
+
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
-      {MARKINGS_COMPETITIONS.map((competition) => {
+      {options.map((competition) => {
         const selected = active === competition.id;
         return (
           <Pressable
@@ -53,5 +77,11 @@ const styles = StyleSheet.create({
   },
   chipTextActive: {
     color: "#fb923c"
+  },
+  empty: {
+    color: colors.textDim,
+    fontSize: 13,
+    lineHeight: 18,
+    marginBottom: spacing.sm
   }
 });

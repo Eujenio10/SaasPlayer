@@ -3,7 +3,7 @@ import { Ionicons } from "@expo/vector-icons";
 import type { MatchFilterId } from "@/lib/matches/filters";
 import { colors, radii, spacing } from "@/lib/theme";
 
-const filters: Array<{
+const allFilters: Array<{
   id: MatchFilterId;
   label: string;
   icon: keyof typeof Ionicons.glyphMap;
@@ -16,11 +16,21 @@ const filters: Array<{
 
 export function MatchFilterBar({
   active,
-  onChange
+  onChange,
+  hasWorldCupMatches = true,
+  hasTodayMatches = true
 }: {
   active: MatchFilterId;
   onChange: (id: MatchFilterId) => void;
+  hasWorldCupMatches?: boolean;
+  hasTodayMatches?: boolean;
 }) {
+  const filters = allFilters.filter((filter) => {
+    if (filter.id === "world") return hasWorldCupMatches;
+    if (filter.id === "today") return hasTodayMatches;
+    return true;
+  });
+
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
       {filters.map((filter) => {

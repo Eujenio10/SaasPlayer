@@ -1395,7 +1395,16 @@ function dateToken(offsetDays = 0): string {
 function isFootballEvent(event: SportApiEvent): boolean {
   const slug = event.tournament?.category?.sport?.slug?.toLowerCase();
   const name = event.tournament?.category?.sport?.name?.toLowerCase();
-  return slug === "football" || name === "football";
+  if (slug === "football" || name === "football") return true;
+  /**
+   * FootApi / team-next a volte omette `category.sport`. Se lo slug torneo è Top 5 / UEFA
+   * monitorato, non scartare l'evento (altrimenti il menu domestic resta vuoto).
+   */
+  return (
+    isStrictTop5DomesticEvent(event) ||
+    isUefaChampionsOrEuropaLeagueEvent(event) ||
+    isUefaConferenceLeagueEvent(event)
+  );
 }
 
 function competitionSlug(event: SportApiEvent): string {
@@ -1616,7 +1625,13 @@ function eventStatusType(event: SportApiEvent): string {
 }
 
 function isUpcomingEvent(event: SportApiEvent): boolean {
-  return eventStatusType(event) === "notstarted";
+  /** Allineato ai Mondiali: FootApi usa spesso `scheduled` invece di `notstarted`. */
+  if (isTerminalMatchStatus(event)) return false;
+  const t = eventStatusType(event);
+  if (t === "notstarted" || t === "scheduled" || t === "postponed") return true;
+  const kick = event.startTimestamp ?? 0;
+  const now = Math.floor(Date.now() / 1000);
+  return kick > now;
 }
 
 /** Stati terminati da escludere dal menu discovery (solo calcio Mondiali usa filtri dedicati anche sotto). */

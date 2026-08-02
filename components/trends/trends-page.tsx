@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { TrendDeltaBadge, TrendSparkline } from "@/components/trends/trend-sparkline";
 import { KIOSK_ADMIN_INSIGHTS_REFRESH_EVENT } from "@/lib/kiosk-persisted-insights";
-import { MONITORED_COMPETITIONS } from "@/lib/competitions";
+import { useWebCompetitionsWithMatches } from "@/components/competitions/use-web-competitions-with-matches";
 import { translateTeamName } from "@/lib/italian-sports-display";
 import { reliabilityLabelIt } from "@/lib/trends/reasons";
 import {
@@ -33,6 +33,7 @@ function formatUpdatedAt(iso: string | null): string {
 }
 
 export function TrendsPage() {
+  const { competitions: availableCompetitions } = useWebCompetitionsWithMatches();
   const [competitionId, setCompetitionId] = useState("serie-a");
   const [round, setRound] = useState("");
   const [metric, setMetric] = useState<"all" | "shots" | "shots_on_target" | "saves">("all");
@@ -42,6 +43,13 @@ export function TrendsPage() {
   const [results, setResults] = useState<PlayerTrend[]>([]);
   const [availableRounds, setAvailableRounds] = useState<string[]>([]);
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!availableCompetitions.length) return;
+    if (!availableCompetitions.some((c) => c.id === competitionId)) {
+      setCompetitionId(availableCompetitions[0].id);
+    }
+  }, [availableCompetitions, competitionId]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -106,7 +114,7 @@ export function TrendsPage() {
             onChange={(e) => setCompetitionId(e.target.value)}
             className="rounded-xl border border-white/10 bg-slate-950/70 px-3 py-2 text-sm text-white"
           >
-            {MONITORED_COMPETITIONS.map((c) => (
+            {availableCompetitions.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.label}
               </option>

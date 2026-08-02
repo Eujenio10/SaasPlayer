@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { GuestLockedSectionPanel } from "@/components/access/GuestLockedSectionPanel";
@@ -10,6 +10,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useGuestPreview } from "@/contexts/GuestPreviewContext";
 import { formatGuestFeaturesRemainingMinutes } from "@/lib/guest-ad-preview";
 import { canAccessMatchSimulator } from "@/lib/access/guest-preview-mode";
+import { useCompetitionsWithMatches } from "@/lib/competitions/useCompetitionsWithMatches";
 import {
   MATCH_SIMULATOR_PAGE_SUBTITLE,
   MATCH_SIMULATOR_PAGE_TITLE
@@ -20,6 +21,7 @@ export default function SimulatorScreen() {
   const { userStatus } = useAuth();
   const { openPaywall } = useAccessFlow();
   const { featuresPreviewActive, featuresPreviewExpiresAt, openAdModal } = useGuestPreview();
+  const { availableIds, preferredId, refresh: refreshCompetitions } = useCompetitionsWithMatches();
   const [competitionId, setCompetitionId] = useState("serie-a");
   const [refreshToken, setRefreshToken] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
@@ -31,11 +33,18 @@ export default function SimulatorScreen() {
       ? formatGuestFeaturesRemainingMinutes(featuresPreviewExpiresAt)
       : null;
 
+  useEffect(() => {
+    if (preferredId && (!availableIds?.includes(competitionId as never) || !competitionId)) {
+      setCompetitionId(preferredId);
+    }
+  }, [availableIds, competitionId, preferredId]);
+
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     setRefreshToken((value) => value + 1);
-    setTimeout(() => setRefreshing(false), 600);
-  }, []);
+    await refreshCompetitions();
+    setRefreshing(false);
+  }, [refreshCompetitions]);
 
   return (
     <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
@@ -74,8 +83,14 @@ export default function SimulatorScreen() {
         ) : (
           <>
             <Text style={styles.pickerLabel}>Campionato</Text>
-            <MarkingsCompetitionPicker active={competitionId} onChange={setCompetitionId} />
-            <MatchSimulatorList key={`${competitionId}-${refreshToken}`} competitionId={competitionId} />
+            <MarkingsCompetitionPicker
+              active={competitionId}
+              onChange={setCompetitionId}
+              availableIds={availableIds}
+            />
+            {availableIds && availableIds.length > 0 ? (
+              <MatchSimulatorList key={`${competitionId}-${refreshToken}`} competitionId={competitionId} />
+            ) : null}
           </>
         )}
       </ScrollView>

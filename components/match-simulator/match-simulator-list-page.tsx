@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { Activity } from "lucide-react";
-import { MONITORED_COMPETITIONS } from "@/lib/competitions";
+import { useWebCompetitionsWithMatches } from "@/components/competitions/use-web-competitions-with-matches";
 import { translateTeamName } from "@/lib/italian-sports-display";
 import { reliabilityLabelIt } from "@/lib/match-simulator/reliability";
 import {
@@ -59,6 +59,7 @@ function statusLabel(status: MatchSimulatorFixtureListItem["simulationStatus"]):
 }
 
 export function MatchSimulatorListPage() {
+  const { competitions: availableCompetitions } = useWebCompetitionsWithMatches();
   const [competitionId, setCompetitionId] = useState("serie-a");
   const [round, setRound] = useState("");
   const [loading, setLoading] = useState(true);
@@ -67,6 +68,13 @@ export function MatchSimulatorListPage() {
   const [availableRounds, setAvailableRounds] = useState<string[]>([]);
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
   const [simulatorDatabaseReady, setSimulatorDatabaseReady] = useState(true);
+
+  useEffect(() => {
+    if (!availableCompetitions.length) return;
+    if (!availableCompetitions.some((c) => c.id === competitionId)) {
+      setCompetitionId(availableCompetitions[0].id);
+    }
+  }, [availableCompetitions, competitionId]);
 
   useEffect(() => {
     setRound("");
@@ -135,7 +143,7 @@ export function MatchSimulatorListPage() {
             onChange={(e) => setCompetitionId(e.target.value)}
             className="rounded-xl border border-white/10 bg-slate-950/70 px-3 py-2 text-sm text-white"
           >
-            {MONITORED_COMPETITIONS.map((c) => (
+            {availableCompetitions.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.label}
               </option>

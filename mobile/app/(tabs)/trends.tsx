@@ -4,24 +4,34 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { MarkingsCompetitionPicker } from "@/components/difficult-markings/MarkingsCompetitionPicker";
 import { TrendsList } from "@/components/trends/TrendsList";
 import { subscribeAdminCatalogRefresh } from "@/lib/admin-catalog-refresh";
+import { useCompetitionsWithMatches } from "@/lib/competitions/useCompetitionsWithMatches";
 import { colors, spacing } from "@/lib/theme";
 
 export default function TrendsScreen() {
+  const { availableIds, preferredId, refresh: refreshCompetitions } = useCompetitionsWithMatches();
   const [competitionId, setCompetitionId] = useState("world-cup");
   const [refreshToken, setRefreshToken] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
 
+  useEffect(() => {
+    if (preferredId && (!availableIds?.includes(competitionId as never) || !competitionId)) {
+      setCompetitionId(preferredId);
+    }
+  }, [availableIds, competitionId, preferredId]);
+
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     setRefreshToken((value) => value + 1);
-    setTimeout(() => setRefreshing(false), 600);
-  }, []);
+    await refreshCompetitions();
+    setRefreshing(false);
+  }, [refreshCompetitions]);
 
   useEffect(() => {
     return subscribeAdminCatalogRefresh(() => {
       setRefreshToken((value) => value + 1);
+      void refreshCompetitions();
     });
-  }, []);
+  }, [refreshCompetitions]);
 
   return (
     <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
@@ -44,14 +54,20 @@ export default function TrendsScreen() {
         </View>
 
         <Text style={styles.pickerLabel}>Campionato</Text>
-        <MarkingsCompetitionPicker active={competitionId} onChange={setCompetitionId} />
-
-        <TrendsList
-          key={competitionId}
-          competitionId={competitionId}
-          refreshToken={refreshToken}
-          onCompetitionChange={setCompetitionId}
+        <MarkingsCompetitionPicker
+          active={competitionId}
+          onChange={setCompetitionId}
+          availableIds={availableIds}
         />
+
+        {availableIds && availableIds.length > 0 ? (
+          <TrendsList
+            key={competitionId}
+            competitionId={competitionId}
+            refreshToken={refreshToken}
+            onCompetitionChange={setCompetitionId}
+          />
+        ) : null}
       </ScrollView>
     </SafeAreaView>
   );

@@ -246,22 +246,57 @@ async function runAdminMatchesRefreshInner(
     );
   }
 
-  // 3) Salva il menu (solo partite future entro 7 giorni, max 1 prossima per squadra).
+  // 3) Salva il menu (partite future nella finestra, max 1 prossima per squadra).
   domesticMenu = filterUpcomingMenuMatches(domesticMenu);
   international = filterUpcomingMenuMatches(international);
 
-  const persistDomestic = await upsertMatchesMenuSnapshotForOrganization({
-    organizationId,
-    matches: domesticMenu
-  });
-  if (!persistDomestic.ok) {
-    return {
-      ...empty,
-      domesticMatchesCount: domesticMenu.length,
-      internationalMatchesCount: international.length,
-      matchesCount: domesticMenu.length + international.length,
-      error: persistDomestic.message ?? "menu_persist_failed"
-    };
+  /**
+   * Non sovrascrivere uno snapshot domestic pieno con `[]` se la discovery fallisce.
+   * I Mondiali restano aggiornabili separatamente.
+   */
+  if (domesticMenu.length === 0) {
+    try {
+      const sb = (await import("@/lib/supabase/service-client")).createSupabaseServiceClient();
+      const { data } = await sb
+        .from("organization_matches_menu_snapshot")
+        .select("matches")
+        .eq("organization_id", organizationId)
+        .maybeSingle();
+      const { normalizePersistedMenuRows } = await import("@/lib/match-simulator/fixtures-menu");
+      const previousClub = normalizePersistedMenuRows(data?.matches).filter(
+        (m) => !isNationalTeamCompetitionSlug(m.competitionSlug)
+      );
+      if (previousClub.length > 0) {
+        console.warn(
+          "[admin-refresh] domestic_discovery_empty_keep_previous:",
+          previousClub.length
+        );
+        domesticMenu = filterUpcomingMenuMatches(previousClub);
+      } else {
+        console.warn("[admin-refresh] domestic_discovery_empty_skip_wipe");
+      }
+    } catch (e) {
+      console.warn(
+        "[admin-refresh] domestic_empty_fallback_failed:",
+        e instanceof Error ? e.message : String(e)
+      );
+    }
+  }
+
+  if (domesticMenu.length > 0) {
+    const persistDomestic = await upsertMatchesMenuSnapshotForOrganization({
+      organizationId,
+      matches: domesticMenu
+    });
+    if (!persistDomestic.ok) {
+      return {
+        ...empty,
+        domesticMatchesCount: domesticMenu.length,
+        internationalMatchesCount: international.length,
+        matchesCount: domesticMenu.length + international.length,
+        error: persistDomestic.message ?? "menu_persist_failed"
+      };
+    }
   }
 
   const persistIntl = await upsertInternationalMatchesMenuSnapshotForOrganization({
