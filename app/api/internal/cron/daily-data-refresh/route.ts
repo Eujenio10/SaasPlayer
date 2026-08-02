@@ -6,7 +6,8 @@ import { getLastDataRefreshAt } from "@/lib/data-refresh/state";
 import { runAdminMatchesRefresh } from "@/lib/mobile/admin-refresh-matches";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 800;
+/** Hobby Vercel: max 300s. */
+export const maxDuration = 300;
 
 /**
  * Cron giornaliero (08:00 Europe/Rome via vercel.json): aggiorna menu, insight e snapshot derivati.

@@ -1528,7 +1528,7 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
                       );
                       let res: Response;
                       const controller = new AbortController();
-                      const refreshTimeout = setTimeout(() => controller.abort(), 14 * 60 * 1000);
+                      const refreshTimeout = setTimeout(() => controller.abort(), 5 * 60 * 1000);
                       try {
                         res = await fetch("/api/tactical/admin-refresh-matches", {
                           method: "POST",
