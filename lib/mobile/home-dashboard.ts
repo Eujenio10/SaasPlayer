@@ -8,6 +8,10 @@ import {
 } from "@/lib/competitions";
 import { computeMatchIntensityPreview } from "@/lib/intensity-analysis";
 import {
+  EARLY_SEASON_BANNER_MESSAGE,
+  isEarlySeasonWindow
+} from "@/lib/season-fallback/early-season-window";
+import {
   combinePersistedOrganizationMenuSnapshots,
   filterMatchesKickoffInFuture,
   pickNearestUpcomingMatch
@@ -99,6 +103,8 @@ export interface HomeDashboardData {
   modules: HomeModule[];
   quickActions: HomeQuickAction[];
   dataRefresh: DataRefreshStatus;
+  /** Messaggio da mostrare in homepage nelle prime giornate di stagione, altrimenti null. */
+  earlySeasonNotice: string | null;
 }
 
 const GENERIC_TEAM_COLORS = [
@@ -364,7 +370,8 @@ export function buildHomeDashboard(params: {
     featuredMatch,
     modules: buildModules(access, guestMode),
     quickActions: buildQuickActions(access),
-    dataRefresh
+    dataRefresh,
+    earlySeasonNotice: isEarlySeasonWindow() ? EARLY_SEASON_BANNER_MESSAGE : null
   };
 }
 

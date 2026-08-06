@@ -132,6 +132,8 @@ export async function regeneratePlayerPerformanceSnapshotsForOrganization(params
   matches: UpcomingMatchItem[];
   insightsSnap: number;
   maxMatches?: number;
+  /** Se impostato, interrompe il ciclo oltre questo tempo (anti-timeout su serverless a fasi). */
+  maxDurationMs?: number;
 }): Promise<{ ok: boolean; saved: number; failed: number; message?: string }> {
   if (!(await arePlayerPerformanceSnapshotTablesAvailable())) {
     return { ok: false, saved: 0, failed: 0, message: "player_performance_tables_missing" };
@@ -143,18 +145,31 @@ export async function regeneratePlayerPerformanceSnapshotsForOrganization(params
       kickoffTimestamp: match.startTimestamp
     })
   );
-  const limit = params.maxMatches ?? upcoming.length;
+  /** Senza limite esplicito, un refresh su tutte le competizioni rischierebbe di girare
+   * all'infinito e far scadere il timeout serverless prima di trend/marcature. */
+  const limit = params.maxMatches ?? Math.min(upcoming.length, 40);
   const targets = upcoming.slice(0, limit);
 
   await prunePlayerPerformanceSnapshotsOutsideEventIds(
     params.organizationId,
-    targets.map((match) => match.eventId)
+    upcoming.map((match) => match.eventId)
   );
 
+  const startedAt = Date.now();
   let saved = 0;
   let failed = 0;
+  let skippedByBudget = 0;
 
   for (const match of targets) {
+    if (params.maxDurationMs != null && Date.now() - startedAt > params.maxDurationMs) {
+      skippedByBudget = targets.length - saved - failed;
+      console.warn("[player-performance] regenerate_time_budget_exhausted", {
+        organizationId: params.organizationId,
+        processed: saved + failed,
+        remaining: skippedByBudget
+      });
+      break;
+    }
     try {
       const payload = await buildMatchPlayerPerformance(match.eventId, {
         homeTeam: { id: match.homeTeam.id, name: match.homeTeam.name },
@@ -186,7 +201,8 @@ export async function regeneratePlayerPerformanceSnapshotsForOrganization(params
     organizationId: params.organizationId,
     targets: targets.length,
     saved,
-    failed
+    failed,
+    skippedByBudget
   });
 
   return { ok: true, saved, failed };

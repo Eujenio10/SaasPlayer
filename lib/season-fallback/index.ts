@@ -15,3 +15,9 @@ export {
   resolveMatchSeasonFallback,
   eventEligibleForPlayerSeasonFallback
 } from "@/lib/season-fallback/resolve";
+
+export {
+  EARLY_SEASON_BANNER_DAYS,
+  EARLY_SEASON_BANNER_MESSAGE,
+  isEarlySeasonWindow
+} from "@/lib/season-fallback/early-season-window";

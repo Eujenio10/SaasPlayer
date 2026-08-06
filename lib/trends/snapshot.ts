@@ -165,6 +165,8 @@ export async function regenerateTrendsSnapshotForOrganization(params: {
   /** Limita il backfill storico FootAPI durante l'admin refresh (default 20). */
   backfillMaxEvents?: number;
   forceReplace?: boolean;
+  /** Se impostato, interrompe il backfill squadre oltre questo tempo (anti-timeout su serverless a fasi). */
+  maxBackfillDurationMs?: number;
 }): Promise<{ ok: boolean; snapshot?: TrendsSnapshot; message?: string }> {
   const started = Date.now();
 
@@ -225,7 +227,21 @@ export async function regenerateTrendsSnapshotForOrganization(params: {
   }
 
   const backfillConcurrency = 2;
+  const backfillStarted = Date.now();
+  let teamsSkippedByBudget = 0;
   for (let i = 0; i < teamJobs.length; i += backfillConcurrency) {
+    if (
+      params.maxBackfillDurationMs != null &&
+      Date.now() - backfillStarted > params.maxBackfillDurationMs
+    ) {
+      teamsSkippedByBudget = teamJobs.length - i;
+      console.warn("[trends] team_backfill_time_budget_exhausted", {
+        organizationId: params.organizationId,
+        processedTeams: i,
+        remainingTeams: teamsSkippedByBudget
+      });
+      break;
+    }
     await Promise.all(
       teamJobs.slice(i, i + backfillConcurrency).map((job) =>
         backfillTeamTrendMatches({
@@ -311,6 +327,7 @@ export async function regenerateTrendsSnapshotForOrganization(params: {
     withSample: totalWithSample,
     found: totalFound,
     published: totalPublished,
+    teamsSkippedByBudget,
     elapsedMs: Date.now() - started
   });
 

@@ -1,6 +1,7 @@
 import {
   buildTeamSeasonFallbackResolution,
   pickPreviousSeasonId,
+  shouldUsePreviousSeason,
   SEASON_FALLBACK_SWITCH_MATCHES,
   type SeasonIds,
   type TeamSeasonFallbackResolution
@@ -228,21 +229,50 @@ export async function resolveTeamSeasonFallback(params: {
     current.seasonId
   );
 
-  if (previousSeasonId == null) {
-    const broad = await collectTeamFinishedEvents({
-      teamId: params.teamId,
-      sportApiFetch: params.sportApiFetch,
-      bypassCache: params.bypassCache,
-      maxPages: 5,
-      maxEvents: 50
-    });
-    for (const event of broad) {
-      const ut = Number(event.tournament?.uniqueTournament?.id);
-      const sid = Number(event.season?.id);
-      if (ut !== current.tournamentId) continue;
-      if (!Number.isFinite(sid) || sid <= 0 || sid === current.seasonId) continue;
-      previousSeasonId = sid;
-      break;
+  const switchThreshold = params.switchThreshold ?? SEASON_FALLBACK_SWITCH_MATCHES;
+  const isEarlySeason = shouldUsePreviousSeason(matchesPlayedInCurrentSeason, switchThreshold);
+
+  /**
+   * Squadre neopromosse: nella stagione precedente non hanno mai giocato in questo
+   * torneo (es. Serie A) perché militavano nel campionato minore (es. Serie B). In tal
+   * caso `previousSeasonId` (stesso torneo) esiste come id ma per la squadra non ha
+   * partite: dobbiamo risalire al torneo/stagione minore realmente giocato l'anno prima.
+   */
+  let promotedContext: SeasonIds | null = null;
+  if (isEarlySeason) {
+    const previousSeasonMatchesForTeam =
+      previousSeasonId != null
+        ? await countTeamFinishedMatchesInSeason({
+            teamId: params.teamId,
+            tournamentId: current.tournamentId,
+            seasonId: previousSeasonId,
+            bypassCache: params.bypassCache,
+            sportApiFetch: params.sportApiFetch
+          })
+        : 0;
+
+    if (previousSeasonId == null || previousSeasonMatchesForTeam === 0) {
+      const broad = await collectTeamFinishedEvents({
+        teamId: params.teamId,
+        sportApiFetch: params.sportApiFetch,
+        bypassCache: params.bypassCache,
+        maxPages: 5,
+        maxEvents: 50
+      });
+      for (const event of broad) {
+        const ut = Number(event.tournament?.uniqueTournament?.id);
+        const sid = Number(event.season?.id);
+        if (!Number.isFinite(sid) || sid <= 0) continue;
+        if (ut === current.tournamentId && sid === current.seasonId) continue;
+        if (previousSeasonId == null && ut === current.tournamentId) {
+          // Nessun id stagione precedente noto per questo torneo: usalo come fallback stretto.
+          previousSeasonId = sid;
+          continue;
+        }
+        if (ut === current.tournamentId) continue;
+        promotedContext = { tournamentId: ut, seasonId: sid };
+        break;
+      }
     }
   }
 
@@ -250,7 +280,8 @@ export async function resolveTeamSeasonFallback(params: {
     current,
     previousSeasonId,
     matchesPlayedInCurrentSeason,
-    switchThreshold: params.switchThreshold ?? SEASON_FALLBACK_SWITCH_MATCHES
+    switchThreshold,
+    promotedContext
   });
 
   console.info("[season-fallback] team_resolved", {
@@ -261,6 +292,9 @@ export async function resolveTeamSeasonFallback(params: {
     matchesPlayedInCurrentSeason,
     mode: resolution.mode,
     teamSeasonId: resolution.teamContext.seasonId,
+    blueprintTournamentId: resolution.blueprintContext.tournamentId,
+    blueprintSeasonId: resolution.blueprintContext.seasonId,
+    isNewlyPromoted: resolution.isNewlyPromoted,
     playerAnyCompetition: resolution.playerUseAnyCompetition
   });
 

@@ -4968,8 +4968,13 @@ export async function fetchTeamPerformanceBlueprint(params: {
         options?: Record<string, unknown>
       ) => Promise<Response>
     });
-    effectiveTournamentId = seasonFallback.teamContext.tournamentId;
-    effectiveSeasonId = seasonFallback.teamContext.seasonId;
+    /**
+     * `blueprintContext`: per le squadre neopromosse punta al campionato minore
+     * (torneo diverso) realmente giocato la stagione precedente, invece che a una
+     * stagione precedente vuota nella competizione corrente.
+     */
+    effectiveTournamentId = seasonFallback.blueprintContext.tournamentId;
+    effectiveSeasonId = seasonFallback.blueprintContext.seasonId;
   }
 
   const cacheTournamentId = effectiveTournamentId;

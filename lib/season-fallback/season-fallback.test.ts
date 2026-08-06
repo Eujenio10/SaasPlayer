@@ -36,6 +36,33 @@ assert.equal(current.mode, "current_season");
 assert.equal(current.teamContext.seasonId, 100);
 assert.equal(current.playerUseAnyCompetition, false);
 
+/** Squadra neopromossa: 0 partite l'anno prima nello stesso torneo -> usa il campionato minore. */
+const promoted = buildTeamSeasonFallbackResolution({
+  current: { tournamentId: 23, seasonId: 100 },
+  previousSeasonId: 90,
+  matchesPlayedInCurrentSeason: 1,
+  promotedContext: { tournamentId: 44, seasonId: 60 }
+});
+assert.equal(promoted.isNewlyPromoted, true);
+assert.equal(promoted.blueprintContext.tournamentId, 44);
+assert.equal(promoted.blueprintContext.seasonId, 60);
+/** teamContext (usato da radar/simulatore) resta ancorato alla stessa competizione. */
+assert.equal(promoted.teamContext.tournamentId, 23);
+assert.equal(promoted.playerUseAnyCompetition, true);
+
+/** Nessun promotedContext -> comportamento invariato (stessa competizione, stagione precedente). */
+const notPromoted = buildTeamSeasonFallbackResolution({
+  current: { tournamentId: 23, seasonId: 100 },
+  previousSeasonId: 90,
+  matchesPlayedInCurrentSeason: 1,
+  promotedContext: null
+});
+assert.equal(notPromoted.isNewlyPromoted, false);
+assert.equal(notPromoted.teamContext.tournamentId, 23);
+assert.equal(notPromoted.teamContext.seasonId, 90);
+assert.equal(notPromoted.blueprintContext.tournamentId, 23);
+assert.equal(notPromoted.blueprintContext.seasonId, 90);
+
 assert.equal(
   eventEligibleForPlayerSeasonFallback({
     event: { tournament: { uniqueTournament: { id: 23 } }, season: { id: 90 } },

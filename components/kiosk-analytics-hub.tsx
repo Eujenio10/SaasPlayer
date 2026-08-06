@@ -434,8 +434,8 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
   const [adminBulkPhase, setAdminBulkPhase] = useState<"start" | "insights" | "finalize" | null>(null);
   /** Ultima partita elaborata nella fase insights (per la UI di caricamento). */
   const [adminBulkMatchLabel, setAdminBulkMatchLabel] = useState<string | null>(null);
-  /** Campionato da aggiornare: default Serie A per test mirati, "all" per i top 5 completi. */
-  const [adminRefreshScope, setAdminRefreshScope] = useState<string>("serie-a");
+  /** Campionato attualmente in aggiornamento (per i testi della modale progresso); "all" = tutti i top 5. */
+  const [adminRefreshScope, setAdminRefreshScope] = useState<string>("all");
   const [intlMenuRefreshing, setIntlMenuRefreshing] = useState(false);
   /** "scan" = chiamata al provider in corso, "prefetch" = analisi partite in corso, null = idle */
   const [intlPhase, setIntlPhase] = useState<"scan" | "prefetch" | null>(null);
@@ -1159,6 +1159,156 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
     };
   }, [selectedMatch, adminBulkRefreshing, testingMatch, presetMatch, accessSummary.isMember]);
 
+  /** Aggiorna i dati admin per un solo campionato (`scopeSlug`) o per tutti i top 5 (`undefined`). */
+  const runAdminBulkRefresh = async (scopeSlug: string | undefined): Promise<void> => {
+    if (!canRefreshData || adminBulkRefreshing) return;
+    setAdminRefreshScope(scopeSlug ?? "all");
+    setAdminBulkRefreshing(true);
+    setLoadingMatchInsights(true);
+    setMatchInsightsError(null);
+    setAdminBulkProgress({ current: 0, total: 0 });
+    setAdminBulkPhase("start");
+    setAdminBulkMatchLabel(null);
+    try {
+      clearKioskInsightsLocalKeys();
+      const snap = bumpAdminInsightsSnap();
+      window.dispatchEvent(
+        new CustomEvent<{ snap: number }>(KIOSK_ADMIN_INSIGHTS_REFRESH_EVENT, {
+          detail: { snap }
+        })
+      );
+
+      type PhaseResult = {
+        ok?: boolean;
+        done?: boolean;
+        error?: string;
+        phase?: string;
+        nextPhase?: "start" | "insights" | "finalize";
+        nextInsightsOffset?: number;
+        insightsSnap?: number;
+        insightsProcessed?: number;
+        insightsTotal?: number;
+        internationalMatchesCount?: number;
+        internationalDiscoveryCount?: number;
+        domesticMatchesCount?: number;
+        matchesCount?: number;
+        currentMatchLabel?: string;
+      };
+
+      let phase: "start" | "insights" | "finalize" = "start";
+      let insightsOffset = 0;
+      let insightsSnap: number | undefined;
+      let body: PhaseResult = {};
+      let guard = 0;
+      let insightsSucceeded = 0;
+
+      while (guard < 250) {
+        guard += 1;
+        const controller = new AbortController();
+        /** Vicino al maxDuration serverless (300s): una singola partita con molti
+         * giocatori e retry sui 429 può richiedere diversi minuti. */
+        const refreshTimeout = setTimeout(() => controller.abort(), 4.6 * 60 * 1000);
+        let res: Response;
+        try {
+          res = await fetch("/api/tactical/admin-refresh-matches", {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              phase,
+              insightsOffset,
+              insightsSnap,
+              competitionSlug: scopeSlug
+            }),
+            signal: controller.signal
+          });
+        } catch (error) {
+          if (error instanceof DOMException && error.name === "AbortError") {
+            throw new Error(
+              "Operazione troppo lunga (timeout). Riprova: le fasi già completate restano salvate."
+            );
+          }
+          throw new Error("Connessione al server persa (timeout o rete). Riprova.");
+        } finally {
+          clearTimeout(refreshTimeout);
+        }
+
+        body = (await res.json().catch(() => ({}))) as PhaseResult;
+        if (!res.ok) {
+          throw new Error(body.error ?? `Errore server ${res.status}.`);
+        }
+
+        if (typeof body.insightsSnap === "number") {
+          insightsSnap = body.insightsSnap;
+        }
+        if (phase === "insights") {
+          insightsSucceeded += body.insightsProcessed ?? 0;
+        }
+        if (mountedRef.current) {
+          setAdminBulkProgress({
+            current: body.nextInsightsOffset ?? insightsSucceeded,
+            total: body.insightsTotal ?? 0
+          });
+          setAdminBulkPhase(phase);
+          if (body.currentMatchLabel) setAdminBulkMatchLabel(body.currentMatchLabel);
+        }
+
+        if (body.done) break;
+        phase = body.nextPhase ?? "finalize";
+        insightsOffset = body.nextInsightsOffset ?? insightsOffset;
+        if (mountedRef.current) setAdminBulkPhase(phase);
+      }
+
+      if (mountedRef.current) {
+        const total = body.insightsTotal ?? 0;
+        const done = Math.max(insightsSucceeded, body.insightsProcessed ?? 0);
+        const domesticCount = body.domesticMatchesCount ?? 0;
+        const intlMenuCount = body.internationalMatchesCount ?? 0;
+        const intlDiscovery = body.internationalDiscoveryCount ?? 0;
+        const matchesCount = body.matchesCount ?? domesticCount + intlMenuCount;
+        setAdminBulkProgress({ current: done, total });
+        if (matchesCount > 0) {
+          setMatchesError(null);
+          setMatchInsightsError(null);
+        } else if (domesticCount === 0 && intlMenuCount === 0) {
+          const hints: string[] = [];
+          if (intlDiscovery === 0) {
+            hints.push(
+              "Nessuna gara internazionale futura (i Mondiali 2026 sono conclusi; Nations League può essere oltre la finestra giorni)."
+            );
+          } else {
+            hints.push(
+              `Trovate ${intlDiscovery} gare internazionali in discovery ma fuori dalla finestra menu (${MATCHES_WINDOW_DAYS} giorni).`
+            );
+          }
+          hints.push(
+            "Per i Top 5: su Vercel imposta TACTICAL_LOOKAHEAD_DAYS≥35, ridistribuisci e rilancia Aggiorna dati admin."
+          );
+          setMatchInsightsError(hints.join(" "));
+        } else if (total > 0 && done === 0) {
+          setMatchInsightsError(
+            "Menu aggiornato ma nessun insight precaricato. Controlla i limiti RapidAPI o riprova."
+          );
+        }
+      }
+      await fetch("/api/tactical/matches", { cache: "no-store", credentials: "include" });
+      await reloadMenuMatchesFromApi();
+    } catch (err) {
+      if (mountedRef.current) {
+        setMatchInsightsError(err instanceof Error ? err.message : "Aggiornamento admin non riuscito.");
+      }
+    } finally {
+      if (mountedRef.current) {
+        setAdminBulkRefreshing(false);
+        setLoadingMatchInsights(false);
+        setAdminBulkProgress(null);
+        setAdminBulkPhase(null);
+        setAdminBulkMatchLabel(null);
+      }
+      void reloadAccessSummary();
+    }
+  };
+
   return (
     <section className="space-y-5 rounded-[2rem] border border-white/10 bg-gradient-to-br from-slate-950/60 via-slate-900/45 to-cyan-950/35 p-3 shadow-[0_24px_70px_rgba(2,6,23,0.28)] ring-1 ring-white/5 sm:space-y-6 sm:p-5">
       <header className="space-y-4 rounded-[1.5rem] border border-white/10 bg-gradient-to-br from-cyan-400/12 via-white/[0.045] to-fuchsia-400/10 p-4 sm:p-5">
@@ -1515,186 +1665,42 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
                   Accesso {accessSummary.isAdmin ? "admin" : "pro"} completo
                 </div>
               )}
-              {canRefreshData ? (
-                <select
-                  value={adminRefreshScope}
-                  onChange={(event) => setAdminRefreshScope(event.target.value)}
-                  disabled={loadingMatchInsights || adminBulkRefreshing || intlMenuRefreshing}
-                  className="rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-2 text-sm font-semibold text-slate-200 disabled:cursor-not-allowed disabled:opacity-50"
-                  title="Campionato da aggiornare"
-                >
-                  <option value="all">Tutti i top 5</option>
-                  {ACTIVE_MENU_COMPETITIONS.filter((c) => c.group === "domestic").map((c) => (
-                    <option key={c.id} value={c.id}>
-                      Solo {c.label}
-                    </option>
-                  ))}
-                </select>
-              ) : null}
-              {canRefreshData ? (
-                <button
-                  type="button"
-                  onClick={async () => {
-                    if (!canRefreshData) return;
-                    setAdminBulkRefreshing(true);
-                    setLoadingMatchInsights(true);
-                    setMatchInsightsError(null);
-                    setAdminBulkProgress({ current: 0, total: 0 });
-                    setAdminBulkPhase("start");
-                    setAdminBulkMatchLabel(null);
-                    const scopeSlug = adminRefreshScope === "all" ? undefined : adminRefreshScope;
-                    try {
-                      clearKioskInsightsLocalKeys();
-                      const snap = bumpAdminInsightsSnap();
-                      window.dispatchEvent(
-                        new CustomEvent<{ snap: number }>(KIOSK_ADMIN_INSIGHTS_REFRESH_EVENT, {
-                          detail: { snap }
-                        })
-                      );
-
-                      type PhaseResult = {
-                        ok?: boolean;
-                        done?: boolean;
-                        error?: string;
-                        phase?: string;
-                        nextPhase?: "start" | "insights" | "finalize";
-                        nextInsightsOffset?: number;
-                        insightsSnap?: number;
-                        insightsProcessed?: number;
-                        insightsTotal?: number;
-                        internationalMatchesCount?: number;
-                        internationalDiscoveryCount?: number;
-                        domesticMatchesCount?: number;
-                        matchesCount?: number;
-                        currentMatchLabel?: string;
-                      };
-
-                      let phase: "start" | "insights" | "finalize" = "start";
-                      let insightsOffset = 0;
-                      let insightsSnap: number | undefined;
-                      let body: PhaseResult = {};
-                      let guard = 0;
-                      let insightsSucceeded = 0;
-
-                      while (guard < 250) {
-                        guard += 1;
-                        const controller = new AbortController();
-                        /** Vicino al maxDuration serverless (300s): una singola partita con molti
-                         * giocatori e retry sui 429 può richiedere diversi minuti. */
-                        const refreshTimeout = setTimeout(() => controller.abort(), 4.6 * 60 * 1000);
-                        let res: Response;
-                        try {
-                          res = await fetch("/api/tactical/admin-refresh-matches", {
-                            method: "POST",
-                            credentials: "include",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({
-                              phase,
-                              insightsOffset,
-                              insightsSnap,
-                              competitionSlug: scopeSlug
-                            }),
-                            signal: controller.signal
-                          });
-                        } catch (error) {
-                          if (
-                            error instanceof DOMException &&
-                            error.name === "AbortError"
-                          ) {
-                            throw new Error(
-                              "Operazione troppo lunga (timeout). Riprova: le fasi già completate restano salvate."
-                            );
-                          }
-                          throw new Error("Connessione al server persa (timeout o rete). Riprova.");
-                        } finally {
-                          clearTimeout(refreshTimeout);
-                        }
-
-                        body = (await res.json().catch(() => ({}))) as PhaseResult;
-                        if (!res.ok) {
-                          throw new Error(body.error ?? `Errore server ${res.status}.`);
-                        }
-
-                        if (typeof body.insightsSnap === "number") {
-                          insightsSnap = body.insightsSnap;
-                        }
-                        if (phase === "insights") {
-                          insightsSucceeded += body.insightsProcessed ?? 0;
-                        }
-                        if (mountedRef.current) {
-                          setAdminBulkProgress({
-                            current: body.nextInsightsOffset ?? insightsSucceeded,
-                            total: body.insightsTotal ?? 0
-                          });
-                          setAdminBulkPhase(phase);
-                          if (body.currentMatchLabel) setAdminBulkMatchLabel(body.currentMatchLabel);
-                        }
-
-                        if (body.done) break;
-                        phase = body.nextPhase ?? "finalize";
-                        insightsOffset = body.nextInsightsOffset ?? insightsOffset;
-                        if (mountedRef.current) setAdminBulkPhase(phase);
-                      }
-
-                      if (mountedRef.current) {
-                        const total = body.insightsTotal ?? 0;
-                        const done = Math.max(insightsSucceeded, body.insightsProcessed ?? 0);
-                        const domesticCount = body.domesticMatchesCount ?? 0;
-                        const intlMenuCount = body.internationalMatchesCount ?? 0;
-                        const intlDiscovery = body.internationalDiscoveryCount ?? 0;
-                        const matchesCount = body.matchesCount ?? domesticCount + intlMenuCount;
-                        setAdminBulkProgress({ current: done, total });
-                        if (matchesCount > 0) {
-                          setMatchesError(null);
-                          setMatchInsightsError(null);
-                        } else if (domesticCount === 0 && intlMenuCount === 0) {
-                          const hints: string[] = [];
-                          if (intlDiscovery === 0) {
-                            hints.push(
-                              "Nessuna gara internazionale futura (i Mondiali 2026 sono conclusi; Nations League può essere oltre la finestra giorni)."
-                            );
-                          } else {
-                            hints.push(
-                              `Trovate ${intlDiscovery} gare internazionali in discovery ma fuori dalla finestra menu (${MATCHES_WINDOW_DAYS} giorni).`
-                            );
-                          }
-                          hints.push(
-                            "Per i Top 5: su Vercel imposta TACTICAL_LOOKAHEAD_DAYS≥35, ridistribuisci e rilancia Aggiorna dati admin."
-                          );
-                          setMatchInsightsError(hints.join(" "));
-                        } else if (total > 0 && done === 0) {
-                          setMatchInsightsError(
-                            "Menu aggiornato ma nessun insight precaricato. Controlla i limiti RapidAPI o riprova."
-                          );
-                        }
-                      }
-                      await fetch("/api/tactical/matches", { cache: "no-store", credentials: "include" });
-                      await reloadMenuMatchesFromApi();
-                    } catch (err) {
-                      if (mountedRef.current) {
-                        setMatchInsightsError(
-                          err instanceof Error ? err.message : "Aggiornamento admin non riuscito."
-                        );
-                      }
-                    } finally {
-                      if (mountedRef.current) {
-                        setAdminBulkRefreshing(false);
-                        setLoadingMatchInsights(false);
-                        setAdminBulkProgress(null);
-                        setAdminBulkPhase(null);
-                        setAdminBulkMatchLabel(null);
-                      }
-                      void reloadAccessSummary();
-                    }
-                  }}
-                  disabled={loadingMatchInsights || adminBulkRefreshing || intlMenuRefreshing}
-                  className={primaryButtonClass}
-                >
-                  Aggiorna dati admin
-                </button>
-              ) : null}
             </div>
           </div>
+          {canRefreshData ? (
+            <div className="mb-4 rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+              <p className="mb-3 text-xs font-bold uppercase tracking-wide text-slate-400">
+                Aggiorna dati admin per campionato
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {ACTIVE_MENU_COMPETITIONS.filter((c) => c.group === "domestic").map((c) => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => void runAdminBulkRefresh(c.id)}
+                    disabled={loadingMatchInsights || adminBulkRefreshing || intlMenuRefreshing}
+                    className="rounded-2xl border border-cyan-300/25 bg-cyan-300/10 px-4 py-2 text-sm font-bold text-cyan-100 transition hover:border-cyan-200/50 hover:bg-cyan-300/15 disabled:cursor-not-allowed disabled:opacity-50"
+                    title={`Aggiorna solo ${c.label}`}
+                  >
+                    {c.label}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => void runAdminBulkRefresh(undefined)}
+                  disabled={loadingMatchInsights || adminBulkRefreshing || intlMenuRefreshing}
+                  className={`${primaryButtonClass} disabled:cursor-not-allowed disabled:opacity-50`}
+                  title="Aggiorna tutti i top 5 campionati"
+                >
+                  Tutti i top 5
+                </button>
+              </div>
+              <p className="mt-2 text-[11px] text-slate-500">
+                Ogni pulsante aggiorna calendario, marcature, trend, simulazioni e statistiche solo per il
+                campionato scelto: più veloce e affidabile del refresh completo.
+              </p>
+            </div>
+          ) : null}
           <div className="space-y-4">
             <div className="flex flex-wrap gap-3">
             {leagueFilterSlugs.map((slug) => {

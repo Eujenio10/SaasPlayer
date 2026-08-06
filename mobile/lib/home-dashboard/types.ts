@@ -74,6 +74,7 @@ export interface HomeDashboardData {
   modules: HomeModule[];
   quickActions: HomeQuickAction[];
   dataRefresh: DataRefreshStatus;
+  earlySeasonNotice: string | null;
 }
 
 export type HomeDashboardRoute =

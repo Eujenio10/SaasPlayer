@@ -105,6 +105,11 @@ export interface AdminMatchesRefreshOptions {
 /** Budget conservativo: lascia margine rispetto a maxDuration 300 e al gateway (anti-504). */
 const DEFAULT_TIME_BUDGET_MS = Number(process.env.TACTICAL_ADMIN_REFRESH_BUDGET_MS ?? "90000");
 const DEFAULT_INSIGHTS_BATCH = Number(process.env.TACTICAL_ADMIN_REFRESH_BATCH_SIZE ?? "1");
+/** La fase finalize ricalcola marcature/trend/player-performance/simulazioni per TUTTE le
+ * competizioni con insight già salvati (non solo quella appena aggiornata), altrimenti si
+ * perderebbero i dati delle altre leghe. Senza un budget esplicito rischiava di superare
+ * il maxDuration serverless (300s) e far fallire l'intera fase senza salvare nulla. */
+const FINALIZE_TIME_BUDGET_MS = Number(process.env.TACTICAL_ADMIN_FINALIZE_BUDGET_MS ?? "230000");
 
 let refreshInFlight: Promise<AdminMatchesRefreshResult> | null = null;
 let refreshInFlightKey: string | null = null;
@@ -470,8 +475,11 @@ async function runInsightsPhase(
 async function runFinalizePhase(
   organizationId: string,
   insightsSnap: number,
-  trigger: DataRefreshTrigger
+  trigger: DataRefreshTrigger,
+  startedAt: number = Date.now(),
+  timeBudgetMs: number = FINALIZE_TIME_BUDGET_MS
 ): Promise<AdminMatchesRefreshResult> {
+  const remainingBudget = () => Math.max(0, timeBudgetMs - (Date.now() - startedAt));
   const menus = await loadOrganizationMenus(organizationId);
   const allMenuMatches = filterUpcomingMenuMatches([...menus.domestic, ...menus.international]);
   const targets = buildAdminInsightsPrefetchTargets(menus.domestic, menus.international);
@@ -517,10 +525,14 @@ async function runFinalizePhase(
 
   if (await arePlayerPerformanceSnapshotTablesAvailable()) {
     try {
+      /** Riserva al massimo metà del budget residuo: il resto serve a trend/simulazioni. */
+      const playerPerformanceBudgetMs = Math.max(15_000, remainingBudget() * 0.5);
       const playerPerformance = await regeneratePlayerPerformanceSnapshotsForOrganization({
         organizationId,
         matches: allMenuMatches,
-        insightsSnap
+        insightsSnap,
+        maxMatches: 40,
+        maxDurationMs: playerPerformanceBudgetMs
       });
       if (playerPerformance.ok) playerPerformanceCount = playerPerformance.saved;
     } catch (e) {
@@ -533,12 +545,14 @@ async function runFinalizePhase(
 
   if (await areTrendDatabaseTablesAvailable()) {
     try {
+      const trendsBudgetMs = Math.max(15_000, remainingBudget());
       const trends = await regenerateTrendsSnapshotForOrganization({
         organizationId,
         matches: allMenuMatches,
         insightsSnap,
         backfillMaxEvents: 10,
-        forceReplace: false
+        forceReplace: false,
+        maxBackfillDurationMs: trendsBudgetMs
       });
       if (trends.ok) trendsCount = Object.keys(trends.snapshot?.trendIndex ?? {}).length;
     } catch (e) {
@@ -639,7 +653,7 @@ export async function runAdminMatchesRefresh(
     }
 
     if (phase === "finalize") {
-      return runFinalizePhase(organizationId, insightsSnap, trigger);
+      return runFinalizePhase(organizationId, insightsSnap, trigger, startedAt, FINALIZE_TIME_BUDGET_MS);
     }
 
     /** Cron / full: esegue quante più fasi possibile nel budget. */
@@ -693,7 +707,7 @@ export async function runAdminMatchesRefresh(
       };
     }
 
-    return runFinalizePhase(organizationId, snap, trigger);
+    return runFinalizePhase(organizationId, snap, trigger, startedAt, timeBudgetMs);
   })();
 
   refreshInFlightKey = flightKey;

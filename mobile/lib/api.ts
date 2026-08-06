@@ -8,7 +8,6 @@ import {
 } from "@/lib/italian-display";
 import { supabase } from "@/lib/supabase";
 import type { HomeDashboardData } from "@/lib/home-dashboard/types";
-import type { TeamFormSignalsReport } from "@/lib/team-form-signals/types";
 import type {
   TacticalMetrics,
   UpcomingMatchItem,
@@ -340,8 +339,6 @@ export async function fetchMatchInsights(
 
   insightsSnap: number;
 
-  teamFormSignals: TeamFormSignalsReport | null;
-
 }> {
 
   const refresh = options?.refresh ? "&refresh=1" : "";
@@ -354,8 +351,6 @@ export async function fetchMatchInsights(
 
     insightsSnap: number;
 
-    teamFormSignals?: TeamFormSignalsReport | null;
-
   }>(
 
     `/api/tactical/org-kiosk-match-insights?eventId=${encodeURIComponent(String(eventId))}${refresh}`
@@ -366,9 +361,7 @@ export async function fetchMatchInsights(
 
     ...data,
 
-    metrics: localizeTacticalMetrics(data.metrics ?? []),
-
-    teamFormSignals: data.teamFormSignals ?? null
+    metrics: localizeTacticalMetrics(data.metrics ?? [])
 
   };
 

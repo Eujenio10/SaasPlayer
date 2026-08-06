@@ -28,7 +28,7 @@ export type PendingAction =
       type: "open_feature";
       feature: FeatureId;
       matchId?: number;
-      returnTab?: "intensity" | "teamForm" | "prematch";
+      returnTab?: "intensity" | "playerPerformance" | "prematch";
     }
   | { type: "restore_purchases" }
   | { type: "sync_data" }

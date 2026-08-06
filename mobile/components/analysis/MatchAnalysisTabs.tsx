@@ -2,25 +2,22 @@ import { FOULS_ANALYSIS_UI } from "@/lib/fouls-analysis-ui-text";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { colors, radii, spacing } from "@/lib/theme";
 
-export type MatchAnalysisTab = "intensity" | "teamForm" | "prematch" | "playerPerformance";
+export type MatchAnalysisTab = "intensity" | "prematch" | "playerPerformance";
 
 const tabs: Array<{ id: MatchAnalysisTab; label: string }> = [
   { id: "intensity", label: FOULS_ANALYSIS_UI.title },
-  { id: "teamForm", label: "Forma Squadre" },
   { id: "playerPerformance", label: "Player Performance" },
   { id: "prematch", label: "Pre-Partita" }
 ];
 
 const tabHints: Record<MatchAnalysisTab, string> = {
   intensity: FOULS_ANALYSIS_UI.tabHint,
-  teamForm: "Segnali statistici su tiri, corner e cartellini basati sui dati disponibili.",
   playerPerformance: "Produzione offensiva recente, Danger Index e trend dei giocatori.",
   prematch: "Lettura tecnica pre-partita su ritmo, controllo e punti chiave."
 };
 
 const guestTabHints: Record<MatchAnalysisTab, string> = {
   intensity: FOULS_ANALYSIS_UI.guestTabHint,
-  teamForm: "Segnali completi su tiri, corner e cartellini — disponibile in modalità Guest.",
   playerPerformance: "Analisi offensiva dei giocatori basata sulle ultime partite concluse.",
   prematch: "Report pre-partita completo riservato a PitchBrain Pro."
 };

@@ -15,7 +15,6 @@ import {
   computeAndPersistOrganizationMatchInsights,
   findOrganizationMatchByEventId
 } from "@/lib/organization-match-insights";
-import { buildTeamFormSignalsForOrganizationMatch } from "@/lib/team-form-signals";
 
 const getSchema = z.object({
   eventId: z.coerce.number().int().positive()
@@ -105,30 +104,11 @@ export async function GET(request: Request) {
 
   const metrics = localizeTacticalMetrics(metricsRaw as TacticalMetrics[]);
 
-  const allowProviderFetch = canFullAnalysis;
-  let teamFormSignals = null;
-  try {
-    teamFormSignals = await buildTeamFormSignalsForOrganizationMatch({
-      supabase,
-      organizationId: organization.organizationId,
-      eventId,
-      metrics,
-      forceRefresh: organization.role === "admin" && forceRefresh,
-      allowProviderFetch
-    });
-  } catch (signalsError) {
-    console.warn(
-      "[org-kiosk-match-insights] team_form_signals_failed:",
-      signalsError instanceof Error ? signalsError.message : String(signalsError)
-    );
-  }
-
   return NextResponse.json({
     eventId,
     insightsSnap,
     playerDetailLevel,
     metrics,
-    teamFormSignals,
     updatedAt,
     matchUnlocked,
     accessMode: matchUnlocked || entitlements.subscriptionTier === "pro" ? "full" : "preview"

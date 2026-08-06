@@ -32,6 +32,7 @@ import {
 import { ProfileDropdown } from "@/components/profile/profile-dropdown";
 import { MatchRadarHomeCta } from "@/components/match-radar/match-radar-home-cta";
 import { DataRefreshScheduleBanner } from "@/components/data-refresh/data-refresh-schedule-banner";
+import { EarlySeasonNoticeBanner } from "@/components/data-refresh/early-season-notice-banner";
 import type { DataRefreshStatus } from "@/lib/data-refresh/status";
 
 interface DashboardHomePageProps {
@@ -676,6 +677,7 @@ function HomePage({ email }: DashboardHomePageProps) {
         <main>
           <HeroSection />
           <div className="mx-auto max-w-6xl space-y-4 px-4 pb-8">
+            <EarlySeasonNoticeBanner />
             <DataRefreshScheduleBanner status={dataRefresh} />
             <MatchRadarHomeCta />
           </div>

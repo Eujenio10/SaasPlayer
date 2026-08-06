@@ -3,7 +3,6 @@ import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import { MatchAnalysisTabs, type MatchAnalysisTab } from "@/components/analysis/MatchAnalysisTabs";
 import { PreMatchReportView } from "@/components/prematch";
-import { TeamFormSignalsView } from "@/components/team-form-signals";
 import { IntensityAnalysisView } from "@/components/intensity/IntensityAnalysisView";
 import { PlayerPerformanceView } from "@/components/player-performance/PlayerPerformanceView";
 import {
@@ -18,7 +17,6 @@ import { useGuestPreview } from "@/contexts/GuestPreviewContext";
 import { canAccessFeatureId } from "@/lib/access/features";
 import { isGuestUser, resolveGuestPreviewMode } from "@/lib/access/guest-preview-mode";
 import { MATCH_DATA_UNAVAILABLE_MESSAGE } from "@/lib/analysis-unavailable";
-import type { TeamFormSignalsReport } from "@/lib/team-form-signals/types";
 import { consumeMemberMatch, fetchMatchInsights } from "@/lib/api";
 import { translateCompetitionName, translateTeamName } from "@/lib/italian-display";
 import type { TacticalMetrics } from "@/lib/types";
@@ -47,7 +45,6 @@ export default function MatchDetailScreen() {
   const { featuresPreviewActive, openAdModal } = useGuestPreview();
   const { isPro, isMatchUnlocked, canAccessFeature } = useEntitlements();
   const [metrics, setMetrics] = useState<TacticalMetrics[]>([]);
-  const [teamFormSignals, setTeamFormSignals] = useState<TeamFormSignalsReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<MatchAnalysisTab>("intensity");
@@ -57,8 +54,6 @@ export default function MatchDetailScreen() {
   const canAccessPreMatch = canAccessFeatureId(userStatus, "fullPreMatchReport");
   const matchAnalysisUnlocked =
     isPro || isMatchUnlocked(eventId) || canAccessFeature("match_full_analysis", eventId);
-  /** Analisi completa solo se Pro o sblocco rADS partita — Free senza unlock = come Guest locked. */
-  const showTeamFormFullDetail = matchAnalysisUnlocked;
   const guestPreviewMode = resolveGuestPreviewMode(userStatus, featuresPreviewActive, {
     contentUnlocked: matchAnalysisUnlocked
   });
@@ -101,10 +96,8 @@ export default function MatchDetailScreen() {
 
       const data = await fetchMatchInsights(eventId);
       setMetrics(data.metrics ?? []);
-      setTeamFormSignals(data.teamFormSignals ?? null);
       const hasMetrics = Boolean(data.metrics?.length);
-      const hasTeamForm = Boolean(data.teamFormSignals?.sufficient);
-      if (!hasMetrics && !hasTeamForm) {
+      if (!hasMetrics) {
         setError(MATCH_DATA_UNAVAILABLE_MESSAGE);
       }
     } catch (e) {
@@ -123,7 +116,7 @@ export default function MatchDetailScreen() {
     void load();
   }, [load]);
 
-  // Dopo lo sblocco rADS i tab Intensity/Forma dipendono dagli insight: ricarica subito.
+  // Dopo lo sblocco rADS il tab Intensity dipende dagli insight: ricarica subito.
   useEffect(() => {
     if (matchAnalysisUnlocked && !prevUnlockedRef.current) {
       prevUnlockedRef.current = true;
@@ -199,14 +192,6 @@ export default function MatchDetailScreen() {
             }
             onWatchAd={() => openAdModal("features")}
             onDiscoverPro={openProPaywall}
-          />
-        ) : tab === "teamForm" ? (
-          <TeamFormSignalsView
-            report={teamFormSignals}
-            showFullDetail={showTeamFormFullDetail}
-            onWatchAd={openAdModal}
-            onDiscoverPro={openProPaywall}
-            onRefresh={() => void load()}
           />
         ) : tab === "playerPerformance" ? (
           matchAnalysisUnlocked ? (

@@ -1,21 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { CompetitionScope, TacticalMetrics } from "@/lib/types";
+import type { CompetitionScope } from "@/lib/types";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { normalizeCompetitionSlugForInsights } from "@/lib/match-insights-service";
-import { findOrganizationMatchByEventId } from "@/lib/organization-match-insights";
-import {
-  ensureTeamTournamentBlueprintsForMatch,
-  teamBlueprintFromProviderOnly
-} from "@/lib/prematch-report/ensure-team-tournament-blueprints";
-import { scopeFromCompetitionSlugForInsights } from "@/lib/tactical-stats-eligible-matches";
-import {
-  translateCompetitionSlug,
-  translateTeamName
-} from "@/lib/italian-sports-display";
 import { fetchEventSeasonContextForInsights, fetchTeamPerformanceBlueprint } from "@/services/sportapi";
 import { isBlueprintPerMatchPlausible } from "@/lib/prematch-report/blueprint-validation";
-import { buildTeamFormSignalsReport } from "./compute-report";
-import type { TeamFormSignalsReport } from "./types";
 
 function competitionSlugKey(raw: string | undefined): string {
   return raw?.trim().toLowerCase().slice(0, 120) ?? "";
@@ -85,55 +72,4 @@ export async function persistTeamBlueprintForMatch(params: {
     );
     return false;
   }
-}
-
-export async function buildTeamFormSignalsForOrganizationMatch(params: {
-  supabase: SupabaseClient;
-  organizationId: string;
-  eventId: number;
-  metrics: TacticalMetrics[];
-  forceRefresh?: boolean;
-  allowProviderFetch?: boolean;
-}): Promise<TeamFormSignalsReport | null> {
-  const match = await findOrganizationMatchByEventId(params.organizationId, params.eventId);
-  if (!match) return null;
-
-  const competitionSlug = normalizeCompetitionSlugForInsights(match.competitionSlug);
-  const scope = scopeFromCompetitionSlugForInsights(match.competitionSlug);
-  const homeTeamName = translateTeamName(match.homeTeam.name);
-  const awayTeamName = translateTeamName(match.awayTeam.name);
-  const competitionName = translateCompetitionSlug(match.competitionSlug ?? "", match.competitionName);
-
-  const tournamentBlueprints = await ensureTeamTournamentBlueprintsForMatch({
-    supabase: params.supabase,
-    organizationId: params.organizationId,
-    eventId: params.eventId,
-    homeTeamId: match.homeTeam.id,
-    awayTeamId: match.awayTeam.id,
-    homeTeamName: match.homeTeam.name,
-    awayTeamName: match.awayTeam.name,
-    competitionSlug,
-    scope,
-    forceRefresh: params.forceRefresh ?? false,
-    allowProviderFetch: params.allowProviderFetch === true
-  });
-
-  const homeBlueprint = teamBlueprintFromProviderOnly(tournamentBlueprints.home);
-  const awayBlueprint = teamBlueprintFromProviderOnly(tournamentBlueprints.away);
-
-  return buildTeamFormSignalsReport({
-    metrics: params.metrics,
-    eventId: params.eventId,
-    homeTeamId: match.homeTeam.id,
-    awayTeamId: match.awayTeam.id,
-    homeTeamName,
-    awayTeamName,
-    competition: competitionName,
-    kickoff: new Date(match.startTimestamp * 1000).toISOString(),
-    homeBlueprint,
-    awayBlueprint,
-    homeBlueprintPersisted: homeBlueprint,
-    awayBlueprintPersisted: awayBlueprint,
-    providerTournamentStats: tournamentBlueprints.providerAvailable
-  });
 }

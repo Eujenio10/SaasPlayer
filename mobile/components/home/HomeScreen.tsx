@@ -11,6 +11,7 @@ import { QuickActionsRow } from "@/components/home/QuickActionButton";
 import { AnalyticsModuleCard } from "@/components/home/AnalyticsModuleCard";
 import { MatchRadarHomeCta } from "@/components/match-radar/MatchRadarHomeCta";
 import { DataRefreshScheduleBanner } from "@/components/home/DataRefreshScheduleBanner";
+import { EarlySeasonNoticeBanner } from "@/components/home/EarlySeasonNoticeBanner";
 import { useAccessFlow } from "@/contexts/AccessFlowContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useGuestPreview } from "@/contexts/GuestPreviewContext";
@@ -72,6 +73,7 @@ export function HomeScreen() {
         {loading && !data ? <HomeLoadingSkeleton /> : null}
 
         <View style={styles.content}>
+          <EarlySeasonNoticeBanner message={data?.earlySeasonNotice} />
           <DataRefreshScheduleBanner status={data?.dataRefresh} />
           <MatchRadarHomeCta />
 

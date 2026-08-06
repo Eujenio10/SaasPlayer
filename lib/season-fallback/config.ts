@@ -22,8 +22,15 @@ export interface SeasonIds {
 export interface TeamSeasonFallbackResolution {
   mode: SeasonFallbackMode;
   current: SeasonIds;
-  /** Contesto per overall/blueprint di squadra (stessa competizione). */
+  /** Contesto per overall/blueprint di squadra (stessa competizione, stagione precedente). */
   teamContext: SeasonIds;
+  /**
+   * Contesto da usare per il blueprint/overall di squadra quando si vogliono includere
+   * le squadre neopromosse: per queste ultime punta al campionato minore (torneo diverso)
+   * dove hanno effettivamente giocato l'anno prima, invece che alla stessa competizione
+   * (dove non hanno alcuna partita). Coincide con `teamContext` se non neopromossa.
+   */
+  blueprintContext: SeasonIds;
   /**
    * Contesto preferito per overall/heatmap giocatore (stagione precedente stessa
    * competizione quando in fallback; altrimenti corrente).
@@ -34,6 +41,8 @@ export interface TeamSeasonFallbackResolution {
   matchesPlayedInCurrentSeason: number;
   previousSeasonId: number | null;
   switchThreshold: number;
+  /** True se la squadra è neopromossa: `blueprintContext` punta a un torneo diverso da quello corrente. */
+  isNewlyPromoted: boolean;
 }
 
 export function shouldUsePreviousSeason(
@@ -66,26 +75,34 @@ export function buildTeamSeasonFallbackResolution(params: {
   previousSeasonId: number | null;
   matchesPlayedInCurrentSeason: number;
   switchThreshold?: number;
+  /**
+   * Campionato minore (torneo diverso da quello corrente) in cui la squadra ha
+   * effettivamente giocato la stagione precedente. Passato solo quando la squadra
+   * risulta neopromossa (0 partite nella stessa competizione l'anno prima).
+   */
+  promotedContext?: SeasonIds | null;
 }): TeamSeasonFallbackResolution {
   const switchThreshold = params.switchThreshold ?? SEASON_FALLBACK_SWITCH_MATCHES;
-  const usePrevious =
-    params.previousSeasonId != null &&
-    params.previousSeasonId > 0 &&
-    shouldUsePreviousSeason(params.matchesPlayedInCurrentSeason, switchThreshold);
+  const isEarlySeason = shouldUsePreviousSeason(params.matchesPlayedInCurrentSeason, switchThreshold);
 
-  const previousContext: SeasonIds | null =
-    usePrevious && params.previousSeasonId
+  const sameTournamentContext: SeasonIds | null =
+    isEarlySeason && params.previousSeasonId != null && params.previousSeasonId > 0
       ? { tournamentId: params.current.tournamentId, seasonId: params.previousSeasonId }
       : null;
+
+  const isNewlyPromoted = isEarlySeason && Boolean(params.promotedContext);
+  const usePrevious = Boolean(sameTournamentContext);
 
   return {
     mode: usePrevious ? "previous_season" : "current_season",
     current: params.current,
-    teamContext: previousContext ?? params.current,
-    playerPreferredContext: previousContext ?? params.current,
-    playerUseAnyCompetition: usePrevious,
+    teamContext: sameTournamentContext ?? params.current,
+    blueprintContext: (isNewlyPromoted ? params.promotedContext : sameTournamentContext) ?? params.current,
+    playerPreferredContext: sameTournamentContext ?? params.current,
+    playerUseAnyCompetition: usePrevious || isNewlyPromoted,
     matchesPlayedInCurrentSeason: params.matchesPlayedInCurrentSeason,
     previousSeasonId: params.previousSeasonId,
-    switchThreshold
+    switchThreshold,
+    isNewlyPromoted
   };
 }
