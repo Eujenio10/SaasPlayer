@@ -81,11 +81,17 @@ export async function getOrComputeMatchPlayerPerformance(params: {
       startTimestamp: match?.startTimestamp ?? params.hints?.startTimestamp
     };
 
-    if (!hints.homeTeam || !hints.awayTeam) {
+    const homeTeam = hints.homeTeam;
+    const awayTeam = hints.awayTeam;
+    if (!homeTeam || !awayTeam) {
       return { payload: null, status: "compute_failed" };
     }
 
-    const payload = await buildMatchPlayerPerformance(params.eventId, hints);
+    const payload = await buildMatchPlayerPerformance(params.eventId, {
+      homeTeam,
+      awayTeam,
+      startTimestamp: hints.startTimestamp
+    });
     if (!payload) {
       return { payload: null, status: "compute_failed" };
     }

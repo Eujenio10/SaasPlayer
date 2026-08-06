@@ -114,14 +114,12 @@ async function main() {
     });
     homeBpOk = Boolean(
       homeBp &&
-        ((homeBp.offensive?.shotsOn ?? 0) > 0 ||
-          (homeBp.defensive?.shotsConceded ?? 0) > 0 ||
-          (homeBp.offensive?.possession ?? 0) > 0)
+        ((homeBp.offensive?.shotsOn ?? 0) > 0 || (homeBp.defensive?.shotsConceded ?? 0) > 0)
     );
     summary(
       "team_blueprint_home",
       homeBpOk,
-      `shotsOn=${homeBp.offensive?.shotsOn ?? 0} shotsConceded=${homeBp.defensive?.shotsConceded ?? 0} poss=${homeBp.offensive?.possession ?? 0}`
+      `shotsOn=${homeBp.offensive?.shotsOn ?? 0} shotsConceded=${homeBp.defensive?.shotsConceded ?? 0}`
     );
   } catch (e) {
     summary("team_blueprint_home", false, e instanceof Error ? e.message : String(e));
@@ -138,14 +136,12 @@ async function main() {
     });
     awayBpOk = Boolean(
       awayBp &&
-        ((awayBp.offensive?.shotsOn ?? 0) > 0 ||
-          (awayBp.defensive?.shotsConceded ?? 0) > 0 ||
-          (awayBp.offensive?.possession ?? 0) > 0)
+        ((awayBp.offensive?.shotsOn ?? 0) > 0 || (awayBp.defensive?.shotsConceded ?? 0) > 0)
     );
     summary(
       "team_blueprint_away",
       awayBpOk,
-      `shotsOn=${awayBp.offensive?.shotsOn ?? 0} shotsConceded=${awayBp.defensive?.shotsConceded ?? 0} poss=${awayBp.offensive?.possession ?? 0}`
+      `shotsOn=${awayBp.offensive?.shotsOn ?? 0} shotsConceded=${awayBp.defensive?.shotsConceded ?? 0}`
     );
   } catch (e) {
     summary("team_blueprint_away", false, e instanceof Error ? e.message : String(e));
