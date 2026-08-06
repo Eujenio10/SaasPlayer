@@ -58,13 +58,18 @@ export async function POST(request: Request) {
       typeof body.insightsBatchSize === "number" && Number.isFinite(body.insightsBatchSize)
         ? Math.max(1, Math.floor(body.insightsBatchSize))
         : undefined;
+    const competitionSlug =
+      typeof body.competitionSlug === "string" && body.competitionSlug.trim()
+        ? body.competitionSlug.trim().toLowerCase()
+        : undefined;
 
     const result = await runAdminMatchesRefresh(productOrganizationId, {
       trigger: "admin_manual",
       phase,
       insightsOffset,
       insightsSnap,
-      insightsBatchSize
+      insightsBatchSize,
+      competitionSlug
     });
 
     if (!result.ok) {

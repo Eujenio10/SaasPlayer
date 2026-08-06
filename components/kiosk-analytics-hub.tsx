@@ -430,6 +430,12 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
   const [adminBulkRefreshing, setAdminBulkRefreshing] = useState(false);
   /** Progress overlay durante “Aggiorna dati admin” (Top 5 + Mondiali). */
   const [adminBulkProgress, setAdminBulkProgress] = useState<{ current: number; total: number } | null>(null);
+  /** Fase corrente del refresh admin (per messaggi di stato dettagliati). */
+  const [adminBulkPhase, setAdminBulkPhase] = useState<"start" | "insights" | "finalize" | null>(null);
+  /** Ultima partita elaborata nella fase insights (per la UI di caricamento). */
+  const [adminBulkMatchLabel, setAdminBulkMatchLabel] = useState<string | null>(null);
+  /** Campionato da aggiornare: default Serie A per test mirati, "all" per i top 5 completi. */
+  const [adminRefreshScope, setAdminRefreshScope] = useState<string>("serie-a");
   const [intlMenuRefreshing, setIntlMenuRefreshing] = useState(false);
   /** "scan" = chiamata al provider in corso, "prefetch" = analisi partite in corso, null = idle */
   const [intlPhase, setIntlPhase] = useState<"scan" | "prefetch" | null>(null);
@@ -1510,6 +1516,22 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
                 </div>
               )}
               {canRefreshData ? (
+                <select
+                  value={adminRefreshScope}
+                  onChange={(event) => setAdminRefreshScope(event.target.value)}
+                  disabled={loadingMatchInsights || adminBulkRefreshing || intlMenuRefreshing}
+                  className="rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-2 text-sm font-semibold text-slate-200 disabled:cursor-not-allowed disabled:opacity-50"
+                  title="Campionato da aggiornare"
+                >
+                  <option value="all">Tutti i top 5</option>
+                  {ACTIVE_MENU_COMPETITIONS.filter((c) => c.group === "domestic").map((c) => (
+                    <option key={c.id} value={c.id}>
+                      Solo {c.label}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
+              {canRefreshData ? (
                 <button
                   type="button"
                   onClick={async () => {
@@ -1518,6 +1540,9 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
                     setLoadingMatchInsights(true);
                     setMatchInsightsError(null);
                     setAdminBulkProgress({ current: 0, total: 0 });
+                    setAdminBulkPhase("start");
+                    setAdminBulkMatchLabel(null);
+                    const scopeSlug = adminRefreshScope === "all" ? undefined : adminRefreshScope;
                     try {
                       clearKioskInsightsLocalKeys();
                       const snap = bumpAdminInsightsSnap();
@@ -1541,6 +1566,7 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
                         internationalDiscoveryCount?: number;
                         domesticMatchesCount?: number;
                         matchesCount?: number;
+                        currentMatchLabel?: string;
                       };
 
                       let phase: "start" | "insights" | "finalize" = "start";
@@ -1553,7 +1579,9 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
                       while (guard < 250) {
                         guard += 1;
                         const controller = new AbortController();
-                        const refreshTimeout = setTimeout(() => controller.abort(), 2.5 * 60 * 1000);
+                        /** Vicino al maxDuration serverless (300s): una singola partita con molti
+                         * giocatori e retry sui 429 può richiedere diversi minuti. */
+                        const refreshTimeout = setTimeout(() => controller.abort(), 4.6 * 60 * 1000);
                         let res: Response;
                         try {
                           res = await fetch("/api/tactical/admin-refresh-matches", {
@@ -1563,7 +1591,8 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
                             body: JSON.stringify({
                               phase,
                               insightsOffset,
-                              insightsSnap
+                              insightsSnap,
+                              competitionSlug: scopeSlug
                             }),
                             signal: controller.signal
                           });
@@ -1597,11 +1626,14 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
                             current: body.nextInsightsOffset ?? insightsSucceeded,
                             total: body.insightsTotal ?? 0
                           });
+                          setAdminBulkPhase(phase);
+                          if (body.currentMatchLabel) setAdminBulkMatchLabel(body.currentMatchLabel);
                         }
 
                         if (body.done) break;
                         phase = body.nextPhase ?? "finalize";
                         insightsOffset = body.nextInsightsOffset ?? insightsOffset;
+                        if (mountedRef.current) setAdminBulkPhase(phase);
                       }
 
                       if (mountedRef.current) {
@@ -1649,6 +1681,8 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
                         setAdminBulkRefreshing(false);
                         setLoadingMatchInsights(false);
                         setAdminBulkProgress(null);
+                        setAdminBulkPhase(null);
+                        setAdminBulkMatchLabel(null);
                       }
                       void reloadAccessSummary();
                     }
@@ -1923,40 +1957,95 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
               Aggiornamento dati admin
             </p>
             <p className="mt-2 text-center text-xs leading-relaxed text-slate-400">
-              Ricalcolo match-insights con heatmap per tutte le partite future dei{" "}
-              <strong className="text-slate-300">top 5 campionati</strong> presenti nel menu (Serie A, Premier League,
-              LaLiga, Bundesliga, Ligue 1).
+              {adminRefreshScope === "all" ? (
+                <>
+                  Ricalcolo match-insights con heatmap per tutte le partite future dei{" "}
+                  <strong className="text-slate-300">top 5 campionati</strong> presenti nel menu (Serie A, Premier
+                  League, LaLiga, Bundesliga, Ligue 1).
+                </>
+              ) : (
+                <>
+                  Ricalcolo match-insights con heatmap per le partite future di{" "}
+                  <strong className="text-slate-300">{competitionLabel(adminRefreshScope)}</strong>.
+                </>
+              )}
             </p>
+
+            {/* Indicatore fase: ricerca partite → analisi partite → finalizzazione */}
+            <div className="mt-4 flex items-center justify-center gap-2 text-[11px] font-bold uppercase tracking-wide">
+              {(
+                [
+                  { key: "start", label: "1. Ricerca partite" },
+                  { key: "insights", label: "2. Analisi partite" },
+                  { key: "finalize", label: "3. Marcature/Trend/Simulazioni" }
+                ] as const
+              ).map((step, idx) => {
+                const stepOrder = ["start", "insights", "finalize"] as const;
+                const currentIdx = stepOrder.indexOf(adminBulkPhase ?? "start");
+                const isActive = step.key === adminBulkPhase;
+                const isDone = stepOrder.indexOf(step.key) < currentIdx;
+                return (
+                  <span key={step.key} className="flex items-center gap-2">
+                    <span
+                      className={`rounded-full px-2.5 py-1 ${
+                        isActive
+                          ? "bg-cyan-400/20 text-cyan-200"
+                          : isDone
+                            ? "text-emerald-300"
+                            : "text-slate-600"
+                      }`}
+                    >
+                      {step.label}
+                    </span>
+                    {idx < 2 ? <span className="text-slate-700">›</span> : null}
+                  </span>
+                );
+              })}
+            </div>
+
             <p className="mt-4 text-center text-sm text-slate-300">
-              {adminBulkProgress.total > 0 ? (
+              {adminBulkPhase === "start" ? (
+                <span>Scansione calendario e menu partite in corso…</span>
+              ) : adminBulkProgress.total > 0 ? (
                 <>
                   Partite elaborate:{" "}
                   <strong className="text-white">{adminBulkProgress.current}</strong> di{" "}
                   <strong className="text-white">{adminBulkProgress.total}</strong>
                 </>
+              ) : adminBulkPhase === "finalize" ? (
+                <span>Calcolo marcature, trend e simulazioni…</span>
               ) : (
-                <span>Preparazione elenco partite top 5…</span>
+                <span>Preparazione elenco partite…</span>
               )}
             </p>
+            {adminBulkPhase === "insights" && adminBulkMatchLabel ? (
+              <p className="mt-1 text-center text-xs text-cyan-200/80">In corso: {adminBulkMatchLabel}</p>
+            ) : null}
             <p className="mt-1 text-center text-xs text-slate-500">
-              {adminBulkProgress.total > 0 && adminBulkProgress.total - adminBulkProgress.current > 0
+              {adminBulkPhase === "insights" &&
+              adminBulkProgress.total > 0 &&
+              adminBulkProgress.total - adminBulkProgress.current > 0
                 ? `Mancano ancora ${adminBulkProgress.total - adminBulkProgress.current} partit${
                     adminBulkProgress.total - adminBulkProgress.current === 1 ? "a" : "e"
                   } da aggiornare.`
-                : adminBulkProgress.total === 0
-                  ? "Se il contatore resta a zero, non ci sono match futuri dei top 5 nel menu caricato."
-                  : "Finalizzazione cache locale…"}
+                : adminBulkPhase === "insights" && adminBulkProgress.total === 0
+                  ? "Se il contatore resta a zero, non ci sono match futuri nel menu caricato per questo campionato."
+                  : adminBulkPhase === "finalize"
+                    ? "Ultimo passaggio: costruzione degli snapshot usati dalle 4 funzioni."
+                    : ""}
             </p>
             <div className="mt-5 h-2.5 overflow-hidden rounded-full bg-slate-800">
               <div
                 className={`h-full rounded-full bg-gradient-to-r from-cyan-400 to-blue-500 transition-all duration-300 ${
-                  adminBulkProgress.total === 0 ? "animate-pulse" : ""
+                  adminBulkPhase !== "insights" || adminBulkProgress.total === 0 ? "animate-pulse" : ""
                 }`}
                 style={{
                   width:
-                    adminBulkProgress.total > 0
+                    adminBulkPhase === "insights" && adminBulkProgress.total > 0
                       ? `${Math.min(100, (adminBulkProgress.current / adminBulkProgress.total) * 100)}%`
-                      : "38%"
+                      : adminBulkPhase === "finalize"
+                        ? "90%"
+                        : "38%"
                 }}
                   />
                 </div>

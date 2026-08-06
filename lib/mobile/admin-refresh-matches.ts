@@ -6,6 +6,7 @@ import {
   buildAdminInsightsPrefetchTargets,
   isNationalTeamCompetitionSlug,
   isTopFiveLeagueSlug,
+  normalizeTacticalCompetitionSlug,
   scopeFromCompetitionSlugForInsights
 } from "@/lib/tactical-stats-eligible-matches";
 import {
@@ -64,6 +65,19 @@ export interface AdminMatchesRefreshResult {
   matchSimulatorCount?: number;
   insightsSnap?: number;
   error?: string;
+  /** Nome della partita in elaborazione durante la fase insights (per la UI di caricamento). */
+  currentMatchLabel?: string;
+}
+
+/** Filtra i target insights su un solo campionato (test mirato, es. "serie-a"). */
+function scopeInsightsTargets(
+  targets: UpcomingMatchItem[],
+  competitionSlug: string | undefined
+): UpcomingMatchItem[] {
+  if (!competitionSlug) return targets;
+  return targets.filter(
+    (m) => normalizeTacticalCompetitionSlug(m.competitionSlug) === competitionSlug
+  );
 }
 
 export interface AdminMatchesRefreshOptions {
@@ -78,6 +92,13 @@ export interface AdminMatchesRefreshOptions {
   insightsBatchSize?: number;
   /** Budget ms per singola invocazione serverless (sotto i 300s Hobby). */
   timeBudgetMs?: number;
+  /**
+   * Se impostato, limita la fase insights a un solo campionato (es. "serie-a") per test mirati:
+   * meno partite = meno chiamate FootAPI = meno rischio di rate limit, più facile verificare i dati.
+   * Il menu (fase start) e l'aggregazione finale (fase finalize) restano completi su tutti i campionati
+   * per non cancellare marcature/trend/simulazioni già calcolate per le altre leghe.
+   */
+  competitionSlug?: string;
   insightsSnap?: number;
 }
 
@@ -257,7 +278,8 @@ function emptyResult(
 async function runStartPhase(
   organizationId: string,
   startedAt: number,
-  timeBudgetMs: number
+  timeBudgetMs: number,
+  competitionSlug?: string
 ): Promise<AdminMatchesRefreshResult> {
   /** Non cancellare gli insight esistenti: in caso di timeout restano i dati precedenti. */
   invalidateTrendsSnapshotMemory(organizationId);
@@ -337,6 +359,7 @@ async function runStartPhase(
   }
 
   const targets = buildAdminInsightsPrefetchTargets(domesticMenu, international);
+  const scopedTargets = scopeInsightsTargets(targets, competitionSlug);
   const insightsSnap = Math.floor(Date.now() / 1000);
   const elapsed = Date.now() - startedAt;
 
@@ -344,6 +367,8 @@ async function runStartPhase(
     domestic: domesticMenu.length,
     international: international.length,
     targets: targets.length,
+    scopedTargets: scopedTargets.length,
+    competitionSlug: competitionSlug ?? "all",
     elapsedMs: elapsed,
     budgetMs: timeBudgetMs
   });
@@ -352,19 +377,19 @@ async function runStartPhase(
     ok: true,
     phase: "start",
     done: false,
-    nextPhase: targets.length === 0 ? "finalize" : "insights",
+    nextPhase: scopedTargets.length === 0 ? "finalize" : "insights",
     nextInsightsOffset: 0,
     domesticMatchesCount: domesticMenu.length,
     internationalMatchesCount: international.length,
     internationalDiscoveryCount,
     matchesCount: domesticMenu.length + international.length,
     insightsProcessed: 0,
-    insightsTotal: targets.length,
-    topFiveInsightsTotal: targets.filter((m) => isTopFiveLeagueSlug(m.competitionSlug)).length,
-    worldCupInsightsTotal: targets.filter((m) =>
+    insightsTotal: scopedTargets.length,
+    topFiveInsightsTotal: scopedTargets.filter((m) => isTopFiveLeagueSlug(m.competitionSlug)).length,
+    worldCupInsightsTotal: scopedTargets.filter((m) =>
       isNationalTeamCompetitionSlug(m.competitionSlug)
     ).length,
-    insightsPartial: targets.length > 0,
+    insightsPartial: scopedTargets.length > 0,
     insightsSnap
   };
 }
@@ -377,15 +402,18 @@ async function runInsightsPhase(
     insightsSnap: number;
     startedAt: number;
     timeBudgetMs: number;
+    competitionSlug?: string;
   }
 ): Promise<AdminMatchesRefreshResult> {
   const menus = await loadOrganizationMenus(organizationId);
-  const targets = buildAdminInsightsPrefetchTargets(menus.domestic, menus.international);
+  const allTargets = buildAdminInsightsPrefetchTargets(menus.domestic, menus.international);
+  const targets = scopeInsightsTargets(allTargets, options.competitionSlug);
   const cacheTtlHours = Number(process.env.TACTICAL_MATCH_INSIGHTS_CACHE_HOURS ?? "120");
   const pauseMs = Number(process.env.TACTICAL_ADMIN_REFRESH_PAUSE_MS ?? "400");
 
   let offset = Math.max(0, options.offset);
   let processedThisBatch = 0;
+  let lastMatchLabel: string | undefined;
   const endExclusive = Math.min(targets.length, offset + Math.max(1, options.batchSize));
 
   while (offset < endExclusive) {
@@ -399,6 +427,7 @@ async function runInsightsPhase(
     }
 
     const match = targets[offset];
+    lastMatchLabel = `${match.homeTeam.name} - ${match.awayTeam.name}`;
     const ok = await prefetchInsightsForMatch(
       organizationId,
       match,
@@ -433,7 +462,8 @@ async function runInsightsPhase(
     ).length,
     insightsPartial: !insightsDone,
     insightsSnap: options.insightsSnap,
-    trendsPending: !insightsDone
+    trendsPending: !insightsDone,
+    currentMatchLabel: lastMatchLabel
   };
 }
 
@@ -584,8 +614,9 @@ export async function runAdminMatchesRefresh(
   const insightsOffset = Math.max(0, options?.insightsOffset ?? 0);
   const insightsSnap = options?.insightsSnap ?? Math.floor(Date.now() / 1000);
   const startedAt = Date.now();
+  const competitionSlug = options?.competitionSlug?.trim() || undefined;
 
-  const flightKey = `${organizationId}:${phase ?? "cron"}:${insightsOffset}`;
+  const flightKey = `${organizationId}:${phase ?? "cron"}:${insightsOffset}:${competitionSlug ?? "all"}`;
   if (refreshInFlight && refreshInFlightKey === flightKey) {
     console.info("[admin-refresh] coalesced_duplicate_request", { flightKey });
     return refreshInFlight;
@@ -593,7 +624,7 @@ export async function runAdminMatchesRefresh(
 
   const run = (async (): Promise<AdminMatchesRefreshResult> => {
     if (phase === "start") {
-      return runStartPhase(organizationId, startedAt, timeBudgetMs);
+      return runStartPhase(organizationId, startedAt, timeBudgetMs, competitionSlug);
     }
 
     if (phase === "insights") {
@@ -602,7 +633,8 @@ export async function runAdminMatchesRefresh(
         batchSize,
         insightsSnap,
         startedAt,
-        timeBudgetMs
+        timeBudgetMs,
+        competitionSlug
       });
     }
 
@@ -611,7 +643,7 @@ export async function runAdminMatchesRefresh(
     }
 
     /** Cron / full: esegue quante più fasi possibile nel budget. */
-    const start = await runStartPhase(organizationId, startedAt, timeBudgetMs);
+    const start = await runStartPhase(organizationId, startedAt, timeBudgetMs, competitionSlug);
     if (!start.ok) return start;
 
     const snap = start.insightsSnap ?? insightsSnap;
@@ -624,7 +656,8 @@ export async function runAdminMatchesRefresh(
         batchSize,
         insightsSnap: snap,
         startedAt,
-        timeBudgetMs
+        timeBudgetMs,
+        competitionSlug
       });
       if (!batch.ok) return batch;
       totalProcessed += batch.insightsProcessed;

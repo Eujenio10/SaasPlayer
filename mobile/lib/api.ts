@@ -237,7 +237,9 @@ export async function refreshAdminMatches(
   while (guard < 250) {
     guard += 1;
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 2.5 * 60 * 1000);
+    /** Vicino al maxDuration serverless (300s): una singola partita con molti giocatori
+     * e retry sui 429 può richiedere diversi minuti. */
+    const timeout = setTimeout(() => controller.abort(), 4.6 * 60 * 1000);
     try {
       const result = await apiFetch<AdminRefreshPhaseResult>(
         "/api/tactical/admin-refresh-matches",
