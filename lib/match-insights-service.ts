@@ -881,6 +881,13 @@ export async function computeMatchInsightsPayload(
     return payload;
 }
 
+/**
+ * Deduplica calcoli concorrenti sulla stessa partita: senza questo, richieste ravvicinate
+ * (es. più tab/componenti che interrogano lo stesso eventId prima che la cache sia scritta)
+ * moltiplicano inutilmente le chiamate a SportAPI, aggravando i rate limit (429).
+ */
+const insightsComputeInflight = new Map<string, Promise<MatchInsightsApiPayload>>();
+
 export async function getOrComputeMatchInsightsPayload(
   input: MatchInsightsComputeInput,
   cacheTtlHours: number,
@@ -906,7 +913,18 @@ export async function getOrComputeMatchInsightsPayload(
     }
   }
 
-  const payload = await computeMatchInsightsPayload(input);
-  await setApiCache(cacheKey, payload, cacheTtlHours);
-  return payload;
+  const existingInflight = insightsComputeInflight.get(cacheKey);
+  if (existingInflight) return existingInflight;
+
+  const task = computeMatchInsightsPayload(input)
+    .then(async (payload) => {
+      await setApiCache(cacheKey, payload, cacheTtlHours);
+      return payload;
+    })
+    .finally(() => {
+      insightsComputeInflight.delete(cacheKey);
+    });
+
+  insightsComputeInflight.set(cacheKey, task);
+  return task;
 }

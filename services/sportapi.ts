@@ -25,6 +25,7 @@ import {
 } from "@/lib/season-fallback";
 import { isMonitoredInternationalCompetitionSlug, resolveCompetitionId } from "@/lib/competitions";
 import { MATCHES_WINDOW_DAYS } from "@/lib/tactical-matches-filters";
+import { throttledSportApiRequest } from "@/lib/sportapi-rate-limiter";
 import { createSupabaseServiceClient } from "@/lib/supabase/server";
 import type {
   CompetitionScope,
@@ -2060,7 +2061,10 @@ async function sportApiFetch(
   /** RapidAPI: sempre `no-store` — la Data Cache Next può congelare risposte 204/vuote e svuotare il menu. */
   const fetchInit: RequestInit = { headers: sportApiHeaders(), cache: "no-store" };
 
-  const response = await fetch(`https://${env.SPORTAPI_RAPIDAPI_HOST}${endpoint}`, fetchInit);
+  /** Throttling + retry sui 429: evita cascate di errori quando molte richieste partono ravvicinate. */
+  const response = await throttledSportApiRequest(() =>
+    fetch(`https://${env.SPORTAPI_RAPIDAPI_HOST}${endpoint}`, fetchInit)
+  );
 
   await logApiUsage({
     endpoint,
@@ -2867,9 +2871,15 @@ async function fetchPlayersByFixtureId(fixtureId: string): Promise<SportPerforma
     );
   }
 
-  const eventData = (await eventResponse.json()) as SportApiEventDetailsResponse;
-  const lineupsData = (await lineupsResponse.json()) as SportApiLineupsResponse;
-  const statsData = (await statsResponse.json()) as SportApiEventStatisticsResponse;
+  const eventDataRaw = await readSportApiJson(eventResponse);
+  const lineupsDataRaw = await readSportApiJson(lineupsResponse);
+  const statsDataRaw = await readSportApiJson(statsResponse);
+  if (!eventDataRaw || !lineupsDataRaw || !statsDataRaw) {
+    throw new Error("SportAPI error: empty_body_event_lineups_stats");
+  }
+  const eventData = eventDataRaw as SportApiEventDetailsResponse;
+  const lineupsData = lineupsDataRaw as SportApiLineupsResponse;
+  const statsData = statsDataRaw as SportApiEventStatisticsResponse;
 
   const teamInfo = new Map<number, { name: string; color: string }>();
   const homeTeam = eventData.event?.homeTeam;
@@ -3065,7 +3075,9 @@ export async function fetchSportPerformanceForTeams(params: {
             bypassCache: params.bypassCache
           })
             .then(async (response) =>
-              response.ok ? ((await response.json()) as SportApiLineupsResponse) : null
+              response.ok
+                ? ((await readSportApiJson(response)) as SportApiLineupsResponse | null)
+                : null
             )
             .catch(() => null),
           sportApiFetch(sportApiEventPath(params.eventId), {
@@ -3074,7 +3086,9 @@ export async function fetchSportPerformanceForTeams(params: {
             bypassCache: params.bypassCache
           })
             .then(async (response) =>
-              response.ok ? ((await response.json()) as SportApiEventDetailsResponse) : null
+              response.ok
+                ? ((await readSportApiJson(response)) as SportApiEventDetailsResponse | null)
+                : null
             )
             .catch(() => null)
         ])
@@ -3191,7 +3205,9 @@ export async function fetchSportPerformanceForTeams(params: {
         if (!lineupsResp.ok) {
           return null;
         }
-        lineups = (await lineupsResp.json()) as SportApiLineupsResponse;
+        const lineupsPayload = await readSportApiJson(lineupsResp);
+        if (!lineupsPayload) return null;
+        lineups = lineupsPayload as SportApiLineupsResponse;
       }
 
       const statsResp = await sportApiFetch(sportApiEventStatisticsPath(eventId), {
@@ -3203,9 +3219,17 @@ export async function fetchSportPerformanceForTeams(params: {
       if (!statsResp.ok) {
         return null;
       }
-      const stats = (await statsResp.json()) as SportApiEventStatisticsResponse;
+      const statsPayload = await readSportApiJson(statsResp);
+      if (!statsPayload) return null;
+      const stats = statsPayload as SportApiEventStatisticsResponse;
       return { lineups, stats };
-    })();
+    })().catch((error) => {
+      console.warn("[sportapi] load_event_lineups_stats_failed", {
+        eventId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return null;
+    });
 
     eventLineupsStatsInflight.set(eventId, task);
     return task;
@@ -4194,8 +4218,13 @@ async function fetchEventStatisticsByTeam(
     return {};
   }
 
-  const eventPayload = (await eventResponse.json()) as SportApiEventDetailsResponse;
-  const statsPayload = (await statsResponse.json()) as SportApiEventStatisticsResponse;
+  const eventPayloadRaw = await readSportApiJson(eventResponse);
+  const statsPayloadRaw = await readSportApiJson(statsResponse);
+  if (!eventPayloadRaw || !statsPayloadRaw) {
+    return {};
+  }
+  const eventPayload = eventPayloadRaw as SportApiEventDetailsResponse;
+  const statsPayload = statsPayloadRaw as SportApiEventStatisticsResponse;
 
   const isHome = eventPayload.event?.homeTeam?.id === teamId;
   const isAway = eventPayload.event?.awayTeam?.id === teamId;
@@ -4250,7 +4279,10 @@ async function resolveSeasonContextFromEvent(event: SportApiEvent): Promise<Seas
     return { context: null, eventIdUsed: event.id };
   }
 
-  const payload: unknown = await eventResponse.json();
+  const payload = await readSportApiJson(eventResponse);
+  if (!payload) {
+    return { context: null, eventIdUsed: event.id };
+  }
   const parsed = parseSeasonContextFromEventJson(payload);
   if (!parsed) {
     return { context: null, eventIdUsed: event.id };
@@ -4277,7 +4309,8 @@ async function fetchTeamSeasonOverallStatistics(params: {
   );
 
   if (!response.ok) return null;
-  const payload: unknown = await response.json();
+  const payload = await readSportApiJson(response);
+  if (!payload) return null;
   const parsed = parsePlayerSeasonOverallPayload(payload);
   if (parsed && Object.keys(parsed).length > 0) return parsed;
 
@@ -5183,7 +5216,9 @@ export async function fetchLastHeadToHeadPlayerDiscipline(params: {
       revalidateSeconds: 1200
     });
     if (!resp.ok) break;
-    const payload = (await resp.json()) as SportApiTeamEventsResponse;
+    const payloadRaw = await readSportApiJson(resp);
+    if (!payloadRaw) break;
+    const payload = payloadRaw as SportApiTeamEventsResponse;
     for (const event of payload.events ?? []) {
       if (!event?.id) continue;
       if (eventStatusType(event) !== "finished") continue;
@@ -5209,7 +5244,9 @@ export async function fetchLastHeadToHeadPlayerDiscipline(params: {
     revalidateSeconds: 1200
   });
   if (!lineupsResp.ok) return null;
-  const lineups = (await lineupsResp.json()) as SportApiLineupsResponse;
+  const lineupsRaw = await readSportApiJson(lineupsResp);
+  if (!lineupsRaw) return null;
+  const lineups = lineupsRaw as SportApiLineupsResponse;
 
   const homePlayers = lineups.home?.players ?? [];
   const awayPlayers = lineups.away?.players ?? [];
