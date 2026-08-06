@@ -243,6 +243,19 @@ export async function regenerateMatchSimulatorSnapshotForOrganization(params: {
   }
 
   snapshot.updatedAt = new Date().toISOString();
+
+  if (generated === 0) {
+    const existing = await loadOrganizationMatchSimulatorSnapshot(params.organizationId);
+    const existingCount = Object.keys(existing?.simulationIndex ?? {}).length;
+    if (existingCount > 0) {
+      console.warn("[match-simulator] regenerate_keep_previous_empty_batch", {
+        organizationId: params.organizationId,
+        previous: existingCount
+      });
+      return { ok: true, snapshot: existing ?? snapshot };
+    }
+  }
+
   await persistOrganizationMatchSimulatorSnapshot({
     organizationId: params.organizationId,
     snapshot,

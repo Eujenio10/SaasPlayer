@@ -14,7 +14,17 @@ export async function persistPrunedTrendsSnapshotIfChanged(params: {
   raw: TrendsSnapshot;
   pruned: TrendsSnapshot;
 }): Promise<void> {
-  if (countTrends(params.raw) === countTrends(params.pruned)) return;
+  const before = countTrends(params.raw);
+  const after = countTrends(params.pruned);
+  if (before === after) return;
+  /** Non azzerare un catalogo ancora valido: il prune può svuotare se i kickoff menu sono desync. */
+  if (after === 0 && before > 0) {
+    console.warn("[catalog-sync] trends_prune_skip_empty_wipe", {
+      organizationId: params.organizationId,
+      before
+    });
+    return;
+  }
 
   const result = await upsertOrganizationTrendsSnapshot({
     organizationId: params.organizationId,
@@ -34,8 +44,8 @@ export async function persistPrunedTrendsSnapshotIfChanged(params: {
   } else {
     console.info("[catalog-sync] trends_prune_persisted", {
       organizationId: params.organizationId,
-      before: countTrends(params.raw),
-      after: countTrends(params.pruned)
+      before,
+      after
     });
   }
 }
@@ -48,6 +58,13 @@ export async function persistPrunedMarkingsSnapshotIfChanged(params: {
   const before = countStoredMarkupsInSnapshot(params.raw);
   const after = countStoredMarkupsInSnapshot(params.pruned);
   if (before === after) return;
+  if (after === 0 && before > 0) {
+    console.warn("[catalog-sync] markings_prune_skip_empty_wipe", {
+      organizationId: params.organizationId,
+      before
+    });
+    return;
+  }
 
   const result = await upsertOrganizationDifficultMarkingsSnapshot({
     organizationId: params.organizationId,

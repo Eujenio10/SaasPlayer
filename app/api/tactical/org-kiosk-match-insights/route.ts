@@ -105,8 +105,7 @@ export async function GET(request: Request) {
 
   const metrics = localizeTacticalMetrics(metricsRaw as TacticalMetrics[]);
 
-  const allowProviderFetch =
-    (organization.role === "admin" && forceRefresh) || (canFullAnalysis && insightsMissing);
+  const allowProviderFetch = canFullAnalysis;
   let teamFormSignals = null;
   try {
     teamFormSignals = await buildTeamFormSignalsForOrganizationMatch({
@@ -114,7 +113,7 @@ export async function GET(request: Request) {
       organizationId: organization.organizationId,
       eventId,
       metrics,
-      forceRefresh: allowProviderFetch,
+      forceRefresh: organization.role === "admin" && forceRefresh,
       allowProviderFetch
     });
   } catch (signalsError) {

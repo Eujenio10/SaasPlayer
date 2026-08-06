@@ -91,7 +91,8 @@ export async function GET(request: Request) {
     competitionSlug,
     scope,
     forceRefresh: isAdmin && forceRefresh,
-    allowProviderFetch: isAdmin && forceRefresh
+    /** Pro/admin: se manca lo snapshot blueprint, recupera dal provider (non solo admin+refresh). */
+    allowProviderFetch: isAdmin || access.isPro
   });
 
   const homeBlueprint = teamBlueprintFromProviderOnly(tournamentBlueprints.home);

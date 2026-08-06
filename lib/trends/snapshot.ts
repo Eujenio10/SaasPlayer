@@ -125,16 +125,16 @@ export async function upsertOrganizationTrendsSnapshot(params: {
   insightsSnap: number;
   snapshot: TrendsSnapshot;
   forceReplace?: boolean;
-}): Promise<{ ok: boolean; message?: string }> {
+}): Promise<{ ok: boolean; message?: string; keptPrevious?: boolean; snapshot?: TrendsSnapshot }> {
   const incomingCount = Object.keys(params.snapshot.trendIndex ?? {}).length;
   if (incomingCount === 0 && !params.forceReplace) {
     const existing = await loadBestTrendsSnapshot(params.organizationId);
-    if (snapshotHasTrends(existing.snapshot)) {
+    if (snapshotHasTrends(existing.snapshot) && existing.snapshot) {
       console.info("[trends] snapshot_keep_previous", {
         organizationId: params.organizationId,
         previousTrends: Object.keys(existing.snapshot?.trendIndex ?? {}).length
       });
-      return { ok: true };
+      return { ok: true, keptPrevious: true, snapshot: existing.snapshot };
     }
   }
 
@@ -187,7 +187,9 @@ export async function regenerateTrendsSnapshotForOrganization(params: {
       snapshot: empty,
       forceReplace: params.forceReplace
     });
-    return persistEmpty.ok ? { ok: true, snapshot: empty } : { ok: false, message: persistEmpty.message };
+    return persistEmpty.ok
+      ? { ok: true, snapshot: persistEmpty.snapshot ?? empty }
+      : { ok: false, message: persistEmpty.message };
   }
 
   const { data, error } = await sb
@@ -313,7 +315,7 @@ export async function regenerateTrendsSnapshotForOrganization(params: {
   });
 
   if (!persist.ok) return { ok: false, message: persist.message };
-  return { ok: true, snapshot };
+  return { ok: true, snapshot: persist.snapshot ?? snapshot };
 }
 
 /** Ricostruisce e persiste lo snapshot Trend da menu + insight già salvati in Supabase. */

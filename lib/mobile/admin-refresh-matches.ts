@@ -18,7 +18,7 @@ import {
 import { buildEachTeamNextInternationalMatchesMenu } from "@/lib/tactical-matches-filters";
 import { filterUpcomingMenuMatches } from "@/lib/trends/fixture-eligibility";
 import { getOrRefreshTacticalMatchesMenuFull } from "@/lib/tactical-matches-menu-cache";
-import { metricsHaveBothTeamsFoulDataSoft } from "@/lib/organization-match-insights";
+import { metricsHaveBothTeamsFoulDataSoft, metricsIncludeBothTeams } from "@/lib/organization-match-insights";
 import { regenerateDifficultMarkingsSnapshotForOrganization } from "@/lib/difficult-markings/snapshot";
 import { invalidateDifficultMarkingsSnapshotMemory } from "@/lib/difficult-markings/snapshot-memory-cache";
 import { regenerateMatchRadarForMatches } from "@/lib/match-radar/service";
@@ -171,12 +171,17 @@ async function prefetchInsightsForMatch(
         );
         return false;
       }
-      /** Soft: a inizio stagione bastano medie overall reali (non 3+ giocatori con sample). */
-      if (!metricsHaveBothTeamsFoulDataSoft(metrics, match.homeTeam.id, match.awayTeam.id)) {
+      /** Serve entrambe le squadre; falli incompleti → warning, ma si persiste (come on-demand). */
+      if (!metricsIncludeBothTeams(metrics, match.homeTeam.id, match.awayTeam.id)) {
         console.warn(
-          `[admin-refresh] incomplete_foul_data eventId=${match.eventId} home=${match.homeTeam.id} away=${match.awayTeam.id} players=${metrics.length}`
+          `[admin-refresh] missing_team_metrics eventId=${match.eventId} home=${match.homeTeam.id} away=${match.awayTeam.id} players=${metrics.length}`
         );
         return false;
+      }
+      if (!metricsHaveBothTeamsFoulDataSoft(metrics, match.homeTeam.id, match.awayTeam.id)) {
+        console.warn(
+          `[admin-refresh] soft_persist_incomplete_foul_data eventId=${match.eventId} home=${match.homeTeam.id} away=${match.awayTeam.id} players=${metrics.length}`
+        );
       }
 
       const persist = await upsertKioskMatchInsightsForOrganization({
@@ -456,7 +461,8 @@ async function runFinalizePhase(
       organizationId,
       matches: allMenuMatches,
       insightsSnap,
-      forceReplace: true
+      /** Non sovrascrivere uno snapshot utile con uno vuoto (insight falliti / menu vuoto). */
+      forceReplace: false
     });
     if (markings.ok) {
       markingsCount = Object.keys(markings.snapshot?.matchupIndex ?? {}).length;
@@ -502,7 +508,7 @@ async function runFinalizePhase(
         matches: allMenuMatches,
         insightsSnap,
         backfillMaxEvents: 10,
-        forceReplace: true
+        forceReplace: false
       });
       if (trends.ok) trendsCount = Object.keys(trends.snapshot?.trendIndex ?? {}).length;
     } catch (e) {

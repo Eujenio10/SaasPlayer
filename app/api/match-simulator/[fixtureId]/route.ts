@@ -5,6 +5,8 @@ import { redactSimulationDetail } from "@/lib/entitlements";
 import { requestHasMatchUnlock, resolveRequestEntitlements } from "@/lib/entitlements/request";
 
 export const dynamic = "force-dynamic";
+/** On-demand simulation può scaricare stats FootAPI. */
+export const maxDuration = 120;
 
 export async function GET(
   request: Request,
@@ -18,11 +20,15 @@ export async function GET(
   const { fixtureId } = await context.params;
   const entitlements = await resolveRequestEntitlements(ctx, request);
   const matchUnlocked = requestHasMatchUnlock(entitlements, fixtureId);
+  const canGenerate =
+    ctx.role === "admin" ||
+    entitlements.subscriptionTier === "pro" ||
+    matchUnlocked;
 
   const payload = await buildMatchSimulatorDetailResponse({
     organizationId: ctx.organizationId,
     fixtureId,
-    generateIfMissing: false
+    generateIfMissing: canGenerate
   });
 
   const redacted = redactSimulationDetail({

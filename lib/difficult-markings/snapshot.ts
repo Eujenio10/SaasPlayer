@@ -152,17 +152,17 @@ export async function upsertOrganizationDifficultMarkingsSnapshot(params: {
   insightsSnap: number;
   snapshot: DifficultMarkingsSnapshot;
   forceReplace?: boolean;
-}): Promise<{ ok: boolean; message?: string }> {
+}): Promise<{ ok: boolean; message?: string; keptPrevious?: boolean; snapshot?: DifficultMarkingsSnapshot }> {
   const incomingCount = Object.keys(params.snapshot.matchupIndex ?? {}).length;
   if (incomingCount === 0 && !params.forceReplace) {
     const existing = await loadBestDifficultMarkingsSnapshot(params.organizationId);
     const existingCount = countStoredMarkupsInSnapshot(existing.snapshot);
-    if (existingCount > 0) {
+    if (existingCount > 0 && existing.snapshot) {
       console.info("[difficult-markings] snapshot_keep_previous", {
         organizationId: params.organizationId,
         previousMatchups: existingCount
       });
-      return { ok: true };
+      return { ok: true, keptPrevious: true, snapshot: existing.snapshot };
     }
   }
 
@@ -232,7 +232,9 @@ export async function regenerateDifficultMarkingsSnapshotForOrganization(params:
       snapshot: empty,
       forceReplace: params.forceReplace
     });
-    return persistEmpty.ok ? { ok: true, snapshot: empty } : { ok: false, message: persistEmpty.message };
+    return persistEmpty.ok
+      ? { ok: true, snapshot: persistEmpty.snapshot ?? empty }
+      : { ok: false, message: persistEmpty.message };
   }
 
   const { data, error } = await sb
@@ -277,7 +279,7 @@ export async function regenerateDifficultMarkingsSnapshotForOrganization(params:
     });
     return { ok: false, message: persist.message };
   }
-  return { ok: true, snapshot };
+  return { ok: true, snapshot: persist.snapshot ?? snapshot };
 }
 
 function synthesizeMatchFromInsightMetrics(
