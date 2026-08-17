@@ -5,6 +5,7 @@ import {
   isMatchUnlocked,
   type UserEntitlements
 } from "@/lib/entitlements";
+import { isBetaFreeForAllRequest } from "@/lib/entitlements/config";
 import { isValidDeviceId } from "@/lib/entitlements/subject";
 
 export function readDeviceIdFromRequest(request: Request): string | null {
@@ -18,12 +19,26 @@ export async function resolveRequestEntitlements(
   request?: Request
 ): Promise<UserEntitlements> {
   const deviceId = request ? readDeviceIdFromRequest(request) : null;
-  if (!ctx.userId && !deviceId) return emptyGuestEntitlements();
-  return buildUserEntitlements({
+  const beta = isBetaFreeForAllRequest(request, ctx.userId);
+
+  if (!ctx.userId && !deviceId) {
+    /** Beta app mobile: anche senza identificativo, un guest ottiene lo stesso accesso Pro. */
+    return beta ? { ...emptyGuestEntitlements(), subscriptionTier: "pro" } : emptyGuestEntitlements();
+  }
+
+  const entitlements = await buildUserEntitlements({
     userId: ctx.userId,
     deviceId,
     role: ctx.role === "guest" ? "guest" : ctx.role
   });
+
+  /** Beta pubblica app mobile: sblocca tutto per guest e utenti Free, senza toccare il
+   * kiosk web (che non invia l'header client mobile). */
+  if (beta && entitlements.subscriptionTier !== "pro") {
+    return { ...entitlements, subscriptionTier: "pro" };
+  }
+
+  return entitlements;
 }
 
 export function requestHasMatchUnlock(

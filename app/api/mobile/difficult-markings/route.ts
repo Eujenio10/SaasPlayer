@@ -5,6 +5,7 @@ import {
   parseDifficultMarkingsListQuery
 } from "@/lib/difficult-markings/api-handlers";
 import { redactDifficultMarkingsList } from "@/lib/entitlements";
+import { isBetaFreeForAllRequest } from "@/lib/entitlements/config";
 import { resolveRequestEntitlements } from "@/lib/entitlements/request";
 
 export const dynamic = "force-dynamic";
@@ -15,7 +16,8 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "public_access_unavailable" }, { status: 503 });
   }
 
-  if (ctx.mode === "guest" || ctx.role === "guest") {
+  /** Beta app mobile: i guest hanno lo stesso accesso dei Free, niente auth obbligatoria. */
+  if ((ctx.mode === "guest" || ctx.role === "guest") && !isBetaFreeForAllRequest(request)) {
     return NextResponse.json({ error: "auth_required" }, { status: 401 });
   }
 

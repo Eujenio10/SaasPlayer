@@ -14,7 +14,8 @@ async function authHeaders(): Promise<HeadersInit> {
   if (!token) throw new Error("not_authenticated");
   return {
     Authorization: `Bearer ${token}`,
-    "Content-Type": "application/json"
+    "Content-Type": "application/json",
+    "X-PitchBrain-Client": "mobile"
   };
 }
 

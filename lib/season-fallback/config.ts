@@ -1,15 +1,16 @@
 /**
- * Fallback stagione precedente a inizio campionato.
+ * Fallback stagione precedente SOLO per la prima giornata.
  *
- * - Squadre: stats della stagione precedente, stessa competizione.
- * - Giocatori: stats della stagione precedente, qualsiasi competizione.
+ * - Squadre: stats della stagione precedente (stessa competizione, o campionato
+ *   minore se neopromossa). Rosa, formazioni e giocatori restano quelli della
+ *   stagione corrente.
  * - Dopo almeno `SEASON_FALLBACK_SWITCH_MATCHES` partite finite nella stagione
- *   corrente (stessa competizione), si passa ai dati dell'annata in corso.
+ *   corrente (default 1 = dalla seconda giornata), si passa ai dati dell'annata in corso.
  */
 
 export const SEASON_FALLBACK_SWITCH_MATCHES = Math.max(
   1,
-  Number(process.env.SEASON_FALLBACK_SWITCH_MATCHES ?? "3") || 3
+  Number(process.env.SEASON_FALLBACK_SWITCH_MATCHES ?? "1") || 1
 );
 
 export type SeasonFallbackMode = "previous_season" | "current_season";
@@ -32,11 +33,15 @@ export interface TeamSeasonFallbackResolution {
    */
   blueprintContext: SeasonIds;
   /**
-   * Contesto preferito per overall/heatmap giocatore (stagione precedente stessa
-   * competizione quando in fallback; altrimenti corrente).
+   * Contesto per overall/heatmap statistici del giocatore (stagione precedente in
+   * fallback). La rosa/formazione si prende sempre da `current`.
    */
   playerPreferredContext: SeasonIds;
-  /** In fallback: le serie recenti giocatore includono qualsiasi competizione. */
+  /**
+   * In fallback: le serie recenti usate come STATISTICHE possono includere la
+   * stagione precedente (qualsiasi competizione). La lista giocatori resta filtrata
+   * sulla rosa corrente.
+   */
   playerUseAnyCompetition: boolean;
   matchesPlayedInCurrentSeason: number;
   previousSeasonId: number | null;

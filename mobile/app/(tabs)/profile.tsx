@@ -92,8 +92,9 @@ export default function ProfileScreen() {
       <Screen>
         <Text style={styles.title}>Modalità Guest</Text>
         <Text style={styles.subtitle}>
-          Stai usando PitchBrain senza account. Puoi esplorare partite e analisi base. Accedi solo se
-          vuoi attivare Pro, sincronizzare i dati o recuperare il tuo abbonamento.
+          Stai usando PitchBrain senza account. Durante la Beta hai già accesso completo a tutte le
+          funzionalità: Analisi partita, Marcature difficili, Trend, Simulatore e Pre-partita. Crea un
+          account solo se vuoi sincronizzare i dati su più dispositivi o recuperare il piano in futuro.
         </Text>
 
         <View style={styles.card}>
@@ -115,12 +116,9 @@ export default function ProfileScreen() {
           <Text style={styles.secondaryBtnText}>Crea account gratis</Text>
         </Pressable>
 
-        <Pressable
-          style={({ pressed }) => [styles.linkBtn, pressed && { opacity: 0.9 }]}
-          onPress={() => openPaywall("fullPreMatchReport")}
-        >
-          <Text style={styles.linkBtnText}>Scopri PitchBrain Pro</Text>
-        </Pressable>
+        <Text style={styles.betaHint}>
+          Durante la Beta di PitchBrain tutte le funzionalità sono gratuite per tutti, anche senza account.
+        </Text>
       </Screen>
     );
   }
@@ -328,6 +326,13 @@ const styles = StyleSheet.create({
     color: colors.cyanMuted,
     fontSize: 13,
     fontWeight: "700"
+  },
+  betaHint: {
+    marginTop: spacing.xs,
+    textAlign: "center",
+    color: colors.textDim,
+    fontSize: 12,
+    lineHeight: 17
   },
   logout: {
     marginTop: spacing.md,

@@ -1,3 +1,4 @@
+import { PITCHBRAIN_BETA_FREE_FOR_ALL } from "@/lib/access/beta-config";
 import type { FeatureAccessLevel, FeatureId, UserAccessStatus } from "@/lib/access/types";
 
 export const FEATURE_ACCESS: Record<FeatureId, FeatureAccessLevel> = {
@@ -24,6 +25,8 @@ export function canAccessFeature(
   featureAccessLevel: FeatureAccessLevel
 ): boolean {
   if (featureAccessLevel === "free") return true;
+  /** Beta free-for-all: le feature "pro" sono aperte anche a guest e Free. */
+  if (PITCHBRAIN_BETA_FREE_FOR_ALL) return true;
   return userStatus === "authenticated_pro";
 }
 

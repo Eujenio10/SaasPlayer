@@ -29,6 +29,38 @@ export const ENTITLEMENT_FLAGS = {
   freeSimulationPreviewEnabled: envBool("PITCHBRAIN_FREE_SIMULATION_PREVIEW_ENABLED", true)
 } as const;
 
+/**
+ * Beta pubblica "PitchBrain Beta": tutte le funzionalità sono gratuite per gli utenti
+ * autenticati dell'app mobile, senza toccare il modello di accesso admin/pro/member del
+ * kiosk web (Tactical Intelligence Hub). Attivo di default, disattivabile via env per il
+ * lancio a pagamento senza rimuovere codice. Si applica SOLO alle richieste che arrivano
+ * dall'app mobile (vedi header `MOBILE_CLIENT_HEADER`), mai al kiosk web.
+ */
+export const PITCHBRAIN_BETA_FREE_FOR_ALL = envBool("PITCHBRAIN_BETA_FREE_FOR_ALL", true);
+
+/** Header inviato da tutte le richieste dell'app mobile (mobile/lib/api.ts) per distinguerle
+ * dalle richieste del kiosk web quando condividono lo stesso endpoint backend. */
+export const MOBILE_CLIENT_HEADER = "x-pitchbrain-client";
+export const MOBILE_CLIENT_HEADER_VALUE = "mobile";
+
+export function isMobileClientRequest(request?: Request | null): boolean {
+  if (!request) return false;
+  return request.headers.get(MOBILE_CLIENT_HEADER) === MOBILE_CLIENT_HEADER_VALUE;
+}
+
+/**
+ * true per QUALSIASI richiesta dell'app mobile durante la beta free-for-all, autenticata o
+ * guest (identificata via `X-Device-Id`): guest e Free vengono trattati alla pari.
+ * Il parametro `userId` non è più determinante, ma resta accettato per compatibilità con i
+ * call site esistenti (può essere `null`/`undefined` per i guest).
+ */
+export function isBetaFreeForAllRequest(
+  request: Request | null | undefined,
+  _userId?: string | null
+): boolean {
+  return PITCHBRAIN_BETA_FREE_FOR_ALL && isMobileClientRequest(request);
+}
+
 export type EntitlementFeatureKey =
   | "match_preview"
   | "match_full_analysis"

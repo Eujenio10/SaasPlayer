@@ -219,12 +219,22 @@ export async function regenerateMatchSimulatorSnapshotForOrganization(params: {
   matches: UpcomingMatchItem[];
   insightsSnap: number;
   maxMatches?: number;
+  /** Se true, aggiorna solo le partite passate e lascia intatte le altre competizioni. */
+  mergeExisting?: boolean;
 }): Promise<{ ok: boolean; snapshot?: MatchSimulatorSnapshot; message?: string }> {
   if (!(await areMatchSimulatorDatabaseTablesAvailable())) {
     return { ok: false, message: "simulator_tables_missing" };
   }
 
-  const snapshot = emptySnapshot();
+  const existing = (await loadOrganizationMatchSimulatorSnapshot(params.organizationId)) ?? emptySnapshot();
+  const snapshot: MatchSimulatorSnapshot = params.mergeExisting
+    ? {
+        ...existing,
+        insightsSnap: params.insightsSnap,
+        simulationIndex: { ...existing.simulationIndex },
+        rounds: [...(existing.rounds ?? [])]
+      }
+    : emptySnapshot();
   snapshot.insightsSnap = params.insightsSnap;
   const limit = params.maxMatches ?? 12;
   let generated = 0;
@@ -245,14 +255,13 @@ export async function regenerateMatchSimulatorSnapshotForOrganization(params: {
   snapshot.updatedAt = new Date().toISOString();
 
   if (generated === 0) {
-    const existing = await loadOrganizationMatchSimulatorSnapshot(params.organizationId);
-    const existingCount = Object.keys(existing?.simulationIndex ?? {}).length;
+    const existingCount = Object.keys(existing.simulationIndex ?? {}).length;
     if (existingCount > 0) {
       console.warn("[match-simulator] regenerate_keep_previous_empty_batch", {
         organizationId: params.organizationId,
         previous: existingCount
       });
-      return { ok: true, snapshot: existing ?? snapshot };
+      return { ok: true, snapshot: existing };
     }
   }
 

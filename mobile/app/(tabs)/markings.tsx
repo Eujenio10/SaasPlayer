@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { AdminCompetitionRefreshBar } from "@/components/AdminCompetitionRefreshBar";
 import { GuestProFeatureLockPanel } from "@/components/access/GuestProFeatureLockPanel";
 import { DifficultMarkingsList } from "@/components/difficult-markings/DifficultMarkingsList";
 import { MarkingsCompetitionPicker } from "@/components/difficult-markings/MarkingsCompetitionPicker";
@@ -9,18 +10,22 @@ import { useAuth } from "@/contexts/AuthContext";
 import { canAccessDifficultMarkings } from "@/lib/access/guest-preview-mode";
 import { subscribeAdminCatalogRefresh } from "@/lib/admin-catalog-refresh";
 import { useCompetitionsWithMatches } from "@/lib/competitions/useCompetitionsWithMatches";
+import { useAdminMatchesRefresh } from "@/lib/matches/useAdminMatchesRefresh";
 import { colors, spacing } from "@/lib/theme";
 
 export default function MarkingsScreen() {
-  const { userStatus } = useAuth();
-  const { openPaywall } = useAccessFlow();
+  const { userStatus, access } = useAuth();
+  const { openAuthFromPaywall } = useAccessFlow();
   const { availableIds, preferredId, refresh: refreshCompetitions } = useCompetitionsWithMatches();
   const [competitionId, setCompetitionId] = useState("world-cup");
   const [refreshToken, setRefreshToken] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
+  const adminRefresh = useAdminMatchesRefresh(() => {
+    setRefreshToken((value) => value + 1);
+    void refreshCompetitions();
+  });
 
   const canUseMarkings = canAccessDifficultMarkings(userStatus);
-  const isGuest = userStatus === "guest";
 
   useEffect(() => {
     if (preferredId && (!availableIds?.includes(competitionId as never) || !competitionId)) {
@@ -42,9 +47,6 @@ export default function MarkingsScreen() {
     });
   }, [refreshCompetitions]);
 
-  const openProPaywall = useCallback(() => {
-    openPaywall("difficultMarkings", { type: "open_feature", feature: "difficultMarkings" });
-  }, [openPaywall]);
 
   return (
     <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
@@ -67,15 +69,22 @@ export default function MarkingsScreen() {
           </Text>
         </View>
 
+        {access?.canRefreshData ? (
+          <AdminCompetitionRefreshBar
+            refreshing={adminRefresh.refreshing}
+            activeScope={adminRefresh.activeScope}
+            error={adminRefresh.error}
+            successMessage={adminRefresh.successMessage}
+            progress={adminRefresh.progress}
+            onRefresh={(slug) => void adminRefresh.refresh(slug)}
+          />
+        ) : null}
+
         {!canUseMarkings ? (
           <GuestProFeatureLockPanel
-            title="Funzione Pro"
-            description={
-              isGuest
-                ? "Le Marcature difficili sono riservate a PitchBrain Pro. Accedi e passa a Pro per la graduatoria completa."
-                : "Le Marcature difficili sono riservate a PitchBrain Pro. Con l'account Free non sono disponibili: passa a Pro per sbloccarle."
-            }
-            onDiscoverPro={openProPaywall}
+            title="Accedi per continuare"
+            description="Le Marcature difficili sono disponibili gratuitamente durante la Beta di PitchBrain. Crea un account gratuito per consultare la graduatoria completa."
+            onDiscoverPro={openAuthFromPaywall}
           />
         ) : (
           <>

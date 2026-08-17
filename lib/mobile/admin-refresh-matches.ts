@@ -93,10 +93,8 @@ export interface AdminMatchesRefreshOptions {
   /** Budget ms per singola invocazione serverless (sotto i 300s Hobby). */
   timeBudgetMs?: number;
   /**
-   * Se impostato, limita la fase insights a un solo campionato (es. "serie-a") per test mirati:
-   * meno partite = meno chiamate FootAPI = meno rischio di rate limit, più facile verificare i dati.
-   * Il menu (fase start) e l'aggregazione finale (fase finalize) restano completi su tutti i campionati
-   * per non cancellare marcature/trend/simulazioni già calcolate per le altre leghe.
+   * Se impostato, limita insights e snapshot derivati (marcature, trend, simulazioni)
+   * a un solo campionato (es. "serie-a"). Il menu (fase start) resta completo.
    */
   competitionSlug?: string;
   insightsSnap?: number;
@@ -477,17 +475,23 @@ async function runFinalizePhase(
   insightsSnap: number,
   trigger: DataRefreshTrigger,
   startedAt: number = Date.now(),
-  timeBudgetMs: number = FINALIZE_TIME_BUDGET_MS
+  timeBudgetMs: number = FINALIZE_TIME_BUDGET_MS,
+  competitionSlug?: string
 ): Promise<AdminMatchesRefreshResult> {
   const remainingBudget = () => Math.max(0, timeBudgetMs - (Date.now() - startedAt));
   const menus = await loadOrganizationMenus(organizationId);
   const allMenuMatches = filterUpcomingMenuMatches([...menus.domestic, ...menus.international]);
-  const targets = buildAdminInsightsPrefetchTargets(menus.domestic, menus.international);
+  const scopedMatches = scopeInsightsTargets(allMenuMatches, competitionSlug);
+  const allTargets = buildAdminInsightsPrefetchTargets(menus.domestic, menus.international);
+  const targets = scopeInsightsTargets(allTargets, competitionSlug);
+  const mergeCompetitionIds = competitionSlug ? [competitionSlug] : undefined;
 
-  await pruneOrganizationMatchInsightsOutsideEventIds(
-    organizationId,
-    allMenuMatches.map((match) => match.eventId)
-  );
+  if (!competitionSlug) {
+    await pruneOrganizationMatchInsightsOutsideEventIds(
+      organizationId,
+      allMenuMatches.map((match) => match.eventId)
+    );
+  }
 
   let trendsCount = 0;
   let markingsCount = 0;
@@ -497,10 +501,11 @@ async function runFinalizePhase(
   try {
     const markings = await regenerateDifficultMarkingsSnapshotForOrganization({
       organizationId,
-      matches: allMenuMatches,
+      matches: scopedMatches,
       insightsSnap,
       /** Non sovrascrivere uno snapshot utile con uno vuoto (insight falliti / menu vuoto). */
-      forceReplace: false
+      forceReplace: false,
+      mergeCompetitionIds
     });
     if (markings.ok) {
       markingsCount = Object.keys(markings.snapshot?.matchupIndex ?? {}).length;
@@ -529,10 +534,11 @@ async function runFinalizePhase(
       const playerPerformanceBudgetMs = Math.max(15_000, remainingBudget() * 0.5);
       const playerPerformance = await regeneratePlayerPerformanceSnapshotsForOrganization({
         organizationId,
-        matches: allMenuMatches,
+        matches: scopedMatches,
         insightsSnap,
-        maxMatches: 40,
-        maxDurationMs: playerPerformanceBudgetMs
+        maxMatches: competitionSlug ? scopedMatches.length : 40,
+        maxDurationMs: playerPerformanceBudgetMs,
+        pruneStale: !competitionSlug
       });
       if (playerPerformance.ok) playerPerformanceCount = playerPerformance.saved;
     } catch (e) {
@@ -548,11 +554,12 @@ async function runFinalizePhase(
       const trendsBudgetMs = Math.max(15_000, remainingBudget());
       const trends = await regenerateTrendsSnapshotForOrganization({
         organizationId,
-        matches: allMenuMatches,
+        matches: scopedMatches,
         insightsSnap,
         backfillMaxEvents: 10,
         forceReplace: false,
-        maxBackfillDurationMs: trendsBudgetMs
+        maxBackfillDurationMs: trendsBudgetMs,
+        mergeCompetitionIds
       });
       if (trends.ok) trendsCount = Object.keys(trends.snapshot?.trendIndex ?? {}).length;
     } catch (e) {
@@ -567,9 +574,10 @@ async function runFinalizePhase(
     try {
       const simulator = await regenerateMatchSimulatorSnapshotForOrganization({
         organizationId,
-        matches: allMenuMatches,
+        matches: scopedMatches,
         insightsSnap,
-        maxMatches: Math.min(allMenuMatches.length, 25)
+        maxMatches: Math.min(scopedMatches.length, competitionSlug ? 40 : 25),
+        mergeExisting: Boolean(competitionSlug)
       });
       if (simulator.ok) {
         matchSimulatorCount = Object.keys(simulator.snapshot?.simulationIndex ?? {}).length;
@@ -653,7 +661,14 @@ export async function runAdminMatchesRefresh(
     }
 
     if (phase === "finalize") {
-      return runFinalizePhase(organizationId, insightsSnap, trigger, startedAt, FINALIZE_TIME_BUDGET_MS);
+      return runFinalizePhase(
+        organizationId,
+        insightsSnap,
+        trigger,
+        startedAt,
+        FINALIZE_TIME_BUDGET_MS,
+        competitionSlug
+      );
     }
 
     /** Cron / full: esegue quante più fasi possibile nel budget. */
@@ -707,7 +722,7 @@ export async function runAdminMatchesRefresh(
       };
     }
 
-    return runFinalizePhase(organizationId, snap, trigger, startedAt, timeBudgetMs);
+    return runFinalizePhase(organizationId, snap, trigger, startedAt, timeBudgetMs, competitionSlug);
   })();
 
   refreshInFlightKey = flightKey;

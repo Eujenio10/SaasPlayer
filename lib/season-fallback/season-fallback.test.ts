@@ -7,8 +7,8 @@ import {
 } from "@/lib/season-fallback";
 
 assert.equal(shouldUsePreviousSeason(0), true);
-assert.equal(shouldUsePreviousSeason(2), true);
-assert.equal(shouldUsePreviousSeason(3), false);
+assert.equal(shouldUsePreviousSeason(1), false);
+assert.equal(shouldUsePreviousSeason(2), false);
 assert.equal(shouldUsePreviousSeason(5), false);
 
 assert.equal(
@@ -21,26 +21,28 @@ assert.equal(pickPreviousSeasonId([{ id: 90 }, { id: 80 }], 100), 90);
 const previous = buildTeamSeasonFallbackResolution({
   current: { tournamentId: 23, seasonId: 100 },
   previousSeasonId: 90,
-  matchesPlayedInCurrentSeason: 1
+  matchesPlayedInCurrentSeason: 0
 });
 assert.equal(previous.mode, "previous_season");
 assert.equal(previous.teamContext.seasonId, 90);
+assert.equal(previous.playerPreferredContext.seasonId, 90);
 assert.equal(previous.playerUseAnyCompetition, true);
 
 const current = buildTeamSeasonFallbackResolution({
   current: { tournamentId: 23, seasonId: 100 },
   previousSeasonId: 90,
-  matchesPlayedInCurrentSeason: 3
+  matchesPlayedInCurrentSeason: 1
 });
 assert.equal(current.mode, "current_season");
 assert.equal(current.teamContext.seasonId, 100);
+assert.equal(current.playerPreferredContext.seasonId, 100);
 assert.equal(current.playerUseAnyCompetition, false);
 
 /** Squadra neopromossa: 0 partite l'anno prima nello stesso torneo -> usa il campionato minore. */
 const promoted = buildTeamSeasonFallbackResolution({
   current: { tournamentId: 23, seasonId: 100 },
   previousSeasonId: 90,
-  matchesPlayedInCurrentSeason: 1,
+  matchesPlayedInCurrentSeason: 0,
   promotedContext: { tournamentId: 44, seasonId: 60 }
 });
 assert.equal(promoted.isNewlyPromoted, true);
@@ -54,7 +56,7 @@ assert.equal(promoted.playerUseAnyCompetition, true);
 const notPromoted = buildTeamSeasonFallbackResolution({
   current: { tournamentId: 23, seasonId: 100 },
   previousSeasonId: 90,
-  matchesPlayedInCurrentSeason: 1,
+  matchesPlayedInCurrentSeason: 0,
   promotedContext: null
 });
 assert.equal(notPromoted.isNewlyPromoted, false);

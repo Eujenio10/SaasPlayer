@@ -5,18 +5,22 @@ import { colors, radii, spacing } from "@/lib/theme";
 export function GuestProFeatureLockPanel({
   title,
   description,
-  onDiscoverPro
+  onDiscoverPro,
+  ctaLabel = "Crea un account gratuito",
+  badgeLabel = "BETA GRATUITA"
 }: {
   title: string;
   description: string;
   onDiscoverPro?: () => void;
+  ctaLabel?: string;
+  badgeLabel?: string;
 }) {
   return (
     <View style={styles.wrap}>
       <View style={styles.proBadge}>
-        <Text style={styles.proBadgeText}>PRO</Text>
+        <Text style={styles.proBadgeText}>{badgeLabel}</Text>
       </View>
-      <Ionicons name="lock-closed-outline" size={22} color={colors.amber} />
+      <Ionicons name="lock-closed-outline" size={22} color={colors.cyan} />
       <Text style={styles.title}>{title}</Text>
       <Text style={styles.body}>{description}</Text>
       {onDiscoverPro ? (
@@ -24,7 +28,7 @@ export function GuestProFeatureLockPanel({
           style={({ pressed }) => [styles.proBtn, pressed && { opacity: 0.92 }]}
           onPress={onDiscoverPro}
         >
-          <Text style={styles.proBtnText}>Passa a PitchBrain Pro</Text>
+          <Text style={styles.proBtnText}>{ctaLabel}</Text>
         </Pressable>
       ) : null}
     </View>
@@ -39,8 +43,8 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     borderRadius: radii.lg,
     borderWidth: 1,
-    borderColor: "rgba(250,204,21,0.2)",
-    backgroundColor: "rgba(250,204,21,0.05)",
+    borderColor: "rgba(103,232,249,0.2)",
+    backgroundColor: "rgba(56,189,248,0.05)",
     minHeight: 220
   },
   proBadge: {
@@ -48,11 +52,11 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: radii.pill,
     borderWidth: 1,
-    borderColor: "rgba(250,204,21,0.35)",
-    backgroundColor: "rgba(250,204,21,0.1)"
+    borderColor: "rgba(52,211,153,0.35)",
+    backgroundColor: "rgba(52,211,153,0.1)"
   },
   proBadgeText: {
-    color: colors.amber,
+    color: "#34d399",
     fontSize: 10,
     fontWeight: "900",
     letterSpacing: 0.8
@@ -72,7 +76,7 @@ const styles = StyleSheet.create({
   proBtn: {
     marginTop: spacing.sm,
     borderRadius: radii.lg,
-    backgroundColor: colors.amber,
+    backgroundColor: colors.cyan,
     paddingHorizontal: spacing.lg,
     paddingVertical: 12
   },

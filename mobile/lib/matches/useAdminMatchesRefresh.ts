@@ -9,6 +9,7 @@ export function useAdminMatchesRefresh(onSuccess?: () => void) {
   const [progress, setProgress] = useState<{ current: number; total: number; phase: string } | null>(
     null
   );
+  const [activeScope, setActiveScope] = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<{
     matchesCount: number;
     domesticMatchesCount: number;
@@ -21,13 +22,14 @@ export function useAdminMatchesRefresh(onSuccess?: () => void) {
     markingsCount?: number;
   } | null>(null);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (competitionSlug?: string) => {
     setRefreshing(true);
+    setActiveScope(competitionSlug ?? "all");
     setError(null);
     setSuccessMessage(null);
     setProgress({ current: 0, total: 0, phase: "start" });
     try {
-      const result = await refreshAdminMatches((p) => setProgress(p));
+      const result = await refreshAdminMatches((p) => setProgress(p), competitionSlug);
       setLastResult({
         matchesCount: result.matchesCount,
         domesticMatchesCount: result.domesticMatchesCount,
@@ -39,6 +41,7 @@ export function useAdminMatchesRefresh(onSuccess?: () => void) {
         trendsCount: result.trendsCount,
         markingsCount: result.markingsCount
       });
+      const scopeLabel = competitionSlug ? ` (${competitionSlug})` : "";
       if (result.insightsTotal > 0) {
         const trendsPart =
           result.trendsCount != null ? ` Trend: ${result.trendsCount}.` : "";
@@ -46,8 +49,8 @@ export function useAdminMatchesRefresh(onSuccess?: () => void) {
           result.markingsCount != null ? ` Marcature: ${result.markingsCount}.` : "";
         setSuccessMessage(
           result.insightsProcessed >= result.insightsTotal && !result.insightsPartial
-            ? `Statistiche aggiornate per ${result.insightsTotal} partite.${trendsPart}${markingsPart}`
-            : `Statistiche aggiornate per ${result.insightsProcessed} di ${result.insightsTotal} partite.${trendsPart}${markingsPart}`
+            ? `Statistiche aggiornate per ${result.insightsTotal} partite${scopeLabel}.${trendsPart}${markingsPart}`
+            : `Statistiche aggiornate per ${result.insightsProcessed} di ${result.insightsTotal} partite${scopeLabel}.${trendsPart}${markingsPart}`
         );
       } else {
         setSuccessMessage("Menu partite aggiornato.");
@@ -64,8 +67,9 @@ export function useAdminMatchesRefresh(onSuccess?: () => void) {
     } finally {
       setRefreshing(false);
       setProgress(null);
+      setActiveScope(null);
     }
   }, [onSuccess]);
 
-  return { refreshing, error, successMessage, lastResult, progress, refresh };
+  return { refreshing, error, successMessage, lastResult, progress, activeScope, refresh };
 }

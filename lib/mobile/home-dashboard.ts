@@ -263,7 +263,7 @@ function buildModules(access: UserAccessSummary, guestMode?: boolean): HomeModul
       color: "#34D399",
       route: "/simulator",
       enabled: true,
-      badge: guestMode ? "ADS" : null
+      badge: guestMode && !proOrAdmin ? "ADS" : null
     },
     {
       id: "advanced-stats",

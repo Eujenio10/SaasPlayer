@@ -11,6 +11,8 @@ import {
   prunedYellowRows
 } from "@/lib/mobile/home-dashboard";
 import { localizeUpcomingMatches, localizeTacticalMetrics } from "@/lib/italian-sports-display";
+import { buildUnlimitedMatchUsage } from "@/lib/auth/user-access";
+import { isBetaFreeForAllRequest } from "@/lib/entitlements/config";
 import type { TacticalMetrics } from "@/lib/types";
 import type { UpcomingMatchItem } from "@/services/sportapi";
 
@@ -46,10 +48,16 @@ export async function GET(request: Request) {
 
   const apiUser = await getApiUser(request);
 
-  const access =
+  const accessRaw =
     ctx.mode === "authenticated" && ctx.userId
       ? await buildUserAccessSummary(ctx.userId, ctx.role as "admin" | "pro" | "member")
       : guestAccessSummary();
+
+  /** Beta pubblica app mobile: dashboard senza limiti Pro per gli utenti Free autenticati. */
+  const access =
+    isBetaFreeForAllRequest(request, ctx.userId) && !accessRaw.isPro
+      ? { ...accessRaw, isPro: true, matchUsage: buildUnlimitedMatchUsage(), yellowCardVisibleRows: null }
+      : accessRaw;
 
   const matches = localizeUpcomingMatches(
     await loadOrganizationMatches(ctx.supabase, ctx.organizationId)

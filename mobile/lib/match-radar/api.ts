@@ -16,7 +16,10 @@ export async function fetchMatchRadar(params: {
   if (params.locale) search.set("locale", params.locale);
 
   const res = await fetch(`${env.apiUrl}/api/mobile/match-radar?${search.toString()}`, {
-    headers: params.token ? { Authorization: `Bearer ${params.token}` } : undefined
+    headers: {
+      "X-PitchBrain-Client": "mobile",
+      ...(params.token ? { Authorization: `Bearer ${params.token}` } : {})
+    }
   });
   if (!res.ok) throw new Error("match_radar_fetch_failed");
   return res.json() as Promise<MatchRadarApiResponse>;
@@ -32,7 +35,12 @@ export async function fetchMatchRadarDetail(params: {
 
   const res = await fetch(
     `${env.apiUrl}/api/mobile/match-radar/${encodeURIComponent(params.matchId)}?${search.toString()}`,
-    { headers: params.token ? { Authorization: `Bearer ${params.token}` } : undefined }
+    {
+      headers: {
+        "X-PitchBrain-Client": "mobile",
+        ...(params.token ? { Authorization: `Bearer ${params.token}` } : {})
+      }
+    }
   );
   if (!res.ok) throw new Error("match_radar_detail_fetch_failed");
   return res.json() as Promise<{ detail: import("@/lib/match-radar/types").MatchRadarDetailResponse }>;

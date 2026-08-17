@@ -23,7 +23,10 @@ async function buildHeaders(requireAuth = false): Promise<HeadersInit> {
 
   const headers: HeadersInit = {
     "Content-Type": "application/json",
-    "X-Device-Id": deviceId
+    "X-Device-Id": deviceId,
+    /** Distingue le richieste dell'app mobile da quelle del kiosk web quando condividono lo
+     * stesso endpoint backend (es. entitlements, access, match-insights). */
+    "X-PitchBrain-Client": "mobile"
   };
 
   const accessToken = sessionData.session?.access_token;
@@ -224,7 +227,8 @@ export type AdminRefreshPhaseResult = {
  * Esegue più richieste finché `done` non è true.
  */
 export async function refreshAdminMatches(
-  onProgress?: (progress: { current: number; total: number; phase: string }) => void
+  onProgress?: (progress: { current: number; total: number; phase: string }) => void,
+  competitionSlug?: string
 ): Promise<AdminRefreshPhaseResult> {
   let phase: "start" | "insights" | "finalize" = "start";
   let insightsOffset = 0;
@@ -247,7 +251,8 @@ export async function refreshAdminMatches(
           body: JSON.stringify({
             phase,
             insightsOffset,
-            insightsSnap
+            insightsSnap,
+            competitionSlug: competitionSlug || undefined
           }),
           signal: controller.signal
         },

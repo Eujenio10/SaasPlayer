@@ -10,7 +10,8 @@ async function buildHeaders(): Promise<HeadersInit> {
   ]);
   const headers: HeadersInit = {
     "Content-Type": "application/json",
-    "X-Device-Id": deviceId
+    "X-Device-Id": deviceId,
+    "X-PitchBrain-Client": "mobile"
   };
   if (data.session?.access_token) {
     headers.Authorization = `Bearer ${data.session.access_token}`;

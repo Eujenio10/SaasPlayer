@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { AdminCompetitionRefreshBar } from "@/components/AdminCompetitionRefreshBar";
 import { GuestLockedSectionPanel } from "@/components/access/GuestLockedSectionPanel";
 import { GuestProFeatureLockPanel } from "@/components/access/GuestProFeatureLockPanel";
 import { MarkingsCompetitionPicker } from "@/components/difficult-markings/MarkingsCompetitionPicker";
@@ -11,6 +12,7 @@ import { useGuestPreview } from "@/contexts/GuestPreviewContext";
 import { formatGuestFeaturesRemainingMinutes } from "@/lib/guest-ad-preview";
 import { canAccessMatchSimulator } from "@/lib/access/guest-preview-mode";
 import { useCompetitionsWithMatches } from "@/lib/competitions/useCompetitionsWithMatches";
+import { useAdminMatchesRefresh } from "@/lib/matches/useAdminMatchesRefresh";
 import {
   MATCH_SIMULATOR_PAGE_SUBTITLE,
   MATCH_SIMULATOR_PAGE_TITLE
@@ -18,13 +20,17 @@ import {
 import { colors, spacing } from "@/lib/theme";
 
 export default function SimulatorScreen() {
-  const { userStatus } = useAuth();
+  const { userStatus, access } = useAuth();
   const { openPaywall } = useAccessFlow();
   const { featuresPreviewActive, featuresPreviewExpiresAt, openAdModal } = useGuestPreview();
   const { availableIds, preferredId, refresh: refreshCompetitions } = useCompetitionsWithMatches();
   const [competitionId, setCompetitionId] = useState("serie-a");
   const [refreshToken, setRefreshToken] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
+  const adminRefresh = useAdminMatchesRefresh(() => {
+    setRefreshToken((value) => value + 1);
+    void refreshCompetitions();
+  });
 
   const isGuest = userStatus === "guest";
   const canUseSimulator = canAccessMatchSimulator(userStatus, featuresPreviewActive);
@@ -62,6 +68,17 @@ export default function SimulatorScreen() {
             <Text style={styles.previewHint}>Simulatore sbloccato — ancora {remainingMinutes} min.</Text>
           ) : null}
         </View>
+
+        {access?.canRefreshData ? (
+          <AdminCompetitionRefreshBar
+            refreshing={adminRefresh.refreshing}
+            activeScope={adminRefresh.activeScope}
+            error={adminRefresh.error}
+            successMessage={adminRefresh.successMessage}
+            progress={adminRefresh.progress}
+            onRefresh={(slug) => void adminRefresh.refresh(slug)}
+          />
+        ) : null}
 
         {!canUseSimulator ? (
           isGuest ? (

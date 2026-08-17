@@ -3,16 +3,14 @@ import { useRouter, type Href } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { HomeHeader } from "@/components/home/HomeHeader";
 import { ErrorState } from "@/components/home/ErrorState";
+import { BetaNoticeBanner } from "@/components/home/BetaNoticeBanner";
 import { FeaturedMatchCard } from "@/components/home/FeaturedMatchCard";
-import { GuestHomePromoCard } from "@/components/home/GuestHomePromoCard";
 import { HomeLoadingSkeleton } from "@/components/home/LoadingSkeleton";
-import { ProUpsellCard } from "@/components/home/ProUpsellCard";
 import { QuickActionsRow } from "@/components/home/QuickActionButton";
 import { AnalyticsModuleCard } from "@/components/home/AnalyticsModuleCard";
 import { MatchRadarHomeCta } from "@/components/match-radar/MatchRadarHomeCta";
 import { DataRefreshScheduleBanner } from "@/components/home/DataRefreshScheduleBanner";
 import { EarlySeasonNoticeBanner } from "@/components/home/EarlySeasonNoticeBanner";
-import { useAccessFlow } from "@/contexts/AccessFlowContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useGuestPreview } from "@/contexts/GuestPreviewContext";
 import { shouldObscureGuestStats } from "@/lib/access/guest-preview-mode";
@@ -23,14 +21,12 @@ import { colors, radii, spacing } from "@/lib/theme";
 export function HomeScreen() {
   const router = useRouter();
   const { access, userStatus } = useAuth();
-  const { openPaywall } = useAccessFlow();
-  const { previewActive, openAdModal } = useGuestPreview();
+  const { previewActive } = useGuestPreview();
   const { data, loading, error, refetch } = useHomeDashboard();
   const adminRefresh = useAdminMatchesRefresh(() => void refetch());
 
   const isGuest = userStatus === "guest";
   const obscureStats = shouldObscureGuestStats(userStatus, previewActive);
-  const showProUpsell = userStatus !== "authenticated_pro";
 
   const openFeatured = (
     eventId: number,
@@ -73,17 +69,10 @@ export function HomeScreen() {
         {loading && !data ? <HomeLoadingSkeleton /> : null}
 
         <View style={styles.content}>
+          <BetaNoticeBanner />
           <EarlySeasonNoticeBanner message={data?.earlySeasonNotice} />
           <DataRefreshScheduleBanner status={data?.dataRefresh} />
           <MatchRadarHomeCta />
-
-          {isGuest ? (
-            <GuestHomePromoCard
-              previewActive={previewActive}
-              onDiscoverPro={() => openPaywall("fullPreMatchReport")}
-              onWatchAd={openAdModal}
-            />
-          ) : null}
 
           {error && !data && !isGuest ? (
             <ErrorState message={error} onRetry={() => void refetch()} />
@@ -135,9 +124,6 @@ export function HomeScreen() {
             </View>
           ) : null}
 
-          {showProUpsell && !isGuest ? (
-            <ProUpsellCard onPress={() => openPaywall("fullPreMatchReport")} />
-          ) : null}
         </View>
       </ScrollView>
     </SafeAreaView>

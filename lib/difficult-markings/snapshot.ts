@@ -18,7 +18,8 @@ import { matchKickoffIsStillFuture } from "@/lib/tactical-matches-filters";
 import { findOrganizationMatchByEventId } from "@/lib/organization-match-insights";
 import {
   countStoredMarkupsInSnapshot,
-  snapshotHasPublishedMarkingsData
+  snapshotHasPublishedMarkingsData,
+  canonicalCompetitionId
 } from "@/lib/difficult-markings/query";
 
 function snapshotHasPublishedMatchups(snapshot: DifficultMarkingsSnapshot | null | undefined): boolean {
@@ -210,16 +211,47 @@ export async function upsertOrganizationDifficultMarkingsSnapshot(params: {
   return { ok: true };
 }
 
+function mergeDifficultMarkingsSnapshots(
+  existing: DifficultMarkingsSnapshot | null | undefined,
+  incoming: DifficultMarkingsSnapshot,
+  competitionIds: string[]
+): DifficultMarkingsSnapshot {
+  if (!existing || !competitionIds.length) return incoming;
+  const scoped = new Set(competitionIds.map((id) => canonicalCompetitionId(id)).filter(Boolean));
+  if (!scoped.size) return incoming;
+
+  const keepMatchups = Object.fromEntries(
+    Object.entries(existing.matchupIndex ?? {}).filter(
+      ([, matchup]) => !scoped.has(canonicalCompetitionId(matchup.competitionId))
+    )
+  );
+  const keepRounds = (existing.rounds ?? []).filter(
+    (round) => !scoped.has(canonicalCompetitionId(round.competitionId))
+  );
+
+  return {
+    ...incoming,
+    matchupIndex: { ...keepMatchups, ...incoming.matchupIndex },
+    rounds: [...keepRounds, ...(incoming.rounds ?? [])]
+  };
+}
+
 export async function regenerateDifficultMarkingsSnapshotForOrganization(params: {
   organizationId: string;
   matches: UpcomingMatchItem[];
   insightsSnap: number;
   forceReplace?: boolean;
+  /** Se impostato, sostituisce solo queste competizioni nello snapshot esistente. */
+  mergeCompetitionIds?: string[];
 }): Promise<{ ok: boolean; snapshot?: DifficultMarkingsSnapshot; message?: string }> {
   const sb = createSupabaseServiceClient();
   const upcomingMatches = filterUpcomingMenuMatches(params.matches);
   const eventIds = upcomingMatches.map((m) => m.eventId).filter((id) => id > 0);
   if (!eventIds.length) {
+    if (params.mergeCompetitionIds?.length && !params.forceReplace) {
+      const existing = await loadOrganizationDifficultMarkingsSnapshot(params.organizationId);
+      if (existing) return { ok: true, snapshot: existing };
+    }
     const empty: DifficultMarkingsSnapshot = {
       insightsSnap: params.insightsSnap,
       rounds: [],
@@ -259,10 +291,18 @@ export async function regenerateDifficultMarkingsSnapshotForOrganization(params:
     bundles.push({ match, metrics });
   }
 
-  const snapshot = computeDifficultMarkingsSnapshot({
+  const snapshotRaw = computeDifficultMarkingsSnapshot({
     bundles,
     insightsSnap: params.insightsSnap
   });
+  const existing = params.mergeCompetitionIds?.length
+    ? (await loadOrganizationDifficultMarkingsSnapshot(params.organizationId))
+    : null;
+  const snapshot = mergeDifficultMarkingsSnapshots(
+    existing,
+    snapshotRaw,
+    params.mergeCompetitionIds ?? []
+  );
 
   const persist = await upsertOrganizationDifficultMarkingsSnapshot({
     organizationId: params.organizationId,

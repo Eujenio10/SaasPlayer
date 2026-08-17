@@ -134,6 +134,8 @@ export async function regeneratePlayerPerformanceSnapshotsForOrganization(params
   maxMatches?: number;
   /** Se impostato, interrompe il ciclo oltre questo tempo (anti-timeout su serverless a fasi). */
   maxDurationMs?: number;
+  /** Se false, non elimina gli snapshot delle altre partite (refresh per singolo campionato). */
+  pruneStale?: boolean;
 }): Promise<{ ok: boolean; saved: number; failed: number; message?: string }> {
   if (!(await arePlayerPerformanceSnapshotTablesAvailable())) {
     return { ok: false, saved: 0, failed: 0, message: "player_performance_tables_missing" };
@@ -150,10 +152,12 @@ export async function regeneratePlayerPerformanceSnapshotsForOrganization(params
   const limit = params.maxMatches ?? Math.min(upcoming.length, 40);
   const targets = upcoming.slice(0, limit);
 
-  await prunePlayerPerformanceSnapshotsOutsideEventIds(
-    params.organizationId,
-    upcoming.map((match) => match.eventId)
-  );
+  if (params.pruneStale !== false) {
+    await prunePlayerPerformanceSnapshotsOutsideEventIds(
+      params.organizationId,
+      upcoming.map((match) => match.eventId)
+    );
+  }
 
   const startedAt = Date.now();
   let saved = 0;

@@ -992,8 +992,10 @@ export async function fetchEventSeasonContextForInsights(eventId: number): Promi
 }
 
 /**
- * Contesto stagione effettivo per analisi di una squadra: a inizio annata (meno di 3
- * partite finite nel torneo corrente) usa la stagione precedente; altrimenti la corrente.
+ * Contesto stagione effettivo per analisi di una squadra: solo alla prima giornata
+ * (0 partite finite nel torneo corrente) usa le statistiche della stagione precedente;
+ * rosa e formazioni restano della stagione corrente. Dalla seconda giornata in poi
+ * si usano i dati dell'annata in corso.
  */
 export async function resolveEffectiveSeasonContextForTeam(params: {
   teamId: number;
@@ -2937,6 +2939,61 @@ async function fetchFallbackPlayersForTeam(_params: {
   return [];
 }
 
+/**
+ * Rosa attuale della squadra (stagione corrente), usata a inizio campionato per
+ * filtrare le stats della stagione precedente sui giocatori ancora in rosa.
+ */
+async function fetchCurrentTeamRosterNames(
+  teamId: number,
+  bypassCache?: boolean
+): Promise<Set<string>> {
+  const names = new Set<string>();
+  if (teamId <= 0) return names;
+  try {
+    const response = await sportApiFetch(sportApiTeamPlayersPath(teamId), {
+      requestType: "snapshot",
+      teamId,
+      revalidateSeconds: 3600,
+      bypassCache
+    });
+    if (!response.ok) return names;
+    const payload = await readSportApiJson(response);
+    if (!payload || typeof payload !== "object") return names;
+    const root = payload as Record<string, unknown>;
+    const rawList = Array.isArray(root.players)
+      ? root.players
+      : Array.isArray(root.squad)
+        ? root.squad
+        : [];
+    const rawPlayers: unknown[] = [];
+    for (const item of rawList) {
+      if (!item || typeof item !== "object") continue;
+      const row = item as Record<string, unknown>;
+      if (Array.isArray(row.players)) {
+        rawPlayers.push(...row.players);
+        continue;
+      }
+      rawPlayers.push(item);
+    }
+    for (const item of rawPlayers) {
+      if (!item || typeof item !== "object") continue;
+      const row = item as Record<string, unknown>;
+      const nested =
+        row.player && typeof row.player === "object" ? (row.player as Record<string, unknown>) : row;
+      const name = normalizePlayerNameKey(
+        String(nested.name ?? nested.shortName ?? nested.playerName ?? "")
+      );
+      if (name) names.add(name);
+    }
+  } catch (error) {
+    console.warn("[sportapi] current_roster_fetch_failed", {
+      teamId,
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
+  return names;
+}
+
 async function fetchRecentPlayersForTeam(params: {
   teamId: number;
   teamName: string;
@@ -3497,6 +3554,11 @@ export async function fetchSportPerformanceForTeams(params: {
     for (const starter of startersFromSelectedMatch) {
       const n = normalizePlayerNameKey(starter.player?.name ?? starter.player?.shortName ?? "");
       if (n) currentRosterNameSet.add(n);
+    }
+    /** Prima giornata: formazioni/giocatori dalla rosa corrente, stats dalla stagione precedente. */
+    if (binding.seasonFallback.mode === "previous_season") {
+      const currentSquad = await fetchCurrentTeamRosterNames(team.teamId, params.bypassCache);
+      for (const name of currentSquad) currentRosterNameSet.add(name);
     }
 
     const seasonEventCap = isMonitoredInternationalCompetitionSlug(normalizedCompetition)

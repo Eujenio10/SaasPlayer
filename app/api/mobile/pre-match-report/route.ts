@@ -22,6 +22,7 @@ import {
 } from "@/lib/prematch-report/ensure-team-tournament-blueprints";
 import { scopeFromCompetitionSlugForInsights } from "@/lib/tactical-stats-eligible-matches";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
+import { isBetaFreeForAllRequest } from "@/lib/entitlements/config";
 
 const querySchema = z.object({
   eventId: z.coerce.number().int().positive()
@@ -29,12 +30,20 @@ const querySchema = z.object({
 
 export async function GET(request: Request) {
   const user = await getApiUser(request);
-  if (!user) {
+  const beta = isBetaFreeForAllRequest(request, user?.id);
+
+  if (!user && !beta) {
     return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
   }
 
-  await ensureConsumerOrganizationMembership(user.id);
-  const access = await resolveAuthenticatedUserAccess(user.id);
+  /** Beta pubblica app mobile: report completo anche per Free autenticati e guest. */
+  const accessRaw = user ? await resolveAuthenticatedUserAccess(user.id) : null;
+  if (user) await ensureConsumerOrganizationMembership(user.id);
+
+  const access =
+    beta && !accessRaw?.isPro
+      ? { ...(accessRaw ?? { isAdmin: false, isPro: false }), isPro: true }
+      : accessRaw ?? { isAdmin: false, isPro: false };
 
   if (!access.isPro && !access.isAdmin) {
     return NextResponse.json({ error: "premium_required" }, { status: 403 });

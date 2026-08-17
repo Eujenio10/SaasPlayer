@@ -2,11 +2,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, SectionList, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { AdminRefreshMatchesButton } from "@/components/AdminRefreshMatchesButton";
+import { AdminCompetitionRefreshBar } from "@/components/AdminCompetitionRefreshBar";
 import { MatchRow } from "@/components/MatchRow";
 import { MatchFilterBar } from "@/components/matches/MatchFilterBar";
-import { GuestHomePromoCard } from "@/components/home/GuestHomePromoCard";
-import { useAccessFlow } from "@/contexts/AccessFlowContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useGuestPreview } from "@/contexts/GuestPreviewContext";
 import { formatGuestApiError, shouldObscureGuestStats } from "@/lib/access/guest-preview-mode";
@@ -27,15 +25,13 @@ import { colors, radii, spacing } from "@/lib/theme";
 export default function MatchesScreen() {
   const router = useRouter();
   const { access, userStatus } = useAuth();
-  const { openPaywall } = useAccessFlow();
-  const { previewActive, openAdModal } = useGuestPreview();
+  const { previewActive } = useGuestPreview();
   const [matches, setMatches] = useState<UpcomingMatchItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<MatchFilterId>("all");
 
-  const isGuest = userStatus === "guest";
   const obscureStats = shouldObscureGuestStats(userStatus, previewActive);
 
   const load = useCallback(async (isRefresh = false) => {
@@ -107,21 +103,14 @@ export default function MatchesScreen() {
         Seleziona una partita per aprire scontri & falli, forma squadre e pre-partita.
       </Text>
 
-      {isGuest ? (
-        <GuestHomePromoCard
-          previewActive={previewActive}
-          onDiscoverPro={() => openPaywall("advancedMatchAnalysis")}
-          onWatchAd={openAdModal}
-        />
-      ) : null}
-
       {access?.canRefreshData ? (
-        <AdminRefreshMatchesButton
+        <AdminCompetitionRefreshBar
           refreshing={adminRefresh.refreshing}
+          activeScope={adminRefresh.activeScope}
           error={adminRefresh.error}
           successMessage={adminRefresh.successMessage}
           progress={adminRefresh.progress}
-          onPress={() => void adminRefresh.refresh()}
+          onRefresh={(slug) => void adminRefresh.refresh(slug)}
         />
       ) : null}
 

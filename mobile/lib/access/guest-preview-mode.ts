@@ -1,3 +1,4 @@
+import { PITCHBRAIN_BETA_FREE_FOR_ALL } from "@/lib/access/beta-config";
 import type { UserAccessStatus } from "@/lib/access/types";
 
 export type GuestPreviewMode = "full" | "locked" | "partial";
@@ -10,18 +11,23 @@ export function isProUserStatus(userStatus: UserAccessStatus): boolean {
   return userStatus === "authenticated_pro";
 }
 
+/** Durante la Beta, guest e Free hanno lo stesso accesso completo dei Pro. */
+export function hasFullBetaAccess(userStatus: UserAccessStatus): boolean {
+  return PITCHBRAIN_BETA_FREE_FOR_ALL || isProUserStatus(userStatus);
+}
+
 /**
  * Modalità anteprima contenuti avanzati.
- * - Pro → full
- * - Guest con ADS attiva → partial
- * - Guest senza ADS / Free / Pro scaduto → locked (salvo contentUnlocked esplicito)
+ * - Pro (o Beta free-for-all, qualunque userStatus) → full
+ * - Guest con ADS attiva (fuori Beta) → partial
+ * - Guest senza ADS / Free / Pro scaduto (fuori Beta) → locked (salvo contentUnlocked esplicito)
  */
 export function resolveGuestPreviewMode(
   userStatus: UserAccessStatus,
   previewActive: boolean,
   options?: { contentUnlocked?: boolean }
 ): GuestPreviewMode {
-  if (options?.contentUnlocked || isProUserStatus(userStatus)) return "full";
+  if (options?.contentUnlocked || hasFullBetaAccess(userStatus)) return "full";
   if (userStatus === "guest") {
     return previewActive ? "partial" : "locked";
   }
@@ -32,15 +38,16 @@ export function shouldObscureGuestStats(
   userStatus: UserAccessStatus,
   _previewActive?: boolean
 ): boolean {
+  if (hasFullBetaAccess(userStatus)) return false;
   return userStatus === "guest";
 }
 
-/** Guest: Simulatore + Duelli dopo ADS (15 min). Free: no — solo Pro. */
+/** Durante la Beta: Simulatore disponibile per tutti, guest incluso, senza pubblicità. */
 export function canAccessMatchSimulator(
   userStatus: UserAccessStatus,
   featuresPreviewActive: boolean
 ): boolean {
-  if (userStatus === "authenticated_pro") return true;
+  if (hasFullBetaAccess(userStatus)) return true;
   if (userStatus === "guest") return featuresPreviewActive;
   return false;
 }
@@ -61,14 +68,14 @@ export function canGuestAccessMatchSimulator(
   return canAccessMatchSimulator(userStatus, featuresPreviewActive);
 }
 
-/** Marcature difficili: solo Pro. */
+/** Marcature difficili: Pro, o chiunque durante la Beta free-for-all (guest incluso). */
 export function canAccessDifficultMarkings(userStatus: UserAccessStatus): boolean {
-  return userStatus === "authenticated_pro";
+  return hasFullBetaAccess(userStatus);
 }
 
-/** Graduatoria completa marcature: solo Pro. */
+/** Graduatoria completa marcature: Pro, o chiunque durante la Beta free-for-all. */
 export function canAccessDifficultMarkingsFull(userStatus: UserAccessStatus): boolean {
-  return userStatus === "authenticated_pro";
+  return hasFullBetaAccess(userStatus);
 }
 
 export function formatGuestApiError(message: string): string {

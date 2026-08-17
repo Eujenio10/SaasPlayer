@@ -30,7 +30,7 @@ export default function MatchRadarDetailScreen() {
   const router = useRouter();
   const { matchId } = useLocalSearchParams<{ matchId: string }>();
   const { userStatus } = useAuth();
-  const { openPaywall } = useAccessFlow();
+  const { openAuthFromPaywall } = useAccessFlow();
   const isPro = canAccessFeatureId(userStatus, "proFilters");
   const { detail, loading, error } = useMatchRadarDetail(isPro ? matchId : undefined);
   const locale: "it" | "en" = "it";
@@ -38,16 +38,16 @@ export default function MatchRadarDetailScreen() {
 
   useEffect(() => {
     if (isPro) return;
-    openPaywall("proFilters", { type: "open_feature", feature: "proFilters" });
+    openAuthFromPaywall();
     router.replace("/match-radar");
-  }, [isPro, openPaywall, router]);
+  }, [isPro, openAuthFromPaywall, router]);
 
   if (!isPro) {
     return (
       <>
         <Stack.Screen options={{ title: ui.title }} />
         <Screen>
-          <Text style={styles.muted}>Funzione Pro: apri il piano Pro per il dettaglio Match Radar.</Text>
+          <Text style={styles.muted}>Crea un account gratuito per il dettaglio Match Radar.</Text>
         </Screen>
       </>
     );
