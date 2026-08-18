@@ -24,7 +24,6 @@ import {
 import { loadBestDifficultMarkingsSnapshot } from "@/lib/difficult-markings/snapshot";
 import type { DifficultMarkingsResponse } from "@/lib/difficult-markings/types";
 import { canonicalCompetitionId } from "@/lib/difficult-markings/query";
-import { resolveMarkingsCatalogOrganizationId } from "@/lib/auth/product-organization";
 
 const listSchema = z.object({
   competitionId: z.string().min(1),
@@ -39,10 +38,8 @@ export function listMonitoredCompetitionOptions() {
 }
 
 async function loadMarkingsSnapshotForCatalog(primaryOrganizationId: string) {
-  // Solo lettura: il ricalcolo avviene al refresh giornaliero/admin (08:00).
-  const markingsOrganizationId =
-    (await resolveMarkingsCatalogOrganizationId()) ?? primaryOrganizationId.trim();
-  return loadBestDifficultMarkingsSnapshot(markingsOrganizationId);
+  // Preferisci l'org che sta consultando (dopo un refresh admin i dati nuovi sono lì).
+  return loadBestDifficultMarkingsSnapshot(primaryOrganizationId.trim());
 }
 
 export async function buildDifficultMarkingsListResponse(params: {

@@ -78,9 +78,8 @@ function scopeInsightsTargets(
   competitionSlug: string | undefined
 ): UpcomingMatchItem[] {
   if (!competitionSlug) return targets;
-  return targets.filter(
-    (m) => normalizeTacticalCompetitionSlug(m.competitionSlug) === competitionSlug
-  );
+  const wanted = normalizeTacticalCompetitionSlug(competitionSlug);
+  return targets.filter((m) => normalizeTacticalCompetitionSlug(m.competitionSlug) === wanted);
 }
 
 export interface AdminMatchesRefreshOptions {

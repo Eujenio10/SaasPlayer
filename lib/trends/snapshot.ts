@@ -210,9 +210,11 @@ export async function regenerateTrendsSnapshotForOrganization(params: {
 
   const metricsByEvent = new Map<number, TacticalMetrics[]>();
   for (const row of data ?? []) {
-    const eventId = typeof row.event_id === "number" ? row.event_id : 0;
+    const eventId = typeof row.event_id === "number" ? row.event_id : Number(row.event_id);
     const metrics = Array.isArray(row.metrics) ? (row.metrics as TacticalMetrics[]) : [];
-    if (eventId > 0 && metrics.length) metricsByEvent.set(eventId, metrics);
+    if (Number.isFinite(eventId) && eventId > 0 && metrics.length) {
+      metricsByEvent.set(Math.trunc(eventId), metrics);
+    }
   }
 
   const bundles: TrendMatchBundle[] = [];
@@ -346,7 +348,8 @@ export async function regenerateTrendsSnapshotForOrganization(params: {
     organizationId: params.organizationId,
     insightsSnap: params.insightsSnap,
     snapshot,
-    forceReplace: params.forceReplace
+    forceReplace:
+      params.forceReplace || Boolean(params.mergeCompetitionIds?.length && eventIds.length > 0)
   });
 
   console.info("[trends] regenerate_complete", {

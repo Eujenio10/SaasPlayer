@@ -26,6 +26,10 @@ import {
 import { isMonitoredInternationalCompetitionSlug, resolveCompetitionId } from "@/lib/competitions";
 import { MATCHES_WINDOW_DAYS } from "@/lib/tactical-matches-filters";
 import { throttledSportApiRequest } from "@/lib/sportapi-rate-limiter";
+import {
+  foulsPerMatchFromSeasonTotal,
+  pickExplicitFoulAverage
+} from "@/lib/player-season-foul-average";
 import { createSupabaseServiceClient } from "@/lib/supabase/server";
 import type {
   CompetitionScope,
@@ -174,13 +178,7 @@ function flattenGroupedPlayerStatistics(periods: unknown[]): Record<string, numb
   const ingestItems = (items: unknown[]) => {
     for (const item of items) {
       if (!item || typeof item !== "object") continue;
-      const it = item as Record<string, unknown>;
-      const keyRaw = it.key ?? it.name ?? it.slug ?? it.id;
-      if (typeof keyRaw !== "string" && typeof keyRaw !== "number") continue;
-      const key = String(keyRaw).trim();
-      if (!key) continue;
-      const n = coerceNumericFromStatisticsItem(it);
-      if (n !== undefined) out[key] = n;
+      ingestGroupedStatisticsItem(item as Record<string, unknown>, out);
     }
   };
   for (const period of periods) {
@@ -433,11 +431,12 @@ function seasonFoulPerMatchFromOverall(
           "foulsSufferedAverage",
           "foulsDrawnPerGame",
           "wasFouledPerGame",
+          "wasFouledAverage",
           "foulsDrawnAverage",
           "fouls_suffered_average"
         ] as const);
-  const explicitPerMatch = readNumericByAliases(wide, averageKeys);
-  if (explicitPerMatch !== undefined && explicitPerMatch >= 0) {
+  const explicitPerMatch = pickExplicitFoulAverage(readNumericByAliases(wide, averageKeys));
+  if (explicitPerMatch != null) {
     return explicitPerMatch;
   }
 
@@ -446,14 +445,7 @@ function seasonFoulPerMatchFromOverall(
       ? foulsCommittedSeasonTotalFromOverall(overall)
       : foulsSufferedSeasonTotalFromOverall(overall);
   if (total === undefined) return null;
-  if (apps < 1) return null;
-
-  /** Alcune risposte API salvano già la media a partita sotto la chiave "fouls". */
-  if (apps >= 2 && total <= 8 && total / apps < 0.35) {
-    return total;
-  }
-
-  return total / apps;
+  return foulsPerMatchFromSeasonTotal(total, apps);
 }
 
 function meanFromSeries(series: number[], minSamples = 1): number | null {
@@ -512,10 +504,10 @@ function overallNumericMaxAcrossKeys(row: Record<string, number> | null, keys: r
 
 function coerceNumericFromStatisticsItem(it: Record<string, unknown>): number | undefined {
   const candidates: unknown[] = [
-    it.value,
-    it.statistic,
     it.total,
     it.count,
+    it.value,
+    it.statistic,
     it.average,
     it.avg,
     it.perGame,
@@ -529,6 +521,41 @@ function coerceNumericFromStatisticsItem(it: Record<string, unknown>): number | 
     if (n !== undefined) return n;
   }
   return undefined;
+}
+
+function ingestGroupedStatisticsItem(
+  it: Record<string, unknown>,
+  out: Record<string, number>
+): void {
+  const keyRaw = it.key ?? it.name ?? it.slug ?? it.id;
+  if (typeof keyRaw !== "string" && typeof keyRaw !== "number") return;
+  const key = String(keyRaw).trim();
+  if (!key) return;
+
+  const average = coerceFiniteNumber(it.average ?? it.avg ?? it.perGame ?? it.per90);
+  const total = coerceFiniteNumber(it.total ?? it.count);
+  const value = coerceFiniteNumber(it.value ?? it.statistic ?? it.decimalValue);
+  const valueType = String(it.valueType ?? "").toLowerCase();
+  const looksPerGame =
+    valueType.includes("pergame") ||
+    valueType.includes("per_game") ||
+    valueType.includes("average") ||
+    valueType.includes("permatch") ||
+    valueType.includes("per_match");
+
+  if (average !== undefined && average >= 0) {
+    out[`${key}Average`] = average;
+  }
+  if (looksPerGame && value !== undefined && value >= 0) {
+    out[`${key}Average`] = value;
+    return;
+  }
+  if (total !== undefined && total >= 0) {
+    out[key] = total;
+    return;
+  }
+  const n = value ?? coerceNumericFromStatisticsItem(it);
+  if (n !== undefined) out[key] = n;
 }
 
 /** Chiavi note per "falli subiti / falli procurati" nelle statistiche match (lineup) e overall. */

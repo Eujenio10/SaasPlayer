@@ -26,6 +26,11 @@ function snapshotHasPublishedMatchups(snapshot: DifficultMarkingsSnapshot | null
   return snapshotHasPublishedMarkingsData(snapshot);
 }
 
+function coercePositiveEventId(value: unknown): number {
+  const n = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(n) && n > 0 ? Math.trunc(n) : 0;
+}
+
 export async function loadOrganizationDifficultMarkingsSnapshot(
   organizationId: string,
   supabase?: SupabaseClient
@@ -279,7 +284,7 @@ export async function regenerateDifficultMarkingsSnapshotForOrganization(params:
 
   const metricsByEvent = new Map<number, TacticalMetrics[]>();
   for (const row of data ?? []) {
-    const eventId = typeof row.event_id === "number" ? row.event_id : 0;
+    const eventId = coercePositiveEventId(row.event_id);
     const metrics = Array.isArray(row.metrics) ? (row.metrics as TacticalMetrics[]) : [];
     if (eventId > 0 && metrics.length) metricsByEvent.set(eventId, metrics);
   }
@@ -308,7 +313,12 @@ export async function regenerateDifficultMarkingsSnapshotForOrganization(params:
     organizationId: params.organizationId,
     insightsSnap: params.insightsSnap,
     snapshot,
-    forceReplace: params.forceReplace
+    /**
+     * Refresh per campionato: persiste sempre il merge (anche se quella lega produce 0 duelli),
+     * altrimenti `keep_previous` lascia le marcature della giornata precedente.
+     */
+    forceReplace:
+      params.forceReplace || Boolean(params.mergeCompetitionIds?.length && eventIds.length > 0)
   });
 
   if (!persist.ok) {
@@ -372,7 +382,7 @@ export async function rebuildMarkingsSnapshotFromStoredInsights(
 
   const bundles: MatchInsightsBundle[] = [];
   for (const row of insightRows ?? []) {
-    const eventId = typeof row.event_id === "number" ? row.event_id : 0;
+    const eventId = coercePositiveEventId(row.event_id);
     if (!eventId) continue;
     const metrics = Array.isArray(row.metrics) ? (row.metrics as TacticalMetrics[]) : [];
     if (!metrics.length) continue;

@@ -2,14 +2,15 @@ import { isInternationalTournamentSlug } from "@/lib/international-tournaments";
 import {
   isMonitoredInternationalCompetitionSlug,
   isTop5DomesticCompetitionSlug,
-  normalizeCompetitionId
+  normalizeCompetitionId,
+  resolveCompetitionId
 } from "@/lib/competitions";
 import { selectNextMatchdayPerCompetition } from "@/lib/tactical-matches-filters";
 import type { CompetitionScope } from "@/lib/types";
 import type { UpcomingMatchItem } from "@/services/sportapi";
 
 export function normalizeTacticalCompetitionSlug(slug: string): string {
-  return normalizeCompetitionId(slug);
+  return resolveCompetitionId(slug) ?? normalizeCompetitionId(slug);
 }
 
 export function isTopFiveLeagueSlug(slug: string): boolean {

@@ -45,9 +45,9 @@ export async function attachIntensityPreviewsToMatches(
     }
 
     for (const row of data ?? []) {
-      const eventId = typeof row.event_id === "number" ? row.event_id : 0;
-      if (!eventId) continue;
-      previewByEvent.set(eventId, intensityPreviewFromMetrics(row.metrics));
+      const eventId = typeof row.event_id === "number" ? row.event_id : Number(row.event_id);
+      if (!Number.isFinite(eventId) || eventId <= 0) continue;
+      previewByEvent.set(Math.trunc(eventId), intensityPreviewFromMetrics(row.metrics));
     }
   }
 
