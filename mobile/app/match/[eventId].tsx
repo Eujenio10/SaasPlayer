@@ -10,6 +10,7 @@ import {
   RemainingUnlocksIndicator
 } from "@/components/entitlements/EntitlementGates";
 import { Screen } from "@/components/Screen";
+import { ScrollMoreHint } from "@/components/ScrollMoreHint";
 import { useAccessFlow } from "@/contexts/AccessFlowContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useEntitlements } from "@/contexts/EntitlementsContext";
@@ -180,6 +181,7 @@ export default function MatchDetailScreen() {
       ) : null}
 
       <MatchAnalysisTabs active={tab} onChange={setTab} isGuest={isGuest} />
+      <ScrollMoreHint style={{ marginBottom: spacing.xs }} />
 
       <View style={styles.tabContent}>
         {tab === "intensity" ? (
@@ -257,5 +259,5 @@ const styles = StyleSheet.create({
   lockWrap: {
     marginBottom: spacing.sm
   },
-  tabContent: { flex: 1, minHeight: 0 }
+  tabContent: { flex: 1, minHeight: 0, marginTop: spacing.sm }
 });

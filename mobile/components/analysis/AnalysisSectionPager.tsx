@@ -7,6 +7,7 @@ import {
   Text,
   View
 } from "react-native";
+import { HintedScrollView } from "@/components/HintedScrollView";
 import { colors, radii, spacing } from "@/lib/theme";
 
 export type AnalysisSection = {
@@ -63,14 +64,15 @@ export function AnalysisSectionPager({
               <View key={section.id} style={[styles.page, { width: pageWidth }]}>
                 <View style={styles.pageCard}>
                   <Text style={styles.pageTitle}>{section.title}</Text>
-                  <ScrollView
+                  <HintedScrollView
                     style={styles.pageBody}
                     contentContainerStyle={styles.pageBodyContent}
-                    showsVerticalScrollIndicator={false}
+                    showsVerticalScrollIndicator
                     nestedScrollEnabled
+                    hint="Scorri in basso per vedere altro"
                   >
                     {section.content}
-                  </ScrollView>
+                  </HintedScrollView>
                 </View>
               </View>
             ))}
@@ -88,7 +90,7 @@ export function AnalysisSectionPager({
           ))}
         </View>
         <Text style={styles.footerHint}>
-          {pageIndex + 1}/{sections.length} · scorri a sinistra/destra
+          {pageIndex + 1}/{sections.length} · scorri a destra per le altre sezioni
         </Text>
       </View>
     </View>

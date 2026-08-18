@@ -5,6 +5,7 @@ import { AdminCompetitionRefreshBar } from "@/components/AdminCompetitionRefresh
 import { GuestProFeatureLockPanel } from "@/components/access/GuestProFeatureLockPanel";
 import { DifficultMarkingsList } from "@/components/difficult-markings/DifficultMarkingsList";
 import { MarkingsCompetitionPicker } from "@/components/difficult-markings/MarkingsCompetitionPicker";
+import { ScrollMoreHint } from "@/components/ScrollMoreHint";
 import { useAccessFlow } from "@/contexts/AccessFlowContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { canAccessDifficultMarkings } from "@/lib/access/guest-preview-mode";
@@ -68,6 +69,7 @@ export default function MarkingsScreen() {
             Per ogni duello: quale marcatore dovrà arginare un attaccante difficile, con indice basato su falli
             subiti e dribbling.
           </Text>
+          <ScrollMoreHint />
         </View>
 
         {access?.canRefreshData ? (

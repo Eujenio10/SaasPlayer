@@ -9,7 +9,7 @@ export function DataRefreshScheduleBanner({ status }: { status: DataRefreshStatu
 
   if (!status) return null;
 
-  const inProgress = msRemaining === 0;
+  const inProgress = Boolean(status.inProgress) || msRemaining === 0;
 
   return (
     <div className="rounded-2xl border border-cyan-300/20 bg-cyan-400/8 px-4 py-3 sm:px-5">
@@ -21,9 +21,15 @@ export function DataRefreshScheduleBanner({ status }: { status: DataRefreshStatu
           <div>
             <p className="text-sm font-black text-cyan-100">Aggiornamento dati automatico</p>
             <p className="mt-1 text-xs leading-6 text-slate-300">
-              Calendario, insight e moduli analitici si aggiornano ogni giorno alle{" "}
-              <span className="font-bold text-slate-100">{status.scheduleLabel}</span> (ora di Roma).
+              Calendario, insight e moduli analitici si aggiornano ogni giorno dalle{" "}
+              <span className="font-bold text-slate-100">{status.scheduleLabel}</span> (ora di Roma),
+              un campionato dopo l&apos;altro.
             </p>
+            {status.inProgress && status.currentCompetitionLabel ? (
+              <p className="mt-1 text-xs font-semibold text-cyan-200">
+                In corso: {status.currentCompetitionLabel}
+              </p>
+            ) : null}
             {status.lastRefreshLabel ? (
               <p className="mt-1 text-[11px] text-slate-500">
                 Ultimo aggiornamento: {status.lastRefreshLabel}

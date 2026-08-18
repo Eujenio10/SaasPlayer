@@ -100,6 +100,8 @@ export interface AdminMatchesRefreshOptions {
    */
   competitionSlug?: string;
   insightsSnap?: number;
+  /** Se true, finalize non scrive last_refresh_at (il cron mattutino lo fa dopo aver salvato il job). */
+  skipCompletionRecord?: boolean;
 }
 
 /** Budget conservativo: lascia margine rispetto a maxDuration 300 e al gateway (anti-504). */
@@ -478,7 +480,8 @@ async function runFinalizePhase(
   trigger: DataRefreshTrigger,
   startedAt: number = Date.now(),
   timeBudgetMs: number = FINALIZE_TIME_BUDGET_MS,
-  competitionSlug?: string
+  competitionSlug?: string,
+  skipCompletionRecord = false
 ): Promise<AdminMatchesRefreshResult> {
   const remainingBudget = () => Math.max(0, timeBudgetMs - (Date.now() - startedAt));
   const menus = await loadOrganizationMenus(organizationId);
@@ -595,11 +598,13 @@ async function runFinalizePhase(
     }
   }
 
-  await recordDataRefreshCompletion({
-    organizationId,
-    trigger,
-    ok: true
-  });
+  if (!skipCompletionRecord) {
+    await recordDataRefreshCompletion({
+      organizationId,
+      trigger,
+      ok: true
+    });
+  }
 
   return {
     ok: true,
@@ -672,7 +677,8 @@ export async function runAdminMatchesRefresh(
         trigger,
         startedAt,
         FINALIZE_TIME_BUDGET_MS,
-        competitionSlug
+        competitionSlug,
+        Boolean(options?.skipCompletionRecord)
       );
     }
 
@@ -727,7 +733,15 @@ export async function runAdminMatchesRefresh(
       };
     }
 
-    return runFinalizePhase(organizationId, snap, trigger, startedAt, timeBudgetMs, competitionSlug);
+    return runFinalizePhase(
+      organizationId,
+      snap,
+      trigger,
+      startedAt,
+      timeBudgetMs,
+      competitionSlug,
+      Boolean(options?.skipCompletionRecord)
+    );
   })();
 
   refreshInFlightKey = flightKey;

@@ -8,7 +8,7 @@ export function DataRefreshScheduleBanner({ status }: { status?: DataRefreshStat
 
   if (!status) return null;
 
-  const inProgress = msRemaining === 0;
+  const inProgress = Boolean(status.inProgress) || msRemaining === 0;
 
   return (
     <View style={styles.wrap}>
@@ -18,8 +18,12 @@ export function DataRefreshScheduleBanner({ status }: { status?: DataRefreshStat
       <View style={styles.body}>
         <Text style={styles.title}>Aggiornamento dati automatico</Text>
         <Text style={styles.subtitle}>
-          Calendario e moduli analitici si aggiornano ogni giorno alle {status.scheduleLabel} (ora di Roma).
+          Calendario e moduli analitici si aggiornano ogni giorno dalle {status.scheduleLabel} (ora
+          di Roma), un campionato dopo l'altro.
         </Text>
+        {status.inProgress && status.currentCompetitionLabel ? (
+          <Text style={styles.progress}>In corso: {status.currentCompetitionLabel}</Text>
+        ) : null}
         {status.lastRefreshLabel ? (
           <Text style={styles.last}>Ultimo aggiornamento: {status.lastRefreshLabel}</Text>
         ) : null}
@@ -73,6 +77,12 @@ const styles = StyleSheet.create({
   last: {
     color: colors.textDim,
     fontSize: 11,
+    marginTop: 2
+  },
+  progress: {
+    color: colors.cyan,
+    fontSize: 12,
+    fontWeight: "700",
     marginTop: 2
   },
   timerBox: {

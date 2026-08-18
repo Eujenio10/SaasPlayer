@@ -40,7 +40,7 @@ export function listMonitoredCompetitionOptions() {
 }
 
 async function loadTrendsSnapshotForCatalog(primaryOrganizationId: string) {
-  // Solo lettura: il ricalcolo avviene al refresh giornaliero/admin (08:00).
+  // Solo lettura: il ricalcolo avviene al refresh mattutino/admin (dalle 05:00, un campionato alla volta).
   return loadBestTrendsSnapshot(primaryOrganizationId);
 }
 

@@ -4,10 +4,13 @@ export interface DataRefreshStatus {
   timezone: string;
   scheduleHour: number;
   scheduleLabel: string;
+  scheduleDetail?: string;
   nextScheduledAt: string;
   lastRefreshAt: string | null;
   lastRefreshLabel: string | null;
   automatedDailyRefresh: true;
+  inProgress?: boolean;
+  currentCompetitionLabel?: string | null;
 }
 
 export interface HomeDashboardUser {

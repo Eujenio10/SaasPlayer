@@ -135,8 +135,24 @@ export function romeDateKeyNow(now = new Date()): string {
   return romeDateKeyFromIso(now.toISOString());
 }
 
+export function isAfterOrAtDailyRefreshStart(now = new Date()): boolean {
+  const { timezone, hour, minute } = DATA_REFRESH_CONFIG;
+  const current = zonedParts(now, timezone);
+  return current.hour > hour || (current.hour === hour && current.minute >= minute);
+}
+
+export function isBeforeMorningRefreshHardStop(now = new Date()): boolean {
+  const { timezone, continuationEndHour } = DATA_REFRESH_CONFIG;
+  const current = zonedParts(now, timezone);
+  return current.hour < continuationEndHour;
+}
+
+/**
+ * Finestra in cui il cron Vercel può *avviare* il giro mattutino
+ * (dalle 05:00, con un margine per ritardi dello scheduler).
+ */
 export function isWithinDailyRefreshWindow(now = new Date()): boolean {
   const { timezone, hour } = DATA_REFRESH_CONFIG;
   const current = zonedParts(now, timezone);
-  return current.hour === hour && current.minute < 10;
+  return current.hour === hour && current.minute < 40;
 }

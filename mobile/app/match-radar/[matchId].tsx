@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { Screen } from "@/components/Screen";
+import { ScrollMoreHint } from "@/components/ScrollMoreHint";
 import { useAccessFlow } from "@/contexts/AccessFlowContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { canAccessFeatureId } from "@/lib/access/features";
@@ -62,6 +63,7 @@ export default function MatchRadarDetailScreen() {
         {!loading && !detail ? <Text style={styles.muted}>{ui.empty}</Text> : null}
         {detail ? (
           <ScrollView contentContainerStyle={styles.content}>
+            <ScrollMoreHint />
             <Text style={styles.meta}>
               {translateCompetitionName(detail.competitionId)} · {formatKickoffInRome(detail.kickoff, locale)}
             </Text>

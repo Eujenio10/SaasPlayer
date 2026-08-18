@@ -2,13 +2,13 @@ import type { ReactNode } from "react";
 import {
   Modal,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   View
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import { HintedScrollView } from "@/components/HintedScrollView";
 import type { PlayerPerformanceItem } from "@/lib/player-performance/types";
 import {
   badgeLabelIt,
@@ -84,7 +84,7 @@ export function PlayerDetailModal({
           </Pressable>
         </View>
 
-        <ScrollView
+        <HintedScrollView
           style={styles.scroll}
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator
@@ -174,7 +174,7 @@ export function PlayerDetailModal({
           ) : null}
 
           <Text style={styles.methodology}>{PLAYER_PERFORMANCE_TEXT.detail.methodologyNote}</Text>
-        </ScrollView>
+        </HintedScrollView>
 
         <SafeAreaView edges={["bottom"]} style={styles.footerSafe}>
           <Pressable onPress={onClose} style={styles.closeCta} accessibilityRole="button">

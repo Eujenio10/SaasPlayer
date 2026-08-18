@@ -30,6 +30,7 @@ import {
 import { translateTeamName } from "@/lib/italian-display";
 import { MobilePlayerPerformanceCard } from "./MobilePlayerPerformanceCard";
 import { PlayerDetailModal } from "./PlayerDetailModal";
+import { HintedScrollView } from "@/components/HintedScrollView";
 import { colors, radii, spacing } from "@/lib/theme";
 
 function OverviewRow({
@@ -179,7 +180,7 @@ export function PlayerPerformanceView({
 
   return (
     <>
-    <ScrollView contentContainerStyle={styles.wrap} showsVerticalScrollIndicator={false}>
+    <HintedScrollView contentContainerStyle={styles.wrap} showsVerticalScrollIndicator style={{ flex: 1 }}>
       <View style={styles.titleRow}>
         <Text style={styles.title}>{PLAYER_PERFORMANCE_TEXT.title}</Text>
         <Pressable onPress={() => setShowTooltip((open) => !open)} accessibilityLabel={PLAYER_PERFORMANCE_TEXT.tooltipTitle}>
@@ -261,7 +262,7 @@ export function PlayerPerformanceView({
         );
       })}
 
-    </ScrollView>
+    </HintedScrollView>
 
     <PlayerDetailModal
       player={selectedPlayer}

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { EmptyReportState } from "./EmptyReportState";
 import { MatchReportHeader } from "./MatchReportHeader";
@@ -9,6 +9,7 @@ import { ReportSectionCard } from "./ReportSectionCard";
 import { ReportSectionNav, type ReportSectionId } from "./ReportSectionNav";
 import { ReportSkeleton } from "./ReportSkeleton";
 import { ReportSummaryCard } from "./ReportSummaryCard";
+import { HintedScrollView } from "@/components/HintedScrollView";
 import { fetchPreMatchReport } from "@/lib/prematch-report/api";
 import type { PreMatchReport } from "@/lib/prematch-report/types";
 import type { GuestPreviewMode } from "@/lib/access/guest-preview-mode";
@@ -363,10 +364,10 @@ export function PreMatchReportView({
   }
 
   return (
-    <ScrollView
+    <HintedScrollView
       style={styles.scroll}
       contentContainerStyle={styles.scrollContent}
-      showsVerticalScrollIndicator={false}
+      showsVerticalScrollIndicator
       refreshControl={
         <RefreshControl refreshing={refreshing} onRefresh={() => void load(true)} tintColor={colors.cyan} />
       }
@@ -401,7 +402,7 @@ export function PreMatchReportView({
         })}
         . Trascina verso il basso per aggiornare.
       </Text>
-    </ScrollView>
+    </HintedScrollView>
   );
 }
 
