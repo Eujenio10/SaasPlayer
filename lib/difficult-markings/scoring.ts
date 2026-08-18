@@ -27,12 +27,18 @@ import type {
 } from "@/lib/difficult-markings/types";
 import type { UpcomingMatchItem } from "@/services/sportapi";
 import { canonicalCompetitionId } from "@/lib/difficult-markings/query";
+import {
+  attackerMarkingDifficultyIndex,
+  isHighMarkingThreatAttacker
+} from "@/lib/difficult-markings/attacker-threat";
 
-const MATCHUP_THRESHOLD = 0.58;
-const MIN_ATTACKER_THREAT = 0.45;
-const MIN_ATTACKER_FOULS_DRAWN = 1.35;
-const MIN_ATTACKER_DRIBBLES_OK = 0.95;
-const MIN_ATTACKER_DRIBBLES_ATT = 2.2;
+const MATCHUP_THRESHOLD = 0.52;
+const MIN_ATTACKER_THREAT = 0.32;
+const MIN_ATTACKER_FOULS_DRAWN = 0.95;
+const MIN_ATTACKER_DRIBBLES_OK = 0.85;
+const MIN_ATTACKER_DRIBBLES_ATT = 1.8;
+const DUAL_LOAD_MIN_THREAT = 0.3;
+const DUAL_LOAD_MIN_OVERLAP_PCT = 32;
 
 function isInternationalMarkingsCompetition(competitionId?: string): boolean {
   const id = canonicalCompetitionId(competitionId);
@@ -44,10 +50,10 @@ function publicationThresholds(competitionId?: string) {
   return {
     matchupThreshold: international ? 0.42 : MATCHUP_THRESHOLD,
     minAttackerThreat: international ? 0.28 : MIN_ATTACKER_THREAT,
-    minAttackerFoulsDrawn: international ? 0.6 : MIN_ATTACKER_FOULS_DRAWN,
-    minAttackerDribblesOk: international ? 0.45 : MIN_ATTACKER_DRIBBLES_OK,
-    minAttackerDribblesAtt: international ? 1.1 : MIN_ATTACKER_DRIBBLES_ATT,
-    minDifficultMarkingScore: international ? 36 : 52,
+    minAttackerFoulsDrawn: international ? 0.45 : MIN_ATTACKER_FOULS_DRAWN,
+    minAttackerDribblesOk: international ? 0.4 : MIN_ATTACKER_DRIBBLES_OK,
+    minAttackerDribblesAtt: international ? 0.9 : MIN_ATTACKER_DRIBBLES_ATT,
+    minDifficultMarkingScore: international ? 32 : 48,
     minReliability: international ? 0.22 : 0.45,
     minSampleMatches: international ? 1 : 3,
     minSampleMinutes: international ? 90 : 270
@@ -59,11 +65,11 @@ function softPublicationThresholds(competitionId?: string) {
   const international = isInternationalMarkingsCompetition(competitionId);
   return {
     matchupThreshold: international ? 0.28 : 0.4,
-    minAttackerThreat: international ? 0.15 : 0.28,
-    minAttackerFoulsDrawn: international ? 0.25 : 0.7,
-    minAttackerDribblesOk: international ? 0.2 : 0.5,
-    minAttackerDribblesAtt: international ? 0.6 : 1.2,
-    minDifficultMarkingScore: international ? 28 : 40,
+    minAttackerThreat: international ? 0.18 : 0.24,
+    minAttackerFoulsDrawn: international ? 0.35 : 0.65,
+    minAttackerDribblesOk: international ? 0.25 : 0.5,
+    minAttackerDribblesAtt: international ? 0.7 : 1.1,
+    minDifficultMarkingScore: international ? 26 : 36,
     minReliability: international ? 0.12 : 0.28,
     minSampleMatches: international ? 1 : 2,
     minSampleMinutes: international ? 45 : 180
@@ -235,20 +241,10 @@ function attackerStatScoreCap(attacker: PlayerRecentProfile): number {
 
 function attackerHasMeaningfulOffensiveProfile(
   attacker: PlayerRecentProfile,
-  competitionId?: string,
+  _competitionId?: string,
   soft = false
 ): boolean {
-  const thresholds = soft
-    ? softPublicationThresholds(competitionId)
-    : publicationThresholds(competitionId);
-  const foulsDrawn = attacker.foulsDrawnPer90 ?? 0;
-  const dribblesOk = attacker.dribblesSuccessfulPer90 ?? 0;
-  const dribblesAtt = attacker.dribblesAttemptedPer90 ?? 0;
-  return (
-    foulsDrawn >= thresholds.minAttackerFoulsDrawn ||
-    dribblesOk >= thresholds.minAttackerDribblesOk ||
-    dribblesAtt >= thresholds.minAttackerDribblesAtt
-  );
+  return isHighMarkingThreatAttacker(attacker, soft);
 }
 
 function computeAttackerChallengeScore(
@@ -262,10 +258,9 @@ function computeAttackerChallengeScore(
   const duelsWon = lookup.get("duelsWonPer90", group, attacker.duelsWonPer90);
 
   const { score } = redistributeWeightedScore([
-    { weight: 0.4, value: foulsDrawn },
-    { weight: 0.3, value: dribblesAttempted },
-    { weight: 0.2, value: dribblesSuccessful },
-    { weight: 0.1, value: duelsWon }
+    { weight: 0.5, value: foulsDrawn },
+    { weight: 0.3, value: dribblesSuccessful },
+    { weight: 0.2, value: dribblesAttempted }
   ]);
 
   return {
@@ -325,31 +320,11 @@ function buildPercentileEntries(profiles: PlayerRecentProfile[]): PercentilePool
 }
 
 function absoluteAttackerChallengeScore(attacker: PlayerRecentProfile): number | null {
-  const { score } = redistributeWeightedScore([
-    {
-      weight: 0.4,
-      value:
-        attacker.foulsDrawnPer90 != null
-          ? clamp(attacker.foulsDrawnPer90 / 3.2, 0, 1)
-          : null
-    },
-    {
-      weight: 0.3,
-      value:
-        attacker.dribblesAttemptedPer90 != null
-          ? clamp(attacker.dribblesAttemptedPer90 / 6.5, 0, 1)
-          : null
-    },
-    {
-      weight: 0.2,
-      value:
-        attacker.dribblesSuccessfulPer90 != null
-          ? clamp(attacker.dribblesSuccessfulPer90 / 3.5, 0, 1)
-          : null
-    },
-    { weight: 0.1, value: null }
-  ]);
-  return score;
+  const fouls = attacker.foulsDrawnPer90;
+  const dribblesOk = attacker.dribblesSuccessfulPer90;
+  const dribblesAtt = attacker.dribblesAttemptedPer90;
+  if (fouls == null && dribblesOk == null && dribblesAtt == null) return null;
+  return attackerMarkingDifficultyIndex(attacker);
 }
 
 function absoluteDefenderVulnerabilityScore(defender: PlayerRecentProfile): number | null {
@@ -472,7 +447,7 @@ export function computeDifficultMarkingsForMatch(params: {
 
         const usedHeatmapForScore = true;
         const overlap = heatmapOverlap(attackerGrid, defenderGrid);
-        if (overlap < 0.35) {
+        if (overlap < 0.32) {
           /** Senza overlap reale sufficiente non pubblichiamo il duello (niente zone stimate). */
           continue;
         }
@@ -495,9 +470,9 @@ export function computeDifficultMarkingsForMatch(params: {
         if (!attackerHasMeaningfulOffensiveProfile(attacker, params.competitionId, soft)) continue;
 
         const lineupConfidence = lineupConfidenceScore(attacker, defender);
-        const fitBlend = 0.68 + 0.32 * matchupScore;
+        const fitBlend = 0.72 + 0.28 * matchupScore;
         const rawDifficultMarkingScore =
-          attackerChallengeScore * fitBlend * defenderDisciplineModifier(defender) * lineupConfidence;
+          attackerChallengeScore * fitBlend * defenderDisciplineModifier(defender);
         let difficultMarkingScore = Math.round(
           calibrateDifficultMarkingScore(rawDifficultMarkingScore, params.competitionId) * 100
         );
@@ -579,6 +554,8 @@ export function computeDifficultMarkingsForMatch(params: {
           heatmapOverlapPct: Math.round(overlap * 100),
           officialLineupsUsed: params.officialLineupsUsed ?? false,
           generatedAt,
+          markingLoadCount: 1,
+          extraAttackers: [],
           visualization: {
             attackerHeatmapPoints: attackerPoints ? [...attackerPoints] : [],
             defenderHeatmapPoints: defenderPoints ? [...defenderPoints] : [],
@@ -596,10 +573,10 @@ export function computeDifficultMarkingsForMatch(params: {
     return results.sort((a, b) => b.difficultMarkingScore - a.difficultMarkingScore);
   };
 
-  const hard = scoreCandidates(false);
+  const hard = collapseDefenderMultiLoad(scoreCandidates(false));
   if (hard.length > 0) return hard;
 
-  const soft = scoreCandidates(true).slice(0, 8);
+  const soft = collapseDefenderMultiLoad(scoreCandidates(true)).slice(0, 8);
   if (soft.length > 0) {
     console.info("[difficult-markings] soft_publish_fallback", {
       fixtureId,
@@ -608,6 +585,84 @@ export function computeDifficultMarkingsForMatch(params: {
     });
   }
   return soft;
+}
+
+/**
+ * Se lo stesso marcatore copre 2+ attaccanti difficili (heatmap + ruolo già filtrati),
+ * tiene la coppia principale e allega gli altri: è il caso “carico doppio”.
+ */
+export function collapseDefenderMultiLoad(
+  matchups: DifficultMarkingMatchup[]
+): DifficultMarkingMatchup[] {
+  if (matchups.length < 2) {
+    return matchups.map((item) => ({
+      ...item,
+      markingLoadCount: item.markingLoadCount ?? 1,
+      extraAttackers: item.extraAttackers ?? []
+    }));
+  }
+
+  const groups = new Map<string, DifficultMarkingMatchup[]>();
+  for (const item of matchups) {
+    const key = `${item.fixtureId}:${item.defenderPlayerId}`;
+    const list = groups.get(key) ?? [];
+    list.push(item);
+    groups.set(key, list);
+  }
+
+  const out: DifficultMarkingMatchup[] = [];
+  for (const group of groups.values()) {
+    const ranked = [...group].sort((a, b) => {
+      const threat = b.attackerChallengeScore - a.attackerChallengeScore;
+      if (Math.abs(threat) > 0.02) return threat;
+      return b.difficultMarkingScore - a.difficultMarkingScore;
+    });
+    const dual = ranked.filter(
+      (item) =>
+        item.attackerChallengeScore >= DUAL_LOAD_MIN_THREAT &&
+        item.heatmapOverlapPct >= DUAL_LOAD_MIN_OVERLAP_PCT
+    );
+
+    if (dual.length >= 2) {
+      const primary = dual[0];
+      const extras = dual.slice(1).map((item) => ({
+        playerId: item.attackerPlayerId,
+        playerName: item.attackerPlayerName,
+        foulsDrawnPer90: item.attackerMetrics.foulsDrawnPer90 ?? null,
+        dribblesSuccessfulPer90: item.attackerMetrics.dribblesSuccessfulPer90 ?? null,
+        heatmapOverlapPct: item.heatmapOverlapPct
+      }));
+      const loadBoost = Math.min(16, 7 * (dual.length - 1));
+      const boostedScore = Math.min(100, primary.difficultMarkingScore + loadBoost);
+      const loadReason = {
+        type: "MULTI_ATTACKER_LOAD" as const,
+        label: `Dovrà coprire ${dual.length} attaccanti difficili`,
+        detail: dual.map((item) => item.attackerPlayerName).join(", ")
+      };
+      out.push({
+        ...primary,
+        markingLoadCount: dual.length,
+        extraAttackers: extras,
+        difficultMarkingScore: boostedScore,
+        difficultMarkingLevel: difficultMarkingLevelFromScore(boostedScore),
+        reasons: [loadReason, ...primary.reasons.filter((r) => r.type !== "MULTI_ATTACKER_LOAD")].slice(
+          0,
+          4
+        )
+      });
+      continue;
+    }
+
+    for (const item of ranked) {
+      out.push({
+        ...item,
+        markingLoadCount: 1,
+        extraAttackers: item.extraAttackers ?? []
+      });
+    }
+  }
+
+  return out.sort((a, b) => b.difficultMarkingScore - a.difficultMarkingScore);
 }
 
 export { zoneLabelIt, MATCHUP_THRESHOLD };

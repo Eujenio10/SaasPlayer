@@ -90,7 +90,7 @@ export async function buildDifficultMarkingsListResponse(params: {
   if (params.eventId != null) {
     results = results.filter((r) => r.eventId === params.eventId);
   } else {
-    results = dedupeAndSelectMatchups(results, { maxPerMatch: 2, onePerDefender: true }).slice(0, 100);
+    results = dedupeAndSelectMatchups(results, { maxPerMatch: 4, onePerDefender: true }).slice(0, 100);
   }
 
   if (!results.length && bestCompetitionId && bestCompetitionId !== normalizedCompetition) {
@@ -99,7 +99,7 @@ export async function buildDifficultMarkingsListResponse(params: {
     if (params.eventId != null) {
       results = results.filter((r) => r.eventId === params.eventId);
     } else {
-      results = dedupeAndSelectMatchups(results, { maxPerMatch: 2, onePerDefender: true }).slice(0, 100);
+      results = dedupeAndSelectMatchups(results, { maxPerMatch: 4, onePerDefender: true }).slice(0, 100);
     }
   }
 

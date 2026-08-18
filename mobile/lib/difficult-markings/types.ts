@@ -48,6 +48,14 @@ export interface DifficultMarkingMatchup {
   reliabilityScore: number;
   heatmapOverlapPct: number;
   usedHeatmap: boolean;
+  markingLoadCount?: number;
+  extraAttackers?: Array<{
+    playerId: string;
+    playerName: string;
+    foulsDrawnPer90: number | null;
+    dribblesSuccessfulPer90: number | null;
+    heatmapOverlapPct: number;
+  }>;
   visualization?: {
     attackerHeatmapPoints?: Array<{ x: number; y: number; intensity?: number }>;
     defenderHeatmapPoints?: Array<{ x: number; y: number; intensity?: number }>;

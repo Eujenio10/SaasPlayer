@@ -1,27 +1,29 @@
 import type { DifficultMarkingMatchup } from "@/lib/difficult-markings/types";
 
-function matchupRankKey(item: DifficultMarkingMatchup): [number, number, number] {
-  return [item.attackerChallengeScore, item.difficultMarkingScore, item.matchupScore];
+function matchupRankKey(item: DifficultMarkingMatchup): [number, number, number, number] {
+  const dualLoad = (item.markingLoadCount ?? 1) >= 2 || (item.extraAttackers?.length ?? 0) > 0 ? 1 : 0;
+  return [dualLoad, item.attackerChallengeScore, item.difficultMarkingScore, item.matchupScore];
 }
 
 function compareMatchupRank(a: DifficultMarkingMatchup, b: DifficultMarkingMatchup): number {
-  const [aThreat, aScore, aFit] = matchupRankKey(a);
-  const [bThreat, bScore, bFit] = matchupRankKey(b);
-  if (Math.abs(aThreat - bThreat) > 0.025) return bThreat - aThreat;
+  const [aLoad, aThreat, aScore, aFit] = matchupRankKey(a);
+  const [bLoad, bThreat, bScore, bFit] = matchupRankKey(b);
+  if (aLoad !== bLoad) return bLoad - aLoad;
+  if (Math.abs(aThreat - bThreat) > 0.02) return bThreat - aThreat;
   if (aScore !== bScore) return bScore - aScore;
   return bFit - aFit;
 }
 
 /**
- * Selezione deterministica: ogni attaccante "difficile" ottiene un marcatore tatticamente compatibile,
- * ogni marcatore compare al massimo una volta per partita.
+ * Selezione: prima i marcatori con carico 2+ attaccanti difficili, poi le coppie 1v1
+ * degli attaccanti con più falli subiti e dribbling. Un attaccante compare una sola volta.
  */
 export function selectCanonicalMatchupsForMatch(
   matchups: DifficultMarkingMatchup[],
   options?: { maxPerMatch?: number; minAttackerThreat?: number }
 ): DifficultMarkingMatchup[] {
-  const maxPerMatch = options?.maxPerMatch ?? 2;
-  const minAttackerThreat = options?.minAttackerThreat ?? 0.45;
+  const maxPerMatch = options?.maxPerMatch ?? 4;
+  const minAttackerThreat = options?.minAttackerThreat ?? 0.3;
   if (!matchups.length) return [];
 
   const ranked = [...matchups].sort(compareMatchupRank);
@@ -29,13 +31,21 @@ export function selectCanonicalMatchupsForMatch(
   const usedDefenders = new Set<string>();
   const usedAttackers = new Set<string>();
 
+  const attackerCoveredBy = (item: DifficultMarkingMatchup): string[] => {
+    const extra = (item.extraAttackers ?? []).map((a) => a.playerId);
+    return [item.attackerPlayerId, ...extra];
+  };
+
   for (const item of ranked) {
     if (selected.length >= maxPerMatch) break;
-    if (item.attackerChallengeScore < minAttackerThreat) continue;
-    if (usedDefenders.has(item.defenderPlayerId) || usedAttackers.has(item.attackerPlayerId)) continue;
+    if (item.attackerChallengeScore < minAttackerThreat && (item.markingLoadCount ?? 1) < 2) {
+      continue;
+    }
+    if (usedDefenders.has(item.defenderPlayerId)) continue;
+    if (attackerCoveredBy(item).some((id) => usedAttackers.has(id))) continue;
     selected.push(item);
     usedDefenders.add(item.defenderPlayerId);
-    usedAttackers.add(item.attackerPlayerId);
+    for (const id of attackerCoveredBy(item)) usedAttackers.add(id);
   }
 
   return selected.sort((a, b) => b.difficultMarkingScore - a.difficultMarkingScore);
@@ -46,7 +56,7 @@ export function dedupeAndSelectMatchups(
   options?: { maxPerMatch?: number; onePerDefender?: boolean }
 ): DifficultMarkingMatchup[] {
   if (options?.onePerDefender !== false) {
-    return selectCanonicalMatchupsForMatch(matchups, { maxPerMatch: options?.maxPerMatch ?? 2 });
+    return selectCanonicalMatchupsForMatch(matchups, { maxPerMatch: options?.maxPerMatch ?? 4 });
   }
 
   const maxPerMatch = options?.maxPerMatch ?? 2;

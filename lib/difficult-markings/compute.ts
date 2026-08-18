@@ -94,8 +94,8 @@ export function computeDifficultMarkingsSnapshot(params: {
 
     rawMatchups += raw.length;
     const selected = selectCanonicalMatchupsForMatch(raw, {
-      maxPerMatch: 3,
-      minAttackerThreat: isInternationalMarkingsCompetition(competitionId) ? 0.15 : 0.35
+      maxPerMatch: 4,
+      minAttackerThreat: isInternationalMarkingsCompetition(competitionId) ? 0.18 : 0.28
     });
     pairsPublished += selected.length;
 
@@ -119,8 +119,8 @@ export function computeDifficultMarkingsSnapshot(params: {
   for (const bucket of roundBuckets.values()) {
     const intl = isInternationalMarkingsCompetition(bucket.competitionId);
     bucket.results = selectCanonicalMatchupsForMatch(bucket.results, {
-      maxPerMatch: 2,
-      minAttackerThreat: intl ? 0.15 : 0.35
+      maxPerMatch: 3,
+      minAttackerThreat: intl ? 0.18 : 0.28
     }).sort((a, b) => b.difficultMarkingScore - a.difficultMarkingScore);
   }
 

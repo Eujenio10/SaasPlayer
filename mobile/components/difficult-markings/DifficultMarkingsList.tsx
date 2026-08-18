@@ -219,7 +219,7 @@ export function DifficultMarkingsList({
 
       <View style={styles.noteBox}>
         <Text style={styles.noteText}>
-          Classifica per indice di difficoltà del marcatore (0–100), basato sul profilo offensivo dell'avversario da arginare.
+          Classifica per indice di difficoltà del marcatore (0–100), sui giocatori più duri da arginare (falli subiti e dribbling) e sui marcatori che devono coprirne due o più.
         </Text>
       </View>
 

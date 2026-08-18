@@ -39,7 +39,8 @@ export type MatchupReasonType =
   | "DEFENDER_YELLOW_RISK"
   | "ROLE_MATCH"
   | "LIMITED_SAMPLE"
-  | "NO_HEATMAP";
+  | "NO_HEATMAP"
+  | "MULTI_ATTACKER_LOAD";
 
 export interface MatchupReason {
   type: MatchupReasonType;
@@ -148,6 +149,16 @@ export interface DifficultMarkingMatchup {
   heatmapOverlapPct: number;
   officialLineupsUsed: boolean;
   generatedAt: string;
+  /** Quanti attaccanti difficili (falli subiti + dribbling) questo marcatore deve coprire. */
+  markingLoadCount?: number;
+  /** Altri attaccanti difficili nello stesso cluster di ruolo/heatmap. */
+  extraAttackers?: Array<{
+    playerId: string;
+    playerName: string;
+    foulsDrawnPer90: number | null;
+    dribblesSuccessfulPer90: number | null;
+    heatmapOverlapPct: number;
+  }>;
   /** Per visualizzazione campo (frame casa). */
   visualization?: {
     attackerHeatmapPoints?: Array<{ x: number; y: number; intensity?: number }>;

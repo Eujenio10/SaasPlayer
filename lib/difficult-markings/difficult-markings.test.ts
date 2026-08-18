@@ -31,9 +31,12 @@ import {
 import {
   buildMatchupId,
   calibrateDifficultMarkingScore,
+  collapseDefenderMultiLoad,
   computeDifficultMarkingsForMatch,
   difficultMarkingLevelFromScore
 } from "@/lib/difficult-markings/scoring";
+import { attackerMarkingDifficultyIndex } from "@/lib/difficult-markings/attacker-threat";
+import { difficultMarkingSubjectLineIt } from "@/lib/difficult-markings/text";
 import { buildPlayerRecentProfile } from "@/lib/difficult-markings/profiles";
 import type { DifficultMarkingMatchup } from "@/lib/difficult-markings/types";
 import type { UpcomingMatchItem } from "@/services/sportapi";
@@ -221,39 +224,10 @@ const hotAttacker = buildPlayerRecentProfile({
   homeTeamId: 1
 });
 
-const cb = buildPlayerRecentProfile({
-  metric: metric({
-    playerName: "Konsa",
-    team: "Home",
-    teamId: 1,
-    positionCode: "DC",
-    roleIcon: "🛡️",
-    foulsCommittedSeasonAvg: 1.1,
-    foulsCommittedLastFiveSampleCount: 8
-  }),
-  homeTeamId: 1
-});
-
-const mildPair = computeDifficultMarkingsForMatch({
-  match: matchBase,
-  profiles: [cb, mildAttacker],
-  percentilePool: [cb, mildAttacker, hotAttacker],
-  competitionId: "serie-a",
-  roundKey: "2026-07-04"
-});
-
-const hotPair = computeDifficultMarkingsForMatch({
-  match: matchBase,
-  profiles: [cb, hotAttacker],
-  percentilePool: [cb, mildAttacker, hotAttacker],
-  competitionId: "serie-a",
-  roundKey: "2026-07-04"
-});
-
 check(
   "attaccante prolifico supera attaccante blando",
-  (hotPair[0]?.difficultMarkingScore ?? 0) > (mildPair[0]?.difficultMarkingScore ?? 0) &&
-    (hotPair[0]?.difficultMarkingScore ?? 0) >= 62
+  attackerMarkingDifficultyIndex(hotAttacker) > attackerMarkingDifficultyIndex(mildAttacker) &&
+    attackerMarkingDifficultyIndex(hotAttacker) >= 0.55
 );
 
 const fakeMatchups = [
@@ -388,6 +362,62 @@ check(
     { difficultMarkingScore: 80, eventId: 1004 } as DifficultMarkingMatchup,
     new Map([["1004", pastKickoff]])
   )
+);
+
+const dualCollapsed = collapseDefenderMultiLoad([
+  {
+    id: "1-d1-a1",
+    fixtureId: "1",
+    defenderPlayerId: "d1",
+    defenderPlayerName: "Theo",
+    attackerPlayerId: "a1",
+    attackerPlayerName: "Saka",
+    attackerChallengeScore: 0.72,
+    difficultMarkingScore: 74,
+    heatmapOverlapPct: 58,
+    attackerMetrics: { foulsDrawnPer90: 2.1, dribblesSuccessfulPer90: 1.8 },
+    reasons: []
+  },
+  {
+    id: "1-d1-a2",
+    fixtureId: "1",
+    defenderPlayerId: "d1",
+    defenderPlayerName: "Theo",
+    attackerPlayerId: "a2",
+    attackerPlayerName: "Martinelli",
+    attackerChallengeScore: 0.61,
+    difficultMarkingScore: 68,
+    heatmapOverlapPct: 44,
+    attackerMetrics: { foulsDrawnPer90: 1.7, dribblesSuccessfulPer90: 1.5 },
+    reasons: []
+  }
+] as never[]);
+
+check("carico doppio: un solo card per marcatore", dualCollapsed.length === 1);
+check(
+  "carico doppio allega il secondo attaccante",
+  (dualCollapsed[0]?.extraAttackers?.length ?? 0) === 1 &&
+    dualCollapsed[0]?.markingLoadCount === 2
+);
+check(
+  "titolo elenca entrambi gli attaccanti",
+  difficultMarkingSubjectLineIt(dualCollapsed[0]!).includes("Saka") &&
+    difficultMarkingSubjectLineIt(dualCollapsed[0]!).includes("Martinelli")
+);
+
+const highBoth = attackerMarkingDifficultyIndex({
+  foulsDrawnPer90: 2.2,
+  dribblesSuccessfulPer90: 2.0,
+  dribblesAttemptedPer90: 4.1
+});
+const foulsOnly = attackerMarkingDifficultyIndex({
+  foulsDrawnPer90: 2.2,
+  dribblesSuccessfulPer90: 0.2,
+  dribblesAttemptedPer90: 0.4
+});
+check(
+  "falli subiti + dribbling battano i soli falli",
+  highBoth > foulsOnly && highBoth >= 0.55
 );
 
 const failed = results.filter((r) => !r.passed);

@@ -17,7 +17,7 @@ export function buildReasonsForMatchup(params: {
 
   const foulsDrawn = params.attacker.foulsDrawnPer90;
   const foulsDrawnPct = params.attackerMetrics.foulsDrawnPercentile;
-  if (foulsDrawn != null && foulsDrawn >= 2.2) {
+  if (foulsDrawn != null && foulsDrawn >= 1.15) {
     reasons.push({
       type: "HIGH_FOULS_DRAWN",
       label: "Subisce molti falli",
@@ -28,7 +28,7 @@ export function buildReasonsForMatchup(params: {
 
   const dribbles = params.attacker.dribblesAttemptedPer90;
   const dribblesPct = params.attackerMetrics.dribblesAttemptedPercentile;
-  if (dribbles != null && dribbles >= 3.5) {
+  if (dribbles != null && dribbles >= 2.4) {
     reasons.push({
       type: "HIGH_DRIBBLE_VOLUME",
       label: "Tenta molti dribbling",
@@ -38,7 +38,7 @@ export function buildReasonsForMatchup(params: {
   }
 
   const dribblesOk = params.attacker.dribblesSuccessfulPer90;
-  if (dribblesOk != null && dribblesOk >= 1.8 && reasons.length < 4) {
+  if (dribblesOk != null && dribblesOk >= 1.15 && reasons.length < 4) {
     reasons.push({
       type: "HIGH_DRIBBLE_SUCCESS",
       label: "Completa molti dribbling",

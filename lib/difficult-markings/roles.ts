@@ -182,6 +182,15 @@ export function profileActsAsAttacker(profile: PlayerRecentProfile): boolean {
   if (profile.roleIcon === "🧤") return false;
   if (isAttackerRole(profile.normalizedRole)) return true;
   if (profile.roleIcon === "🎯") return true;
+  const fouls = profile.foulsDrawnPer90 ?? 0;
+  const dribbles = Math.max(
+    profile.dribblesSuccessfulPer90 ?? 0,
+    (profile.dribblesAttemptedPer90 ?? 0) * 0.5
+  );
+  /** Centrocampisti/esterne con profilo da marcare (falli subiti + dribbling). */
+  if (!isDefenderRole(profile.normalizedRole) && fouls >= 0.95 && dribbles >= 0.95) {
+    return true;
+  }
   if (
     profile.roleIcon === "⚡" &&
     profile.formationSide !== "center" &&
