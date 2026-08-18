@@ -1227,6 +1227,8 @@ export interface UpcomingMatchItem {
   awayTeam: { id: number; name: string };
   /** Da SportAPI `status.type`: serve a tenere partite live / appena finite nel menu dopo il calcio d’inizio. */
   statusType?: string;
+  /** Giornata FootAPI (`roundInfo.round`), se presente. */
+  round?: number;
 }
 
 function isStrictTop5CompetitionSlug(slug: string): boolean {
@@ -4962,7 +4964,11 @@ function mapEventsToUpcomingMatchItems(events: SportApiEvent[]): UpcomingMatchIt
         awayTeam: {
           id: event.awayTeam?.id as number,
           name: event.awayTeam?.name ?? "AWAY"
-        }
+        },
+        round:
+          typeof event.roundInfo?.round === "number" && event.roundInfo.round > 0
+            ? event.roundInfo.round
+            : undefined
       };
     })
     .sort((a, b) => a.startTimestamp - b.startTimestamp);

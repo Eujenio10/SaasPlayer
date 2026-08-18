@@ -16,7 +16,10 @@ import {
   upsertKioskMatchInsightsForOrganization,
   upsertMatchesMenuSnapshotForOrganization
 } from "@/lib/supabase/org-tactical-shared-writes";
-import { buildEachTeamNextInternationalMatchesMenu } from "@/lib/tactical-matches-filters";
+import {
+  buildEachTeamNextInternationalMatchesMenu,
+  selectNextMatchdayPerCompetition
+} from "@/lib/tactical-matches-filters";
 import { filterUpcomingMenuMatches } from "@/lib/trends/fixture-eligibility";
 import { getOrRefreshTacticalMatchesMenuFull } from "@/lib/tactical-matches-menu-cache";
 import { metricsHaveBothTeamsFoulDataSoft, metricsIncludeBothTeams } from "@/lib/organization-match-insights";
@@ -156,8 +159,8 @@ async function loadOrganizationMenus(organizationId: string): Promise<{
   );
 
   return {
-    domestic: filterUpcomingMenuMatches(domestic),
-    international: filterUpcomingMenuMatches(international)
+    domestic: selectNextMatchdayPerCompetition(filterUpcomingMenuMatches(domestic)),
+    international: selectNextMatchdayPerCompetition(filterUpcomingMenuMatches(international))
   };
 }
 

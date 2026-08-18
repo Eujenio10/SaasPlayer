@@ -33,6 +33,7 @@ export interface UpcomingMatchItem {
   homeTeam: { id: number; name: string };
   awayTeam: { id: number; name: string };
   statusType?: string;
+  round?: number;
   intensityPreview?: MatchIntensityPreview | null;
 }
 

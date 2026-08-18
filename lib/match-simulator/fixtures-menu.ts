@@ -10,6 +10,12 @@ import {
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import type { UpcomingMatchItem } from "@/services/sportapi";
 
+function parseOptionalMatchRound(value: unknown): number | undefined {
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n) || n <= 0) return undefined;
+  return Math.trunc(n);
+}
+
 /** Stessa normalizzazione di `/api/tactical/matches`, con slug competizione canonico. */
 export function normalizePersistedMenuRows(raw: unknown): UpcomingMatchItem[] {
   if (!Array.isArray(raw)) return [];
@@ -44,7 +50,8 @@ export function normalizePersistedMenuRows(raw: unknown): UpcomingMatchItem[] {
       awayTeam: {
         id: awayId,
         name: typeof away?.name === "string" ? away.name : "AWAY"
-      }
+      },
+      round: parseOptionalMatchRound(row.round)
     });
   }
   return out;

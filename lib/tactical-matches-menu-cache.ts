@@ -3,8 +3,8 @@ import { buildEachTeamNextUpcomingMatchesMenu } from "@/lib/tactical-matches-fil
 import { fetchUpcomingTopCompetitionMatches, type UpcomingMatchItem } from "@/services/sportapi";
 
 /** Stessa chiave usata da `/api/tactical/matches` senza filtri home/away/competition. */
-/** v14: menu = tutte le partite nella finestra (niente più 1 gara/squadra). */
-export const TACTICAL_MATCHES_MENU_FULL_CACHE_KEY = "tactical_matches_menu:v14:_:_:_";
+/** v15: menu = sola prossima giornata per competizione. */
+export const TACTICAL_MATCHES_MENU_FULL_CACHE_KEY = "tactical_matches_menu:v15:_:_:_";
 
 /**
  * Elenco partite top-league (come il menu kiosk): cache Supabase condivisa.

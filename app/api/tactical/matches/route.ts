@@ -21,6 +21,12 @@ function mergeInternationalMenuSlices(
   return combinePersistedOrganizationMenuSnapshots(domestic, international);
 }
 
+function parseOptionalMatchRound(value: unknown): number | undefined {
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n) || n <= 0) return undefined;
+  return Math.trunc(n);
+}
+
 function normalizePersistedMenuRows(raw: unknown): UpcomingMatchItem[] {
   if (!Array.isArray(raw)) return [];
   const out: UpcomingMatchItem[] = [];
@@ -50,7 +56,8 @@ function normalizePersistedMenuRows(raw: unknown): UpcomingMatchItem[] {
       awayTeam: {
         id: awayId,
         name: typeof away?.name === "string" ? away.name : "AWAY"
-      }
+      },
+      round: parseOptionalMatchRound(row.round)
     });
   }
   return out;
@@ -116,7 +123,7 @@ export async function GET(request: Request) {
   const away = url.searchParams.get("away")?.trim().toLowerCase() ?? "";
   const competition = url.searchParams.get("competition")?.trim().toLowerCase() ?? "";
   const menuCacheHours = Number(process.env.TACTICAL_MATCHES_MENU_CACHE_HOURS ?? "120");
-  const menuCacheKey = `tactical_matches_menu:v14:${home || "_"}:${away || "_"}:${competition || "_"}`;
+  const menuCacheKey = `tactical_matches_menu:v15:${home || "_"}:${away || "_"}:${competition || "_"}`;
 
   /** Pro/Member: zero SportAPI/RapidAPI — solo copia salvata dall’organizzazione. */
   if (organization.role !== "admin") {

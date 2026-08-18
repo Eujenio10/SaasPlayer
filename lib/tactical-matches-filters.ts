@@ -6,20 +6,27 @@
  *   1. `filterMonitoredCompetitionMatches`  → solo le competizioni gestite (Top 5)
  *   2. `filterRealTeamMatches`              → niente placeholder tabellone (es. "1A", "Winner 3")
  *   3. `filterMatchesWithinNextDays`        → solo entro i prossimi N giorni (default 30)
- *   4. `dedupeMatchesByEventId`             → nessun duplicato
- *   5. `sortMatchesChronologically`         → ordinamento per calcio d’inizio
+ *   4. `selectNextMatchdayPerCompetition`   → solo la prossima giornata di ogni campionato
+ *   5. `dedupeMatchesByEventId`             → nessun duplicato
+ *   6. `sortMatchesChronologically`         → ordinamento per calcio d’inizio
  *
- * Nella finestra di analisi restano **tutte** le partite del campionato (tutte le squadre),
- * non solo la prossima gara per club. L’orchestratore `buildMonitoredMatchesMenu` applica
- * questi passi nell’ordine corretto.
+ * Nella finestra di analisi resta **solo la prossima giornata** di ogni campionato
+ * (non le giornate successive), per tutte le squadre di quella giornata.
  */
 import { isMonitoredCompetitionSlug, resolveCompetitionId } from "@/lib/competitions";
 import type { MonitoredCompetitionId } from "@/lib/competitions";
 
-/** Finestra temporale di default: mostra solo le partite entro i prossimi 7 giorni. */
+/** Orizzonte di ricerca della prossima giornata (non è il numero di giornate da analizzare). */
 export const MATCHES_WINDOW_DAYS = 30;
 
+/**
+ * Se manca `round` dal provider, tiene le partite entro questo arco dal primo calcio d’inizio
+ * rimasto (copre un weekend ven–lun e un midweek UEFA mar–mer).
+ */
+export const MATCHDAY_CLUSTER_DAYS = 4;
+
 const SECONDS_PER_DAY = 24 * 60 * 60;
+const MATCHDAY_CLUSTER_SECONDS = MATCHDAY_CLUSTER_DAYS * SECONDS_PER_DAY;
 
 function nowSeconds(): number {
   return Math.floor(Date.now() / 1000);
@@ -32,6 +39,8 @@ export interface MenuMatchRow {
   competitionSlug: string;
   homeTeam: { id: number; name: string };
   awayTeam: { id: number; name: string };
+  /** Numero giornata provider (FootAPI `roundInfo.round`), se disponibile. */
+  round?: number;
 }
 
 /** True se il calcio d’inizio è ancora nel futuro (kickoff dopo “adesso”). */
@@ -120,7 +129,7 @@ export function filterRealTeamMatches<
 
 /**
  * Conserva, per ogni `teamId` (home o away), solo la partita cronologicamente più vicina.
- * Non usata dal menu Analisi (che mostra tutte le gare nella finestra): tenuta per eventuali
+ * Non usata dal menu Analisi (che mostra la prossima giornata completa): tenuta per eventuali
  * anteprime o viste “prossima gara”.
  */
 export function selectNextMatchPerTeam<
@@ -145,6 +154,65 @@ export function selectNextMatchPerTeam<
   return sortMatchesChronologically(Array.from(byEvent.values()));
 }
 
+function isValidMatchRound(round: number | undefined): round is number {
+  return typeof round === "number" && Number.isFinite(round) && round > 0;
+}
+
+/**
+ * Per un singolo campionato, tiene solo la prossima giornata ancora da giocare.
+ * Preferisce `round` FootAPI; se copre troppo pochi match, raggruppa per orario.
+ */
+function selectNextMatchdayForCompetitionGroup<T extends MenuMatchRow>(matches: T[]): T[] {
+  if (matches.length === 0) return [];
+  const sorted = sortMatchesChronologically(matches);
+  const withRound = sorted.filter((m) => isValidMatchRound(m.round));
+  const minCoverage = Math.max(2, Math.ceil(sorted.length * 0.5));
+
+  if (withRound.length >= minCoverage) {
+    const nextRound = Math.min(...withRound.map((m) => m.round as number));
+    const inRound = sorted.filter((m) => m.round === nextRound);
+    const roundStart = Math.min(...inRound.map((m) => m.startTimestamp));
+    const roundEnd = Math.max(
+      Math.max(...inRound.map((m) => m.startTimestamp)),
+      roundStart + MATCHDAY_CLUSTER_SECONDS
+    );
+    const extras = sorted.filter(
+      (m) =>
+        !isValidMatchRound(m.round) &&
+        m.startTimestamp >= roundStart &&
+        m.startTimestamp <= roundEnd
+    );
+    return sortMatchesChronologically([...inRound, ...extras]);
+  }
+
+  const firstKickoff = sorted[0]?.startTimestamp ?? 0;
+  const clusterEnd = firstKickoff + MATCHDAY_CLUSTER_SECONDS;
+  return sorted.filter((m) => m.startTimestamp <= clusterEnd);
+}
+
+/**
+ * Per ogni competizione monitorata, analizza solo la prossima giornata (tutte le squadre
+ * di quella giornata), non le giornate successive nella finestra di 30 giorni.
+ */
+export function selectNextMatchdayPerCompetition<T extends MenuMatchRow>(
+  matches: T[]
+): T[] {
+  const future = filterMatchesKickoffInFuture(matches);
+  if (future.length === 0) return [];
+  const groups = new Map<string, T[]>();
+  for (const match of future) {
+    const key = resolveCompetitionId(match.competitionSlug) ?? match.competitionSlug;
+    const list = groups.get(key) ?? [];
+    list.push(match);
+    groups.set(key, list);
+  }
+  const selected: T[] = [];
+  for (const list of groups.values()) {
+    selected.push(...selectNextMatchdayForCompetitionGroup(list));
+  }
+  return sortMatchesChronologically(selected);
+}
+
 export interface BuildMatchesMenuOptions {
   /** Ampiezza finestra in giorni (default 7). */
   windowDays?: number;
@@ -153,9 +221,8 @@ export interface BuildMatchesMenuOptions {
 }
 
 /**
- * Orchestratore unico del menu: applica, nell’ordine, monitorata → nomi reali → finestra giorni →
- * dedupe → ordinamento. Tutte le partite valide nella finestra restano visibili (tutte le squadre
- * del campionato), senza tagliare a “una sola prossima gara per club”.
+ * Orchestratore unico del menu: monitorata → nomi reali → finestra giorni → prossima giornata
+ * per campionato → dedupe → ordinamento.
  */
 export function buildMonitoredMatchesMenu<T extends MenuMatchRow>(
   matches: T[],
@@ -167,7 +234,8 @@ export function buildMonitoredMatchesMenu<T extends MenuMatchRow>(
   const monitored = filterMonitoredCompetitionMatches(matches);
   const realTeams = filterRealTeamMatches(monitored);
   const inWindow = filterMatchesWithinNextDays(realTeams, windowDays, nowSec);
-  const deduped = dedupeMatchesByEventId(inWindow);
+  const nextMatchday = selectNextMatchdayPerCompetition(inWindow);
+  const deduped = dedupeMatchesByEventId(nextMatchday);
   return sortMatchesChronologically(deduped);
 }
 
@@ -186,7 +254,7 @@ export function buildEachTeamNextInternationalMatchesMenu<T extends MenuMatchRow
 
 /**
  * Unisce menu club (Top 5) e nazionali e riapplica le regole sull’insieme completo
- * (finestra giorni + dedupe), senza tagliare a una partita per squadra.
+ * (finestra giorni + prossima giornata + dedupe).
  */
 export function mergeDomesticAndInternationalUpcomingMenus<T extends MenuMatchRow>(
   domestic: T[],
@@ -197,7 +265,7 @@ export function mergeDomesticAndInternationalUpcomingMenus<T extends MenuMatchRo
 
 /**
  * Unisce snapshot già filtrati in refresh admin (domestic + internazionale separati in DB).
- * Riapplica solo monitorata, nomi reali, futuro e finestra giorni.
+ * Riapplica monitorata, nomi reali, futuro, finestra giorni e sola prossima giornata.
  */
 export function combinePersistedOrganizationMenuSnapshots<T extends MenuMatchRow>(
   domestic: T[],
@@ -210,7 +278,7 @@ export function combinePersistedOrganizationMenuSnapshots<T extends MenuMatchRow
   const monitored = filterMonitoredCompetitionMatches(merged);
   const realTeams = filterRealTeamMatches(monitored);
   const inWindow = filterMatchesWithinNextDays(realTeams, windowDays, nowSec);
-  return sortMatchesChronologically(inWindow);
+  return sortMatchesChronologically(selectNextMatchdayPerCompetition(inWindow));
 }
 
 /**

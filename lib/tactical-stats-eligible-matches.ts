@@ -4,6 +4,7 @@ import {
   isTop5DomesticCompetitionSlug,
   normalizeCompetitionId
 } from "@/lib/competitions";
+import { selectNextMatchdayPerCompetition } from "@/lib/tactical-matches-filters";
 import type { CompetitionScope } from "@/lib/types";
 import type { UpcomingMatchItem } from "@/services/sportapi";
 
@@ -49,8 +50,7 @@ export function scopeFromCompetitionSlugForInsights(slug: string): CompetitionSc
 }
 
 /**
- * Target prefetch admin: ogni partita del menu (Top 5 + nazionali) nella finestra di analisi.
- * Nessuna partita analizzabile viene saltata.
+ * Target prefetch admin: sola prossima giornata di ogni campionato (Top 5 + nazionali).
  */
 export function buildAdminInsightsPrefetchTargets(
   domestic: UpcomingMatchItem[],
@@ -64,5 +64,5 @@ export function buildAdminInsightsPrefetchTargets(
   for (const match of [...topFive, ...nationalTeams]) {
     byId.set(match.eventId, match);
   }
-  return Array.from(byId.values()).sort((a, b) => a.startTimestamp - b.startTimestamp);
+  return selectNextMatchdayPerCompetition(Array.from(byId.values()));
 }

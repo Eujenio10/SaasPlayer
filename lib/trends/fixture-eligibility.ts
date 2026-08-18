@@ -1,5 +1,8 @@
 import { normalizePersistedMenuRows } from "@/lib/match-simulator/fixtures-menu";
-import { matchKickoffIsStillFuture } from "@/lib/tactical-matches-filters";
+import {
+  matchKickoffIsStillFuture,
+  selectNextMatchdayPerCompetition
+} from "@/lib/tactical-matches-filters";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import type { PlayerTrend, TrendsSnapshot } from "@/lib/trends/types";
 import type { UpcomingMatchItem } from "@/services/sportapi";
@@ -151,7 +154,7 @@ export async function loadOrganizationUpcomingMenuMatches(
     ...(Array.isArray(intl?.matches) ? normalizePersistedMenuRows(intl.matches) : [])
   ];
 
-  return filterUpcomingMenuMatches(merged);
+  return selectNextMatchdayPerCompetition(filterUpcomingMenuMatches(merged));
 }
 
 export async function loadOrganizationFixtureKickoffMap(

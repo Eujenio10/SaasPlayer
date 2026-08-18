@@ -1965,13 +1965,13 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
             <p className="mt-2 text-center text-xs leading-relaxed text-slate-400">
               {adminRefreshScope === "all" ? (
                 <>
-                  Ricalcolo match-insights con heatmap per tutte le partite future dei{" "}
+                  Ricalcolo match-insights con heatmap per la prossima giornata dei{" "}
                   <strong className="text-slate-300">top 5 campionati</strong> presenti nel menu (Serie A, Premier
                   League, LaLiga, Bundesliga, Ligue 1).
                 </>
               ) : (
                 <>
-                  Ricalcolo match-insights con heatmap per le partite future di{" "}
+                  Ricalcolo match-insights con heatmap per la prossima giornata di{" "}
                   <strong className="text-slate-300">{competitionLabel(adminRefreshScope)}</strong>.
                 </>
               )}
