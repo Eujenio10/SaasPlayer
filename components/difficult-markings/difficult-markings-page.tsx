@@ -13,6 +13,7 @@ import {
 import type { DifficultMarkingMatchup } from "@/lib/difficult-markings/types";
 import type { DifficultMarkingFilterKey, DifficultMarkingSortKey } from "@/lib/difficult-markings/publish";
 import { useWebCompetitionsWithMatches } from "@/components/competitions/use-web-competitions-with-matches";
+import { DEFAULT_MENU_COMPETITION_ID } from "@/lib/competitions-with-matches";
 import { KIOSK_ADMIN_INSIGHTS_REFRESH_EVENT } from "@/lib/kiosk-persisted-insights";
 import { translateTeamName } from "@/lib/italian-sports-display";
 import {
@@ -41,8 +42,8 @@ function formatUpdatedAt(iso: string | null): string {
 }
 
 export function DifficultMarkingsPage() {
-  const { competitions: availableCompetitions } = useWebCompetitionsWithMatches();
-  const [competitionId, setCompetitionId] = useState("serie-a");
+  const { competitions: availableCompetitions, preferredId } = useWebCompetitionsWithMatches();
+  const [competitionId, setCompetitionId] = useState(DEFAULT_MENU_COMPETITION_ID);
   const [round, setRound] = useState<string>("");
   const [filter, setFilter] = useState<DifficultMarkingFilterKey>("all");
   const [sort, setSort] = useState<DifficultMarkingSortKey>("score");
@@ -54,11 +55,11 @@ export function DifficultMarkingsPage() {
   const [officialLineupsUsed, setOfficialLineupsUsed] = useState(false);
 
   useEffect(() => {
-    if (!availableCompetitions.length) return;
+    if (!preferredId) return;
     if (!availableCompetitions.some((c) => c.id === competitionId)) {
-      setCompetitionId(availableCompetitions[0].id);
+      setCompetitionId(preferredId);
     }
-  }, [availableCompetitions, competitionId]);
+  }, [availableCompetitions, competitionId, preferredId]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -81,12 +82,21 @@ export function DifficultMarkingsPage() {
         updatedAt?: string | null;
         round?: string;
         officialLineupsUsed?: boolean;
+        resolvedCompetitionId?: string;
       };
       setResults(Array.isArray(json.results) ? json.results : []);
       setAvailableRounds(Array.isArray(json.availableRounds) ? json.availableRounds : []);
       setUpdatedAt(json.updatedAt ?? null);
       setOfficialLineupsUsed(Boolean(json.officialLineupsUsed));
-      if (!round && json.round) setRound(String(json.round));
+      if (
+        json.resolvedCompetitionId &&
+        json.resolvedCompetitionId !== competitionId
+      ) {
+        setCompetitionId(json.resolvedCompetitionId);
+        setRound("");
+      } else if (!round && json.round) {
+        setRound(String(json.round));
+      }
     } catch {
       setError("Impossibile caricare le marcature difficili.");
       setResults([]);

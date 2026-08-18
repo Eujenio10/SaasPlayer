@@ -3,13 +3,15 @@
 import { useEffect, useState } from "react";
 import {
   filterCompetitionsByAvailableIds,
-  competitionIdsWithMatches
+  competitionIdsWithMatches,
+  preferredCompetitionId
 } from "@/lib/competitions-with-matches";
-import type { MonitoredCompetition } from "@/lib/competitions";
+import type { MonitoredCompetition, MonitoredCompetitionId } from "@/lib/competitions";
 
 /** Competizioni con ≥1 partita nel menu kiosk (per select Marcature/Trend/Simulatore). */
 export function useWebCompetitionsWithMatches(): {
   competitions: MonitoredCompetition[];
+  preferredId: MonitoredCompetitionId | null;
   loading: boolean;
 } {
   const [competitions, setCompetitions] = useState<MonitoredCompetition[]>(() =>
@@ -42,5 +44,7 @@ export function useWebCompetitionsWithMatches(): {
     };
   }, []);
 
-  return { competitions, loading };
+  const preferredId = preferredCompetitionId(competitions.map((c) => c.id));
+
+  return { competitions, preferredId, loading };
 }

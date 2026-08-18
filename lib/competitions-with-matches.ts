@@ -5,6 +5,21 @@ import {
   type MonitoredCompetitionId
 } from "@/lib/competitions";
 
+/** Campionato di default condiviso tra sito e app (non il primo del menu, che è la Coppa del Mondo). */
+export const DEFAULT_MENU_COMPETITION_ID: MonitoredCompetitionId = "serie-a";
+
+/**
+ * Competizione da aprire se l'utente non ha ancora scelto:
+ * Serie A se c'è almeno una partita, altrimenti la prima del menu con partite.
+ */
+export function preferredCompetitionId(
+  availableIds: readonly string[] | null | undefined
+): MonitoredCompetitionId | null {
+  if (!availableIds?.length) return null;
+  if (availableIds.includes(DEFAULT_MENU_COMPETITION_ID)) return DEFAULT_MENU_COMPETITION_ID;
+  return availableIds[0] as MonitoredCompetitionId;
+}
+
 /** ID competizioni monitorate presenti in una lista di partite (almeno 1). */
 export function competitionIdsWithMatches(
   matches: Array<{ competitionSlug?: string; competitionName?: string }>

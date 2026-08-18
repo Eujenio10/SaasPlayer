@@ -6,6 +6,7 @@ import { MarkingsCompetitionPicker } from "@/components/difficult-markings/Marki
 import { TrendsList } from "@/components/trends/TrendsList";
 import { useAuth } from "@/contexts/AuthContext";
 import { subscribeAdminCatalogRefresh } from "@/lib/admin-catalog-refresh";
+import { DEFAULT_MENU_COMPETITION_ID } from "@/lib/competitions-with-matches";
 import { useCompetitionsWithMatches } from "@/lib/competitions/useCompetitionsWithMatches";
 import { useAdminMatchesRefresh } from "@/lib/matches/useAdminMatchesRefresh";
 import { colors, spacing } from "@/lib/theme";
@@ -13,7 +14,7 @@ import { colors, spacing } from "@/lib/theme";
 export default function TrendsScreen() {
   const { access } = useAuth();
   const { availableIds, preferredId, refresh: refreshCompetitions } = useCompetitionsWithMatches();
-  const [competitionId, setCompetitionId] = useState("world-cup");
+  const [competitionId, setCompetitionId] = useState(DEFAULT_MENU_COMPETITION_ID);
   const [refreshToken, setRefreshToken] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const adminRefresh = useAdminMatchesRefresh(() => {

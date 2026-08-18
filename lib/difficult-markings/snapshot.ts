@@ -107,7 +107,7 @@ export async function loadBestDifficultMarkingsSnapshot(primaryOrganizationId: s
 }> {
   const orgId = primaryOrganizationId.trim();
   const primary = await loadOrganizationDifficultMarkingsSnapshot(orgId);
-  if (snapshotHasPublishedMatchups(primary)) {
+  if (primary) {
     return {
       organizationId: orgId,
       snapshot: primary,

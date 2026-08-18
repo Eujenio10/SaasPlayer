@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { competitionIdsWithMatches } from "@/lib/competitions-with-matches";
+import { competitionIdsWithMatches, preferredCompetitionId } from "@/lib/competitions-with-matches";
 import { fetchMatches } from "@/lib/api";
 import type { MonitoredCompetitionId } from "@/lib/competitions";
 
@@ -24,7 +24,7 @@ export function useCompetitionsWithMatches() {
     void refresh();
   }, [refresh]);
 
-  const preferredId = useMemo(() => availableIds?.[0] ?? null, [availableIds]);
+  const preferredId = useMemo(() => preferredCompetitionId(availableIds), [availableIds]);
 
   return { availableIds, preferredId, loading, refresh };
 }
