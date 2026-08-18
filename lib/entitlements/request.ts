@@ -19,7 +19,7 @@ export async function resolveRequestEntitlements(
   request?: Request
 ): Promise<UserEntitlements> {
   const deviceId = request ? readDeviceIdFromRequest(request) : null;
-  const beta = isBetaFreeForAllRequest(request, ctx.userId);
+  const beta = isBetaFreeForAllRequest(request);
 
   if (!ctx.userId && !deviceId) {
     /** Beta app mobile: anche senza identificativo, un guest ottiene lo stesso accesso Pro. */

@@ -55,7 +55,7 @@ export async function GET(request: Request) {
 
   /** Beta pubblica app mobile: dashboard senza limiti Pro per gli utenti Free autenticati. */
   const access =
-    isBetaFreeForAllRequest(request, ctx.userId) && !accessRaw.isPro
+    isBetaFreeForAllRequest(request) && !accessRaw.isPro
       ? { ...accessRaw, isPro: true, matchUsage: buildUnlimitedMatchUsage(), yellowCardVisibleRows: null }
       : accessRaw;
 

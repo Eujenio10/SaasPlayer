@@ -30,7 +30,7 @@ const querySchema = z.object({
 
 export async function GET(request: Request) {
   const user = await getApiUser(request);
-  const beta = isBetaFreeForAllRequest(request, user?.id);
+  const beta = isBetaFreeForAllRequest(request);
 
   if (!user && !beta) {
     return NextResponse.json({ error: "not_authenticated" }, { status: 401 });

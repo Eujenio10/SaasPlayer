@@ -19,7 +19,7 @@ export async function GET(request: Request) {
    * ammonizioni) SOLO per l'app mobile, mai per il kiosk web (Tactical Intelligence Hub),
    * che non invia l'header client mobile. */
   const betaAccess =
-    isBetaFreeForAllRequest(request, user.id) && !access.isPro
+    isBetaFreeForAllRequest(request) && !access.isPro
       ? {
           ...access,
           isPro: true,

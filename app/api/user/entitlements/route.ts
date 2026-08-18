@@ -40,7 +40,7 @@ export async function GET(request: Request) {
 
     /** Beta pubblica app mobile: tutti gli utenti autenticati Free hanno accesso Pro. */
     const betaEntitlements =
-      isBetaFreeForAllRequest(request, user.id) && entitlements.subscriptionTier !== "pro"
+      isBetaFreeForAllRequest(request) && entitlements.subscriptionTier !== "pro"
         ? { ...entitlements, subscriptionTier: "pro" as const }
         : entitlements;
 

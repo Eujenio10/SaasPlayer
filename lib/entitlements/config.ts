@@ -50,14 +50,10 @@ export function isMobileClientRequest(request?: Request | null): boolean {
 
 /**
  * true per QUALSIASI richiesta dell'app mobile durante la beta free-for-all, autenticata o
- * guest (identificata via `X-Device-Id`): guest e Free vengono trattati alla pari.
- * Il parametro `userId` non è più determinante, ma resta accettato per compatibilità con i
- * call site esistenti (può essere `null`/`undefined` per i guest).
+ * guest: guest e Free vengono trattati alla pari. Si applica solo se la richiesta arriva
+ * dall'app mobile (header client), mai al kiosk web.
  */
-export function isBetaFreeForAllRequest(
-  request: Request | null | undefined,
-  _userId?: string | null
-): boolean {
+export function isBetaFreeForAllRequest(request: Request | null | undefined): boolean {
   return PITCHBRAIN_BETA_FREE_FOR_ALL && isMobileClientRequest(request);
 }
 
