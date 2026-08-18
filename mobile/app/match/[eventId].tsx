@@ -14,7 +14,6 @@ import { useAccessFlow } from "@/contexts/AccessFlowContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useEntitlements } from "@/contexts/EntitlementsContext";
 import { useGuestPreview } from "@/contexts/GuestPreviewContext";
-import { canAccessFeatureId } from "@/lib/access/features";
 import { isGuestUser, resolveGuestPreviewMode } from "@/lib/access/guest-preview-mode";
 import { MATCH_DATA_UNAVAILABLE_MESSAGE } from "@/lib/analysis-unavailable";
 import { subscribeAdminCatalogRefresh } from "@/lib/admin-catalog-refresh";
@@ -42,7 +41,7 @@ export default function MatchDetailScreen() {
   }>();
   const eventId = Number(params.eventId);
   const { access, userStatus, refreshAccess } = useAuth();
-  const { requestFeature, openPaywall } = useAccessFlow();
+  const { openPaywall } = useAccessFlow();
   const { featuresPreviewActive, openAdModal } = useGuestPreview();
   const { isPro, isMatchUnlocked, canAccessFeature } = useEntitlements();
   const [metrics, setMetrics] = useState<TacticalMetrics[]>([]);
@@ -52,7 +51,6 @@ export default function MatchDetailScreen() {
   const prevUnlockedRef = useRef(false);
 
   const isGuest = isGuestUser(userStatus);
-  const canAccessPreMatch = canAccessFeatureId(userStatus, "fullPreMatchReport");
   const matchAnalysisUnlocked =
     isPro || isMatchUnlocked(eventId) || canAccessFeature("match_full_analysis", eventId);
   const guestPreviewMode = resolveGuestPreviewMode(userStatus, featuresPreviewActive, {
@@ -144,19 +142,6 @@ export default function MatchDetailScreen() {
     }
   }, [matchAnalysisUnlocked, load]);
 
-  const handleTabChange = (next: MatchAnalysisTab) => {
-    if (next === "prematch" && userStatus !== "guest") {
-      const allowed = requestFeature("fullPreMatchReport", {
-        type: "open_feature",
-        feature: "fullPreMatchReport",
-        matchId: eventId,
-        returnTab: "prematch"
-      });
-      if (!allowed) return;
-    }
-    setTab(next);
-  };
-
   const homeDisplay = translateTeamName(params.home ?? "");
   const awayDisplay = translateTeamName(params.away ?? "");
   const competitionDisplay = translateCompetitionName(params.competition ?? "Competizione");
@@ -194,7 +179,7 @@ export default function MatchDetailScreen() {
         </View>
       ) : null}
 
-      <MatchAnalysisTabs active={tab} onChange={handleTabChange} isGuest={isGuest} />
+      <MatchAnalysisTabs active={tab} onChange={setTab} isGuest={isGuest} />
 
       <View style={styles.tabContent}>
         {tab === "intensity" ? (
@@ -233,8 +218,8 @@ export default function MatchDetailScreen() {
             homeName={homeDisplay || params.home}
             awayName={awayDisplay || params.away}
             competition={competitionDisplay}
-            canAccess={canAccessPreMatch}
-            guestPreviewMode={canAccessPreMatch ? "full" : "locked"}
+            canAccess
+            guestPreviewMode="full"
             onDiscoverPro={openProPaywall}
           />
         )}

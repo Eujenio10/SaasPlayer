@@ -12,6 +12,7 @@ import { AnalyticsModuleCard } from "@/components/home/AnalyticsModuleCard";
 import { MatchRadarHomeCta } from "@/components/match-radar/MatchRadarHomeCta";
 import { DataRefreshScheduleBanner } from "@/components/home/DataRefreshScheduleBanner";
 import { EarlySeasonNoticeBanner } from "@/components/home/EarlySeasonNoticeBanner";
+import { HomeFeedbackCard } from "@/components/home/FeedbackCard";
 import { useAuth } from "@/contexts/AuthContext";
 import { useGuestPreview } from "@/contexts/GuestPreviewContext";
 import { shouldObscureGuestStats } from "@/lib/access/guest-preview-mode";
@@ -22,7 +23,7 @@ import { colors, radii, spacing } from "@/lib/theme";
 
 export function HomeScreen() {
   const router = useRouter();
-  const { access, userStatus } = useAuth();
+  const { access, userStatus, user } = useAuth();
   const { previewActive } = useGuestPreview();
   const { data, loading, error, refetch } = useHomeDashboard();
   const adminRefresh = useAdminMatchesRefresh(() => void refetch());
@@ -58,6 +59,7 @@ export function HomeScreen() {
       <ScrollView
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
         refreshControl={
           <RefreshControl refreshing={loading && !!data} onRefresh={() => void refetch()} tintColor={colors.cyan} />
         }
@@ -127,6 +129,8 @@ export function HomeScreen() {
               ))}
             </View>
           ) : null}
+
+          <HomeFeedbackCard isGuest={isGuest} accountEmail={user?.email} />
 
         </View>
       </ScrollView>

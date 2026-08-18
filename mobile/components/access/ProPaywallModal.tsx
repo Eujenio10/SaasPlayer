@@ -10,8 +10,6 @@ import { colors, radii, spacing } from "@/lib/theme";
 const benefits = [
   "Analisi illimitate senza video",
   "Marcature difficili complete",
-  "Trend e filtri avanzati",
-  "Simulazioni complete e personalizzabili",
   "Nessuna pubblicità",
   "Abbonamento mensile via App Store / Play Store",
   "Accesso su più dispositivi con lo stesso account"

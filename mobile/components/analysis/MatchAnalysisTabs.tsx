@@ -19,7 +19,7 @@ const tabHints: Record<MatchAnalysisTab, string> = {
 const guestTabHints: Record<MatchAnalysisTab, string> = {
   intensity: FOULS_ANALYSIS_UI.guestTabHint,
   playerPerformance: "Analisi offensiva dei giocatori basata sulle ultime partite concluse.",
-  prematch: "Report pre-partita completo riservato a PitchBrain Pro."
+  prematch: "Lettura tecnica pre-partita su ritmo, controllo e punti chiave."
 };
 
 export function MatchAnalysisTabs({

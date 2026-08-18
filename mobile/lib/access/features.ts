@@ -11,7 +11,7 @@ export const FEATURE_ACCESS: Record<FeatureId, FeatureAccessLevel> = {
   matchSimulator: "pro",
   /** Completa solo Pro — Free e Guest vedono lock / paywall. */
   difficultMarkings: "pro",
-  fullPreMatchReport: "pro",
+  fullPreMatchReport: "free",
   advancedMatchAnalysis: "pro",
   advancedTrends: "pro",
   exportReport: "pro",

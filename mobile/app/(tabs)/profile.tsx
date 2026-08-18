@@ -92,9 +92,9 @@ export default function ProfileScreen() {
       <Screen>
         <Text style={styles.title}>Modalità Guest</Text>
         <Text style={styles.subtitle}>
-          Stai usando PitchBrain senza account. Durante la Beta hai già accesso completo a tutte le
-          funzionalità: Analisi partita, Marcature difficili, Trend, Simulatore e Pre-partita. Crea un
-          account solo se vuoi sincronizzare i dati su più dispositivi o recuperare il piano in futuro.
+          Stai usando PitchBrain senza account. Durante la Beta hai accesso ad Analisi partita,
+          Marcature difficili e Pre-partita. Crea un account solo se vuoi sincronizzare i dati su più
+          dispositivi o recuperare il piano in futuro.
         </Text>
 
         <View style={styles.card}>

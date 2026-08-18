@@ -1,4 +1,5 @@
 import { localizePreMatchReport } from "@/lib/prematch-report/localize";
+import { getOrCreateDeviceId } from "@/lib/device-id";
 import { env } from "@/lib/env";
 import { supabase } from "@/lib/supabase";
 import type { PreMatchReport, PreMatchReportResponse } from "@/lib/prematch-report/types";
@@ -6,17 +7,23 @@ import type { PreMatchReport, PreMatchReportResponse } from "@/lib/prematch-repo
 const memoryCache = new Map<number, { report: PreMatchReport; fetchedAt: number }>();
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 
-async function authHeaders(): Promise<HeadersInit> {
-  const {
-    data: { session }
-  } = await supabase.auth.getSession();
-  const token = session?.access_token;
-  if (!token) throw new Error("not_authenticated");
-  return {
-    Authorization: `Bearer ${token}`,
+async function buildHeaders(): Promise<HeadersInit> {
+  const [{ data: sessionData }, deviceId] = await Promise.all([
+    supabase.auth.getSession(),
+    getOrCreateDeviceId()
+  ]);
+  const headers: HeadersInit = {
     "Content-Type": "application/json",
+    "Cache-Control": "no-cache, no-store, must-revalidate",
+    Pragma: "no-cache",
+    Expires: "0",
+    "X-Device-Id": deviceId,
     "X-PitchBrain-Client": "mobile"
   };
+  if (sessionData.session?.access_token) {
+    headers.Authorization = `Bearer ${sessionData.session.access_token}`;
+  }
+  return headers;
 }
 
 export async function fetchPreMatchReport(
@@ -31,7 +38,7 @@ export async function fetchPreMatchReport(
   }
 
   const refresh = options?.refresh ? "&refresh=1" : "";
-  const headers = await authHeaders();
+  const headers = await buildHeaders();
   const res = await fetch(
     `${env.apiUrl}/api/mobile/pre-match-report?eventId=${encodeURIComponent(String(eventId))}${refresh}`,
     { headers }

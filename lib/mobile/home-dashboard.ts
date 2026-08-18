@@ -222,7 +222,7 @@ function cardRiskForEvent(
   return Math.round(max * 10) / 10;
 }
 
-function buildModules(access: UserAccessSummary, guestMode?: boolean): HomeModule[] {
+function buildModules(access: UserAccessSummary): HomeModule[] {
   const proOrAdmin = access.isPro || access.isAdmin;
   return [
     {
@@ -253,7 +253,7 @@ function buildModules(access: UserAccessSummary, guestMode?: boolean): HomeModul
       color: "#FCD34D",
       route: "/trends",
       enabled: true,
-      badge: null
+      badge: "Presto in arrivo"
     },
     {
       id: "simulator",
@@ -263,7 +263,7 @@ function buildModules(access: UserAccessSummary, guestMode?: boolean): HomeModul
       color: "#34D399",
       route: "/simulator",
       enabled: true,
-      badge: guestMode && !proOrAdmin ? "ADS" : null
+      badge: "Presto in arrivo"
     },
     {
       id: "advanced-stats",
@@ -368,7 +368,7 @@ export function buildHomeDashboard(params: {
       foulsSignalsCount: foulsFromFeatured
     },
     featuredMatch,
-    modules: buildModules(access, guestMode),
+    modules: buildModules(access),
     quickActions: buildQuickActions(access),
     dataRefresh,
     earlySeasonNotice: isEarlySeasonWindow() ? EARLY_SEASON_BANNER_MESSAGE : null
