@@ -6,8 +6,11 @@ import {
 } from "@/lib/difficult-markings/api-handlers";
 import { redactDifficultMarkingsList } from "@/lib/entitlements";
 import { resolveRequestEntitlements } from "@/lib/entitlements/request";
+import { NO_STORE_HEADERS } from "@/lib/http/no-store-headers";
 
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
+export const fetchCache = "force-no-store";
 
 export async function GET(request: Request) {
   const ctx = await resolveApiAccessContext(request);
@@ -40,13 +43,16 @@ export async function GET(request: Request) {
     tier: entitlements.subscriptionTier
   });
 
-  return NextResponse.json({
-    ...payload,
-    results: redacted.results,
-    accessMode: redacted.accessMode,
-    totalAvailable: redacted.totalAvailable,
-    freeLimit: redacted.freeLimit,
-    lockedCount: redacted.lockedCount,
-    subscriptionTier: entitlements.subscriptionTier
-  });
+  return NextResponse.json(
+    {
+      ...payload,
+      results: redacted.results,
+      accessMode: redacted.accessMode,
+      totalAvailable: redacted.totalAvailable,
+      freeLimit: redacted.freeLimit,
+      lockedCount: redacted.lockedCount,
+      subscriptionTier: entitlements.subscriptionTier
+    },
+    { headers: NO_STORE_HEADERS }
+  );
 }

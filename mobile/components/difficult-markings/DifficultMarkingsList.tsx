@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
+import { useFocusEffect } from "expo-router";
 import type { DifficultMarkingMatchup } from "@/lib/difficult-markings/types";
 import {
   difficultMarkingLevelLabelIt,
@@ -119,9 +120,14 @@ export function DifficultMarkingsList({
     autoCompetitionAppliedRef.current = null;
   }, [competitionId]);
 
-  useEffect(() => {
-    void load(false);
-  }, [load]);
+  const hasLoadedRef = useRef(false);
+  useFocusEffect(
+    useCallback(() => {
+      const silent = hasLoadedRef.current;
+      hasLoadedRef.current = true;
+      void load(silent);
+    }, [load])
+  );
 
   useEffect(() => {
     if (refreshToken < 1) return;

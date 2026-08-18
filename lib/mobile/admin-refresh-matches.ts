@@ -505,12 +505,15 @@ async function runFinalizePhase(
       organizationId,
       matches: scopedMatches,
       insightsSnap,
-      /** Non sovrascrivere uno snapshot utile con uno vuoto (insight falliti / menu vuoto). */
-      forceReplace: false,
       mergeCompetitionIds
     });
     if (markings.ok) {
       markingsCount = Object.keys(markings.snapshot?.matchupIndex ?? {}).length;
+    } else {
+      console.warn("[admin-refresh] difficult_markings_not_persisted", {
+        message: markings.message,
+        scopedMatches: scopedMatches.length
+      });
     }
   } catch (e) {
     console.warn(

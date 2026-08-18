@@ -23,6 +23,9 @@ async function buildHeaders(requireAuth = false): Promise<HeadersInit> {
 
   const headers: HeadersInit = {
     "Content-Type": "application/json",
+    "Cache-Control": "no-cache, no-store, must-revalidate",
+    Pragma: "no-cache",
+    Expires: "0",
     "X-Device-Id": deviceId,
     /** Distingue le richieste dell'app mobile da quelle del kiosk web quando condividono lo
      * stesso endpoint backend (es. entitlements, access, match-insights). */

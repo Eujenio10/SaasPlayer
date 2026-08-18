@@ -13,6 +13,9 @@ async function buildHeaders(): Promise<HeadersInit> {
   ]);
   const headers: HeadersInit = {
     "Content-Type": "application/json",
+    "Cache-Control": "no-cache, no-store, must-revalidate",
+    Pragma: "no-cache",
+    Expires: "0",
     "X-Device-Id": deviceId,
     "X-PitchBrain-Client": "mobile"
   };

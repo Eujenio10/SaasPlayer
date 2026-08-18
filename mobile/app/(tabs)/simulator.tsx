@@ -11,6 +11,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useGuestPreview } from "@/contexts/GuestPreviewContext";
 import { formatGuestFeaturesRemainingMinutes } from "@/lib/guest-ad-preview";
 import { canAccessMatchSimulator } from "@/lib/access/guest-preview-mode";
+import { subscribeAdminCatalogRefresh } from "@/lib/admin-catalog-refresh";
 import { useCompetitionsWithMatches } from "@/lib/competitions/useCompetitionsWithMatches";
 import { useAdminMatchesRefresh } from "@/lib/matches/useAdminMatchesRefresh";
 import {
@@ -50,6 +51,13 @@ export default function SimulatorScreen() {
     setRefreshToken((value) => value + 1);
     await refreshCompetitions();
     setRefreshing(false);
+  }, [refreshCompetitions]);
+
+  useEffect(() => {
+    return subscribeAdminCatalogRefresh(() => {
+      setRefreshToken((value) => value + 1);
+      void refreshCompetitions();
+    });
   }, [refreshCompetitions]);
 
   return (

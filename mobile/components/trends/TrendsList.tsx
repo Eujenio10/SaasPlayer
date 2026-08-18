@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useFocusEffect } from "expo-router";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { TrendSparkline } from "@/components/trends/TrendSparkline";
 import { fetchTrends } from "@/lib/trends/api";
@@ -114,7 +115,14 @@ export function TrendsList({
     autoCompetitionAppliedRef.current = null;
   }, [competitionId]);
 
+  useFocusEffect(
+    useCallback(() => {
+      void load();
+    }, [load])
+  );
+
   useEffect(() => {
+    if (refreshToken < 1) return;
     void load();
   }, [load, refreshToken]);
 

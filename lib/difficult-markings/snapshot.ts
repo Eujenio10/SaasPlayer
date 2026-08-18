@@ -159,7 +159,7 @@ export async function upsertOrganizationDifficultMarkingsSnapshot(params: {
   snapshot: DifficultMarkingsSnapshot;
   forceReplace?: boolean;
 }): Promise<{ ok: boolean; message?: string; keptPrevious?: boolean; snapshot?: DifficultMarkingsSnapshot }> {
-  const incomingCount = Object.keys(params.snapshot.matchupIndex ?? {}).length;
+  const incomingCount = countStoredMarkupsInSnapshot(params.snapshot);
   if (incomingCount === 0 && !params.forceReplace) {
     const existing = await loadBestDifficultMarkingsSnapshot(params.organizationId);
     const existingCount = countStoredMarkupsInSnapshot(existing.snapshot);
@@ -172,13 +172,19 @@ export async function upsertOrganizationDifficultMarkingsSnapshot(params: {
     }
   }
 
+  const persistedAt = new Date().toISOString();
+  const persistedSnapshot: DifficultMarkingsSnapshot = {
+    ...params.snapshot,
+    insightsSnap: params.insightsSnap,
+    updatedAt: persistedAt
+  };
   const sb = createSupabaseServiceClient();
   const { error } = await sb.from("organization_difficult_markings_snapshot").upsert(
     {
       organization_id: params.organizationId,
       insights_snap: params.insightsSnap,
-      snapshot: params.snapshot as unknown as Record<string, unknown>,
-      updated_at: new Date().toISOString()
+      snapshot: persistedSnapshot as unknown as Record<string, unknown>,
+      updated_at: persistedAt
     },
     { onConflict: "organization_id" }
   );
@@ -191,10 +197,11 @@ export async function upsertOrganizationDifficultMarkingsSnapshot(params: {
   }
   console.info("[difficult-markings] snapshot_persisted", {
     organizationId: params.organizationId,
-    matchups: Object.keys(params.snapshot.matchupIndex ?? {}).length,
-    rounds: params.snapshot.rounds?.length ?? 0
+    matchups: incomingCount,
+    rounds: persistedSnapshot.rounds?.length ?? 0,
+    updatedAt: persistedAt
   });
-  rememberDifficultMarkingsSnapshot(params.organizationId, params.snapshot);
+  rememberDifficultMarkingsSnapshot(params.organizationId, persistedSnapshot);
 
   const { data: readBack, error: readBackError } = await sb
     .from("organization_difficult_markings_snapshot")
@@ -213,7 +220,7 @@ export async function upsertOrganizationDifficultMarkingsSnapshot(params: {
     });
   }
 
-  return { ok: true };
+  return { ok: true, snapshot: persistedSnapshot };
 }
 
 function mergeDifficultMarkingsSnapshots(
@@ -314,11 +321,13 @@ export async function regenerateDifficultMarkingsSnapshotForOrganization(params:
     insightsSnap: params.insightsSnap,
     snapshot,
     /**
-     * Refresh per campionato: persiste sempre il merge (anche se quella lega produce 0 duelli),
-     * altrimenti `keep_previous` lascia le marcature della giornata precedente.
+     * Se gli insight della giornata ci sono, riscrivi sempre lo snapshot (anche 0 duelli).
+     * Altrimenti `keep_previous` lascia l'orario vecchio (es. 12:35) dopo un refresh admin.
      */
     forceReplace:
-      params.forceReplace || Boolean(params.mergeCompetitionIds?.length && eventIds.length > 0)
+      params.forceReplace ||
+      bundles.length > 0 ||
+      Boolean(params.mergeCompetitionIds?.length && eventIds.length > 0)
   });
 
   if (!persist.ok) {

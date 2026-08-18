@@ -17,6 +17,7 @@ import { useGuestPreview } from "@/contexts/GuestPreviewContext";
 import { canAccessFeatureId } from "@/lib/access/features";
 import { isGuestUser, resolveGuestPreviewMode } from "@/lib/access/guest-preview-mode";
 import { MATCH_DATA_UNAVAILABLE_MESSAGE } from "@/lib/analysis-unavailable";
+import { subscribeAdminCatalogRefresh } from "@/lib/admin-catalog-refresh";
 import { consumeMemberMatch, fetchMatchInsights } from "@/lib/api";
 import { translateCompetitionName, translateTeamName } from "@/lib/italian-display";
 import type { TacticalMetrics } from "@/lib/types";
@@ -115,6 +116,21 @@ export default function MatchDetailScreen() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(
+    () =>
+      subscribeAdminCatalogRefresh(() => {
+        if (!Number.isFinite(eventId)) return;
+        void fetchMatchInsights(eventId)
+          .then((data) => {
+            setMetrics(data.metrics ?? []);
+            if (!data.metrics?.length) setError(MATCH_DATA_UNAVAILABLE_MESSAGE);
+            else setError(null);
+          })
+          .catch(() => undefined);
+      }),
+    [eventId]
+  );
 
   // Dopo lo sblocco rADS il tab Intensity dipende dagli insight: ricarica subito.
   useEffect(() => {

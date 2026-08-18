@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useRouter, type Href } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -14,6 +15,7 @@ import { EarlySeasonNoticeBanner } from "@/components/home/EarlySeasonNoticeBann
 import { useAuth } from "@/contexts/AuthContext";
 import { useGuestPreview } from "@/contexts/GuestPreviewContext";
 import { shouldObscureGuestStats } from "@/lib/access/guest-preview-mode";
+import { subscribeAdminCatalogRefresh } from "@/lib/admin-catalog-refresh";
 import { useHomeDashboard } from "@/lib/home-dashboard/useHomeDashboard";
 import { useAdminMatchesRefresh } from "@/lib/matches/useAdminMatchesRefresh";
 import { colors, radii, spacing } from "@/lib/theme";
@@ -24,6 +26,8 @@ export function HomeScreen() {
   const { previewActive } = useGuestPreview();
   const { data, loading, error, refetch } = useHomeDashboard();
   const adminRefresh = useAdminMatchesRefresh(() => void refetch());
+
+  useEffect(() => subscribeAdminCatalogRefresh(() => void refetch()), [refetch]);
 
   const isGuest = userStatus === "guest";
   const obscureStats = shouldObscureGuestStats(userStatus, previewActive);

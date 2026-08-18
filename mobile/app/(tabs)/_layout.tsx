@@ -1,8 +1,12 @@
 import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { notifyAdminCatalogRefresh } from "@/lib/admin-catalog-refresh";
 import { colors } from "@/lib/theme";
+import { useRefetchOnAppActive } from "@/lib/use-refetch-on-app-active";
 
 export default function TabLayout() {
+  useRefetchOnAppActive(() => notifyAdminCatalogRefresh());
+
   return (
     <Tabs
       screenOptions={{

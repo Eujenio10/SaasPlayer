@@ -8,6 +8,7 @@ import { MatchFilterBar } from "@/components/matches/MatchFilterBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { useGuestPreview } from "@/contexts/GuestPreviewContext";
 import { formatGuestApiError, shouldObscureGuestStats } from "@/lib/access/guest-preview-mode";
+import { subscribeAdminCatalogRefresh } from "@/lib/admin-catalog-refresh";
 import { useAdminMatchesRefresh } from "@/lib/matches/useAdminMatchesRefresh";
 import { fetchMatches } from "@/lib/api";
 import { competitionIdsWithMatches } from "@/lib/competitions-with-matches";
@@ -56,6 +57,8 @@ export default function MatchesScreen() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => subscribeAdminCatalogRefresh(() => void load(true)), [load]);
 
   const filtered = useMemo(() => filterMatches(matches, filter), [matches, filter]);
   const sections = useMemo(() => groupMatchesByDayLabel(filtered), [filtered]);
