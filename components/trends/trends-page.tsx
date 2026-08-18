@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { TrendDeltaBadge, TrendSparkline } from "@/components/trends/trend-sparkline";
 import { KIOSK_ADMIN_INSIGHTS_REFRESH_EVENT } from "@/lib/kiosk-persisted-insights";
 import { useWebCompetitionsWithMatches } from "@/components/competitions/use-web-competitions-with-matches";
+import { resolveCompetitionId } from "@/lib/competitions";
 import { DEFAULT_MENU_COMPETITION_ID } from "@/lib/competitions-with-matches";
 import { translateTeamName } from "@/lib/italian-sports-display";
 import { reliabilityLabelIt } from "@/lib/trends/reasons";
@@ -112,7 +113,10 @@ export function TrendsPage() {
         <div className="mt-6 flex flex-wrap gap-3">
           <select
             value={competitionId}
-            onChange={(e) => setCompetitionId(e.target.value)}
+            onChange={(e) => {
+              const next = resolveCompetitionId(e.target.value);
+              if (next) setCompetitionId(next);
+            }}
             className="rounded-xl border border-white/10 bg-slate-950/70 px-3 py-2 text-sm text-white"
           >
             {availableCompetitions.map((c) => (

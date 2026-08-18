@@ -13,6 +13,7 @@ import {
 import type { DifficultMarkingMatchup } from "@/lib/difficult-markings/types";
 import type { DifficultMarkingFilterKey, DifficultMarkingSortKey } from "@/lib/difficult-markings/publish";
 import { useWebCompetitionsWithMatches } from "@/components/competitions/use-web-competitions-with-matches";
+import { resolveCompetitionId } from "@/lib/competitions";
 import { DEFAULT_MENU_COMPETITION_ID } from "@/lib/competitions-with-matches";
 import { KIOSK_ADMIN_INSIGHTS_REFRESH_EVENT } from "@/lib/kiosk-persisted-insights";
 import { translateTeamName } from "@/lib/italian-sports-display";
@@ -88,11 +89,9 @@ export function DifficultMarkingsPage() {
       setAvailableRounds(Array.isArray(json.availableRounds) ? json.availableRounds : []);
       setUpdatedAt(json.updatedAt ?? null);
       setOfficialLineupsUsed(Boolean(json.officialLineupsUsed));
-      if (
-        json.resolvedCompetitionId &&
-        json.resolvedCompetitionId !== competitionId
-      ) {
-        setCompetitionId(json.resolvedCompetitionId);
+      const resolved = resolveCompetitionId(json.resolvedCompetitionId);
+      if (resolved && resolved !== competitionId) {
+        setCompetitionId(resolved);
         setRound("");
       } else if (!round && json.round) {
         setRound(String(json.round));
@@ -136,8 +135,10 @@ export function DifficultMarkingsPage() {
             <select
               value={competitionId}
               onChange={(e) => {
+                const next = resolveCompetitionId(e.target.value);
+                if (!next) return;
                 setRound("");
-                setCompetitionId(e.target.value);
+                setCompetitionId(next);
               }}
               className="w-full rounded-xl border border-white/10 bg-slate-950/70 px-3 py-2 text-sm text-white"
             >
