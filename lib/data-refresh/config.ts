@@ -3,12 +3,16 @@ export const DATA_REFRESH_CONFIG = {
   hour: 5,
   minute: 0,
   scheduleLabel: "05:00",
+  /** Ore di Roma tra un campionato e il successivo. */
+  hoursBetweenCompetitions: 1,
   /**
    * Un job già partito può continuare fino a quest'ora (Roma).
-   * Non si avvia un nuovo giro dopo questa soglia.
+   * Lascia margine per recuperare i campionati ancora non eseguiti.
    */
-  continuationEndHour: 16,
-  maxTicksPerDay: 400
+  continuationEndHour: 20,
+  maxTicksPerDay: 400,
+  /** Se il job non aggiorna lo stato per più di questi ms, non è più «in corso». */
+  staleRunningMs: 15 * 60 * 1000
 } as const;
 
 export type DataRefreshTrigger = "admin_manual" | "scheduled_cron";

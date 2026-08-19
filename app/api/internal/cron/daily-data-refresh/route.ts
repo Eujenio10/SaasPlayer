@@ -26,10 +26,10 @@ function enqueueContinuation(request: Request, shouldContinue: boolean) {
 }
 
 /**
- * Giro mattutino (05:00 Europe/Rome):
- * 1) Vercel cron alle 03:00 UTC (05:00 in estate) e 04:00 UTC (05:00 in inverno) avvia il job
- * 2) Ogni invocazione fa una fetta (menu, o un batch insight, o finalize di un campionato)
- * 3) Appena finisce, la funzione richiama se stessa e passa al campionato successivo
+ * Giro mattutino (Europe/Rome):
+ * 1) Dalle 05:00 un campionato all'ora (Serie A, Premier, LaLiga, Bundesliga, Ligue 1, Nations, Mondiali)
+ * 2) Ogni invocazione fa una fetta del campionato corrente (menu, insight o finalize)
+ * 3) Finito un campionato, il successivo aspetta l'ora seguente finché tutti non sono stati eseguiti almeno una volta
  *
  * Sito e app leggono gli stessi snapshot: non serve uno scheduler sul client.
  */

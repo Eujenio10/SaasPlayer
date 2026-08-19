@@ -2,11 +2,7 @@
   "crons": [
     {
       "path": "/api/internal/cron/daily-data-refresh",
-      "schedule": "0 3 * * *"
-    },
-    {
-      "path": "/api/internal/cron/daily-data-refresh-followup",
-      "schedule": "0 4 * * *"
+      "schedule": "0,20,40 3-19 * * *"
     }
   ]
 }

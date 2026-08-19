@@ -4,11 +4,17 @@ import { useCountdownTo } from "@/lib/data-refresh/use-countdown-to";
 import { colors, radii, spacing } from "@/lib/theme";
 
 export function DataRefreshScheduleBanner({ status }: { status?: DataRefreshStatus | null }) {
-  const { countdownLabel, msRemaining } = useCountdownTo(status?.nextScheduledAt);
+  const { countdownLabel } = useCountdownTo(status?.nextScheduledAt);
 
   if (!status) return null;
 
-  const inProgress = Boolean(status.inProgress) || msRemaining === 0;
+  const inProgress = Boolean(status.inProgress);
+  const pendingStart = Boolean(status.pendingStart);
+  const timerValue = inProgress
+    ? "In corso…"
+    : pendingStart
+      ? "In avvio…"
+      : countdownLabel ?? "—";
 
   return (
     <View style={styles.wrap}>
@@ -19,10 +25,13 @@ export function DataRefreshScheduleBanner({ status }: { status?: DataRefreshStat
         <Text style={styles.title}>Aggiornamento dati automatico</Text>
         <Text style={styles.subtitle}>
           Calendario e moduli analitici si aggiornano ogni giorno dalle {status.scheduleLabel} (ora
-          di Roma), un campionato dopo l'altro.
+          di Roma), {status.scheduleDetail ?? "un campionato all'ora"}.
         </Text>
         {status.inProgress && status.currentCompetitionLabel ? (
           <Text style={styles.progress}>In corso: {status.currentCompetitionLabel}</Text>
+        ) : null}
+        {!status.inProgress && status.currentCompetitionLabel ? (
+          <Text style={styles.progress}>Prossimo: {status.currentCompetitionLabel}</Text>
         ) : null}
         {status.lastRefreshLabel ? (
           <Text style={styles.last}>Ultimo aggiornamento: {status.lastRefreshLabel}</Text>
@@ -30,7 +39,7 @@ export function DataRefreshScheduleBanner({ status }: { status?: DataRefreshStat
       </View>
       <View style={styles.timerBox}>
         <Text style={styles.timerLabel}>Prossimo</Text>
-        <Text style={styles.timerValue}>{inProgress ? "In corso…" : countdownLabel ?? "—"}</Text>
+        <Text style={styles.timerValue}>{timerValue}</Text>
       </View>
     </View>
   );

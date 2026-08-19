@@ -147,9 +147,19 @@ export function isBeforeMorningRefreshHardStop(now = new Date()): boolean {
   return current.hour < continuationEndHour;
 }
 
+export function romeHourNow(now = new Date()): number {
+  return zonedParts(now, DATA_REFRESH_CONFIG.timezone).hour;
+}
+
+export function computeSlotAtHourToday(hour: number, now = new Date()): string {
+  const { timezone } = DATA_REFRESH_CONFIG;
+  const current = zonedParts(now, timezone);
+  const clamped = Math.min(Math.max(hour, 0), 23);
+  return zonedLocalToUtc(current.year, current.month, current.day, clamped, 0, timezone).toISOString();
+}
+
 /**
- * Finestra in cui il cron Vercel può *avviare* il giro mattutino
- * (dalle 05:00, con un margine per ritardi dello scheduler).
+ * Finestra breve dopo l'orario previsto di uno slot (cron in ritardo).
  */
 export function isWithinDailyRefreshWindow(now = new Date()): boolean {
   const { timezone, hour } = DATA_REFRESH_CONFIG;

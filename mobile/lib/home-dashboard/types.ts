@@ -10,6 +10,7 @@ export interface DataRefreshStatus {
   lastRefreshLabel: string | null;
   automatedDailyRefresh: true;
   inProgress?: boolean;
+  pendingStart?: boolean;
   currentCompetitionLabel?: string | null;
 }
 

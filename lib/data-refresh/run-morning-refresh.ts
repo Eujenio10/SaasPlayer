@@ -7,6 +7,7 @@ import {
   advanceMorningJobAfterTick,
   createMorningRefreshJob,
   currentMorningCompetitionSlug,
+  isMorningHoldReleased,
   type MorningRefreshJob
 } from "@/lib/data-refresh/morning-job";
 import { getMorningRefreshJob, recordDataRefreshCompletion, saveMorningRefreshJob } from "@/lib/data-refresh/state";
@@ -38,13 +39,32 @@ export async function runMorningRefreshTick(params: {
     return { ok: true, skipped: true, reason: "already_completed_today", shouldContinue: false, job };
   }
 
+  const canRun = isAfterOrAtDailyRefreshStart(now) && isBeforeMorningRefreshHardStop(now);
+
   if (job?.status === "failed") {
-    return { ok: false, skipped: true, reason: "failed_today", shouldContinue: false, job };
+    if (!canRun) {
+      return { ok: false, skipped: true, reason: "failed_today", shouldContinue: false, job };
+    }
+    job = { ...job, status: "running", updatedAt: now.toISOString() };
+    await saveMorningRefreshJob({ organizationId: params.organizationId, job });
+  }
+
+  if (job?.status === "waiting") {
+    if (!canRun || !isMorningHoldReleased(job, now)) {
+      return {
+        ok: true,
+        skipped: true,
+        reason: "waiting_for_hour_slot",
+        shouldContinue: false,
+        job
+      };
+    }
+    job = { ...job, status: "running", updatedAt: now.toISOString() };
+    await saveMorningRefreshJob({ organizationId: params.organizationId, job });
   }
 
   if (!job) {
-    const canStart = isAfterOrAtDailyRefreshStart(now) && isBeforeMorningRefreshHardStop(now);
-    if (!canStart) {
+    if (!canRun) {
       return {
         ok: true,
         skipped: true,

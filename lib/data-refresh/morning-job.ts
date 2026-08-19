@@ -3,8 +3,9 @@ import {
   DATA_REFRESH_CONFIG,
   MORNING_REFRESH_COMPETITION_SLUGS
 } from "@/lib/data-refresh/config";
+import { romeHourNow } from "@/lib/data-refresh/schedule";
 
-export type MorningRefreshJobStatus = "running" | "done" | "failed";
+export type MorningRefreshJobStatus = "running" | "waiting" | "done" | "failed";
 export type MorningRefreshPhase = "start" | "insights" | "finalize";
 
 export interface MorningTickResultLike {
@@ -29,6 +30,8 @@ export interface MorningRefreshJob {
   startedAt: string;
   updatedAt: string;
   lastError?: string;
+  /** Ora di Roma (0-23) da cui si può avviare il campionato corrente. */
+  holdUntilHour?: number;
 }
 
 export function morningRefreshSlugs(): string[] {
@@ -49,7 +52,8 @@ export function createMorningRefreshJob(dateKey: string, now = new Date()): Morn
     failedSlugs: [],
     tickCount: 0,
     startedAt: iso,
-    updatedAt: iso
+    updatedAt: iso,
+    holdUntilHour: DATA_REFRESH_CONFIG.hour
   };
 }
 
@@ -57,7 +61,7 @@ export function parseMorningRefreshJob(raw: unknown): MorningRefreshJob | null {
   if (!raw || typeof raw !== "object") return null;
   const value = raw as Record<string, unknown>;
   if (typeof value.dateKey !== "string") return null;
-  if (value.status !== "running" && value.status !== "done" && value.status !== "failed") {
+  if (value.status !== "running" && value.status !== "waiting" && value.status !== "done" && value.status !== "failed") {
     return null;
   }
   if (value.phase !== "start" && value.phase !== "insights" && value.phase !== "finalize") {
@@ -79,7 +83,11 @@ export function parseMorningRefreshJob(raw: unknown): MorningRefreshJob | null {
     tickCount: Number(value.tickCount) || 0,
     startedAt: typeof value.startedAt === "string" ? value.startedAt : new Date().toISOString(),
     updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : new Date().toISOString(),
-    lastError: typeof value.lastError === "string" ? value.lastError : undefined
+    lastError: typeof value.lastError === "string" ? value.lastError : undefined,
+    holdUntilHour:
+      typeof value.holdUntilHour === "number" && Number.isFinite(value.holdUntilHour)
+        ? value.holdUntilHour
+        : undefined
   };
 }
 
@@ -93,6 +101,30 @@ export function morningRefreshProgressLabel(job: MorningRefreshJob | null): stri
   if (job.phase === "start") return "calendario partite";
   const slug = currentMorningCompetitionSlug(job);
   return slug ? formatMonitoredCompetitionLabel(slug) || slug : null;
+}
+
+export function nextHoldUntilHour(now = new Date()): number {
+  return Math.min(
+    romeHourNow(now) + DATA_REFRESH_CONFIG.hoursBetweenCompetitions,
+    DATA_REFRESH_CONFIG.continuationEndHour - 1
+  );
+}
+
+export function isMorningHoldReleased(job: MorningRefreshJob, now = new Date()): boolean {
+  const hour = romeHourNow(now);
+  const hold = job.holdUntilHour ?? DATA_REFRESH_CONFIG.hour;
+  return hour >= hold && hour < DATA_REFRESH_CONFIG.continuationEndHour;
+}
+
+export function isMorningJobFreshRunning(
+  job: MorningRefreshJob | null,
+  dateKey: string,
+  now = new Date()
+): boolean {
+  if (!job || job.status !== "running" || job.dateKey !== dateKey) return false;
+  const updated = Date.parse(job.updatedAt);
+  if (!Number.isFinite(updated)) return false;
+  return now.getTime() - updated < DATA_REFRESH_CONFIG.staleRunningMs;
 }
 
 export function advanceMorningJobAfterTick(
@@ -165,18 +197,18 @@ export function advanceMorningJobAfterTick(
     next.failedSlugs = [...next.failedSlugs, slug];
   }
 
-  const nextIndex = job.competitionIndex + 1;
-  if (nextIndex >= slugs.length) {
-    next.status = next.failedSlugs.length > 0 && next.completedSlugs.length === 0 ? "failed" : "done";
+  const remaining = slugs.filter((item) => !next.completedSlugs.includes(item));
+  if (remaining.length === 0) {
+    next.status = "done";
     next.phase = "finalize";
-    next.competitionIndex = Math.max(0, slugs.length - 1);
     return { job: next, shouldContinue: false };
   }
 
-  next.competitionIndex = nextIndex;
+  next.competitionIndex = Math.max(0, slugs.indexOf(remaining[0]));
   next.phase = "insights";
   next.insightsOffset = 0;
   next.insightsSnap = Math.floor(now.getTime() / 1000);
-  next.status = "running";
-  return { job: next, shouldContinue: true };
+  next.status = "waiting";
+  next.holdUntilHour = nextHoldUntilHour(now);
+  return { job: next, shouldContinue: false };
 }

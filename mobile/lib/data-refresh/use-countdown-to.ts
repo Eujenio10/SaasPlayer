@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { formatCountdownItalian, msUntilIso } from "../../../lib/data-refresh/schedule";
+import { formatCountdownItalian, computeNextDailyRefreshAt, msUntilIso } from "../../../lib/data-refresh/schedule";
 
 export function useCountdownTo(targetIso: string | null | undefined): {
   msRemaining: number | null;
@@ -17,7 +17,9 @@ export function useCountdownTo(targetIso: string | null | undefined): {
     return { msRemaining: null, countdownLabel: null };
   }
 
-  const msRemaining = msUntilIso(targetIso, nowMs);
+  const remaining = msUntilIso(targetIso, nowMs);
+  const msRemaining =
+    remaining > 0 ? remaining : msUntilIso(computeNextDailyRefreshAt(new Date(nowMs)), nowMs);
   return {
     msRemaining,
     countdownLabel: formatCountdownItalian(msRemaining)

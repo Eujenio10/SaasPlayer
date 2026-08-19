@@ -5,11 +5,13 @@ import type { DataRefreshStatus } from "@/lib/data-refresh/status";
 import { useCountdownTo } from "@/lib/data-refresh/use-countdown-to";
 
 export function DataRefreshScheduleBanner({ status }: { status: DataRefreshStatus | null }) {
-  const { countdownLabel, msRemaining } = useCountdownTo(status?.nextScheduledAt);
+  const { countdownLabel } = useCountdownTo(status?.nextScheduledAt);
 
   if (!status) return null;
 
-  const inProgress = Boolean(status.inProgress) || msRemaining === 0;
+  const inProgress = Boolean(status.inProgress);
+  const pendingStart = Boolean(status.pendingStart);
+  const timerLabel = inProgress ? "In corso…" : pendingStart ? "In avvio…" : countdownLabel ?? "—";
 
   return (
     <div className="rounded-2xl border border-cyan-300/20 bg-cyan-400/8 px-4 py-3 sm:px-5">
@@ -22,12 +24,17 @@ export function DataRefreshScheduleBanner({ status }: { status: DataRefreshStatu
             <p className="text-sm font-black text-cyan-100">Aggiornamento dati automatico</p>
             <p className="mt-1 text-xs leading-6 text-slate-300">
               Calendario, insight e moduli analitici si aggiornano ogni giorno dalle{" "}
-              <span className="font-bold text-slate-100">{status.scheduleLabel}</span> (ora di Roma),
-              un campionato dopo l&apos;altro.
+              <span className="font-bold text-slate-100">{status.scheduleLabel}</span> (ora di Roma),{" "}
+              {status.scheduleDetail}.
             </p>
             {status.inProgress && status.currentCompetitionLabel ? (
               <p className="mt-1 text-xs font-semibold text-cyan-200">
                 In corso: {status.currentCompetitionLabel}
+              </p>
+            ) : null}
+            {!status.inProgress && status.currentCompetitionLabel ? (
+              <p className="mt-1 text-xs font-semibold text-cyan-200">
+                Prossimo campionato: {status.currentCompetitionLabel}
               </p>
             ) : null}
             {status.lastRefreshLabel ? (
@@ -42,7 +49,7 @@ export function DataRefreshScheduleBanner({ status }: { status: DataRefreshStatu
             Prossimo aggiornamento
           </p>
           <p className="mt-1 text-sm font-black text-cyan-200">
-            {inProgress ? "In corso…" : countdownLabel ?? "—"}
+            {timerLabel}
           </p>
         </div>
       </div>
