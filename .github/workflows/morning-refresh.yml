@@ -1,0 +1,25 @@
+name: Morning data refresh
+
+# Piano Vercel Hobby: un solo cron al giorno. Questo workflow chiama
+# lo stesso endpoint ogni ora (e ai minuti 20/40) per i campionati successivi.
+on:
+  schedule:
+    - cron: "0,20,40 3-19 * * *"
+  workflow_dispatch:
+
+jobs:
+  ping-refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Trigger PitchBrain morning refresh
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          APP_URL: https://saas-player.vercel.app
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "Manca il secret GitHub CRON_SECRET (stesso valore di Vercel → Environment Variables)."
+            exit 1
+          fi
+          curl -fsS -X GET "$APP_URL/api/internal/cron/daily-data-refresh" \
+            -H "Authorization: Bearer ${CRON_SECRET}"
