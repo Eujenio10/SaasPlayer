@@ -1,17 +1,28 @@
 /**
- * Fallback stagione precedente SOLO per la prima giornata.
+ * Fallback stagione precedente SOLO prima che esista un campione nell'annata in corso.
  *
- * - Squadre: stats della stagione precedente (stessa competizione, o campionato
- *   minore se neopromossa). Rosa, formazioni e giocatori restano quelli della
- *   stagione corrente.
- * - Dopo almeno `SEASON_FALLBACK_SWITCH_MATCHES` partite finite nella stagione
- *   corrente (default 1 = dalla seconda giornata), si passa ai dati dell'annata in corso.
+ * - Analisi partita, marcature, simulatore, Player Performance: dalla 1ª giornata
+ *   finita usano i dati della stagione corrente (non più l'annata scorsa).
+ * - I Trend aspettano `TRENDS_MIN_FINISHED_MATCHDAYS` giornate (default 3).
  */
 
 export const SEASON_FALLBACK_SWITCH_MATCHES = Math.max(
   1,
   Number(process.env.SEASON_FALLBACK_SWITCH_MATCHES ?? "1") || 1
 );
+
+/** Giornate finite nella stagione corrente prima di pubblicare i Trend. */
+export const TRENDS_MIN_FINISHED_MATCHDAYS = Math.max(
+  1,
+  Number(process.env.TRENDS_MIN_FINISHED_MATCHDAYS ?? "3") || 3
+);
+
+export function canPublishCurrentSeasonTrends(
+  matchesPlayedInCurrentSeason: number,
+  minMatchdays: number = TRENDS_MIN_FINISHED_MATCHDAYS
+): boolean {
+  return matchesPlayedInCurrentSeason >= minMatchdays;
+}
 
 export type SeasonFallbackMode = "previous_season" | "current_season";
 

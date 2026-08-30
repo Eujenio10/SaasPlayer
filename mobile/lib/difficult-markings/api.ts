@@ -1,25 +1,9 @@
 import { env } from "@/lib/env";
-import { getOrCreateDeviceId } from "@/lib/device-id";
-import { supabase } from "@/lib/supabase";
+import { buildMobileHeaders, fetchWithTimeout } from "@/lib/mobile-http";
 import type { DifficultMarkingMatchup } from "./types";
 
 async function buildHeaders(): Promise<HeadersInit> {
-  const [{ data: sessionData }, deviceId] = await Promise.all([
-    supabase.auth.getSession(),
-    getOrCreateDeviceId()
-  ]);
-  const headers: HeadersInit = {
-    "Content-Type": "application/json",
-    "Cache-Control": "no-cache, no-store, must-revalidate",
-    Pragma: "no-cache",
-    Expires: "0",
-    "X-Device-Id": deviceId,
-    "X-PitchBrain-Client": "mobile"
-  };
-  if (sessionData.session?.access_token) {
-    headers.Authorization = `Bearer ${sessionData.session.access_token}`;
-  }
-  return headers;
+  return buildMobileHeaders();
 }
 
 export async function fetchDifficultMarkings(params: {

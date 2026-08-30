@@ -75,14 +75,40 @@ export function formatMatchDateParts(timestampSec: number): {
   return { weekday, dayMonth, time, full };
 }
 
-export function isMatchTodayRome(timestampSec: number): boolean {
-  const fmt = new Intl.DateTimeFormat("sv-SE", {
-    timeZone: "Europe/Rome",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit"
-  });
-  return fmt.format(new Date(timestampSec * 1000)) === fmt.format(new Date());
+const romeDayFmt = new Intl.DateTimeFormat("sv-SE", {
+  timeZone: "Europe/Rome",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit"
+});
+
+/** Giorno di calendario Europe/Rome (`YYYY-MM-DD`). */
+export function romeDateKey(timestampSec: number): string {
+  return romeDayFmt.format(new Date(timestampSec * 1000));
+}
+
+function romeTodayKey(nowMs: number = Date.now()): string {
+  return romeDayFmt.format(new Date(nowMs));
+}
+
+function romeTomorrowKey(nowMs: number = Date.now()): string {
+  const today = romeTodayKey(nowMs);
+  const [y, m, d] = today.split("-").map(Number);
+  const midday = Date.UTC(y, m - 1, d, 12, 0, 0);
+  return romeDayFmt.format(new Date(midday + 24 * 60 * 60 * 1000));
+}
+
+export function isMatchTodayRome(timestampSec: number, nowMs: number = Date.now()): boolean {
+  return romeDateKey(timestampSec) === romeTodayKey(nowMs);
+}
+
+/** Etichetta sezione calendario: Oggi, Domani, oppure «Lunedì 01 set». */
+export function formatMatchDaySectionLabel(timestampSec: number, nowMs: number = Date.now()): string {
+  const key = romeDateKey(timestampSec);
+  if (key === romeTodayKey(nowMs)) return "OGGI";
+  if (key === romeTomorrowKey(nowMs)) return "DOMANI";
+  const parts = formatMatchDateParts(timestampSec);
+  return `${parts.weekday.toUpperCase()} ${parts.dayMonth}`;
 }
 
 export type IntensityUiLevel = "low" | "medium" | "high";

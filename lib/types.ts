@@ -84,6 +84,16 @@ export interface TacticalMetrics {
   foulsSufferedSeasonAvg: number;
   foulsSufferedLastTwoAvg: number;
   foulsSufferedLastFiveAvg: number;
+  /** Minuti giocati nel campione stagione (per p90 vero). */
+  seasonMinutesPlayed?: number;
+  /** Presenze nel campione stagione (allineate ai minuti). */
+  seasonAppearances?: number;
+  /** Falli commessi p90 (falli ÷ minuti × 90) quando i minuti sono disponibili. */
+  foulsCommittedSeasonP90?: number;
+  /** Falli subiti p90 quando i minuti sono disponibili. */
+  foulsSufferedSeasonP90?: number;
+  /** Presenze nella stagione in corso del torneo analizzato (serie eventi, non overall anno precedente). */
+  currentSeasonSampleCount?: number;
   /** Dribbling riusciti/registrati a partita, quando il provider espone la statistica. */
   dribblesSeasonAvg?: number;
   /** Partite campionate per la media "ultimi 2" (0 = nessun dato reale, evitare confronto con la stagione). */
@@ -101,6 +111,15 @@ export interface TacticalMetrics {
    * Presente quando `match-insights` costruisce le metriche con `homeTeamId`.
    */
   heatmapPointsMatchFrame?: Array<{ x: number; y: number; intensity?: number }>;
+  /**
+   * true se il profilo è nella XI prevista (o ultimo XI titolare, esclusi infortunati).
+   * Scontri & Falli include anche panchinari sopra soglia falli.
+   * Marcature: XI + offensivi con falli subiti/dribbling alti anche se il provider
+   * li ha marcati come non titolari (es. Paz, Mastantuono).
+   */
+  probableStarter?: boolean;
+  /** true se il giocatore è in missingPlayers della formazione (infortunato/squalificato). */
+  unavailableForMatch?: boolean;
 
   /**
    * Ultimo scontro diretto (H2H) vs avversaria del match selezionato.
@@ -208,6 +227,12 @@ export interface SportPerformanceInput {
   foulsSufferedSeasonAvg: number;
   foulsSufferedLastTwoAvg: number;
   foulsSufferedLastFiveAvg: number;
+  seasonMinutesPlayed?: number;
+  seasonAppearances?: number;
+  foulsCommittedSeasonP90?: number;
+  foulsSufferedSeasonP90?: number;
+  /** Presenze nella stagione in corso del torneo analizzato. */
+  currentSeasonSampleCount?: number;
   /** Dribbling riusciti/registrati a partita, quando il provider espone la statistica. */
   dribblesSeasonAvg?: number;
   opponentExpectedGoalsCreated: number;
@@ -220,6 +245,10 @@ export interface SportPerformanceInput {
   opponentShotsOnTargetLastTwoAvg: number;
   opponentShotsOnTargetLastTwoLeagueAvg: number;
   heatmapPoints: Array<{ x: number; y: number; intensity?: number }>;
+  /** true se il giocatore è nella XI prevista della partita analizzata. */
+  probableStarter?: boolean;
+  /** true se il giocatore è in missingPlayers della formazione (infortunato/squalificato). */
+  unavailableForMatch?: boolean;
   shotsLastTwoSampleCount: number;
   savesLastTwoSampleCount: number;
   foulsCommittedLastTwoSampleCount: number;
@@ -280,6 +309,10 @@ export interface TeamPerformanceBlueprint {
   teamName: string;
   scope: CompetitionScope;
   competitions: string[];
+  /** Torneo FootApi da cui sono state lette le medie (stagione in corso della partita). */
+  tournamentId?: number;
+  /** Stagione FootApi da cui sono state lette le medie (es. 2026-27). */
+  seasonId?: number;
   offensive: OffensiveBlueprintMetrics;
   defensive: DefensiveBlueprintMetrics;
 }

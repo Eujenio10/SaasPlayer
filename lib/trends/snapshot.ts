@@ -24,6 +24,10 @@ import {
   resolveEffectiveSeasonContextForTeam,
   type UpcomingMatchItem
 } from "@/services/sportapi";
+import {
+  TRENDS_MIN_FINISHED_MATCHDAYS,
+  canPublishCurrentSeasonTrends
+} from "@/lib/season-fallback";
 
 function snapshotHasTrends(snapshot: TrendsSnapshot | null | undefined): boolean {
   return Object.keys(snapshot?.trendIndex ?? {}).length > 0;
@@ -224,9 +228,36 @@ export async function regenerateTrendsSnapshotForOrganization(params: {
     bundles.push({ match, metrics });
   }
 
+  const deferredCompetitionIds = new Set<string>();
+  const eligibleBundles: TrendMatchBundle[] = [];
+  for (const bundle of bundles) {
+    const competitionId = competitionIdFromMatch(bundle.match);
+    const [homeSeason, awaySeason] = await Promise.all([
+      resolveEffectiveSeasonContextForTeam({
+        teamId: bundle.match.homeTeam.id,
+        eventId: bundle.match.eventId,
+        switchThreshold: 1
+      }),
+      resolveEffectiveSeasonContextForTeam({
+        teamId: bundle.match.awayTeam.id,
+        eventId: bundle.match.eventId,
+        switchThreshold: 1
+      })
+    ]);
+    const played = Math.max(
+      homeSeason.matchesPlayedInCurrentSeason,
+      awaySeason.matchesPlayedInCurrentSeason
+    );
+    if (!canPublishCurrentSeasonTrends(played)) {
+      deferredCompetitionIds.add(competitionId);
+      continue;
+    }
+    eligibleBundles.push(bundle);
+  }
+
   const backfilledTeams = new Set<number>();
   const teamJobs: Array<{ teamId: number; anchorEventId: number }> = [];
-  for (const bundle of bundles) {
+  for (const bundle of eligibleBundles) {
     for (const teamId of [bundle.match.homeTeam.id, bundle.match.awayTeam.id]) {
       if (backfilledTeams.has(teamId)) continue;
       backfilledTeams.add(teamId);
@@ -268,13 +299,14 @@ export async function regenerateTrendsSnapshotForOrganization(params: {
   let totalPublished = 0;
   let totalWithSample = 0;
 
-  for (const bundle of bundles) {
+  for (const bundle of eligibleBundles) {
     const competitionId = competitionIdFromMatch(bundle.match);
     let ctx = await fetchEventSeasonContextForInsights(bundle.match.eventId).catch(() => null);
     if (!ctx) {
       const resolved = await resolveEffectiveSeasonContextForTeam({
         teamId: bundle.match.homeTeam.id,
-        eventId: bundle.match.eventId
+        eventId: bundle.match.eventId,
+        switchThreshold: 1
       });
       ctx = resolved.effective;
     }
@@ -320,6 +352,10 @@ export async function regenerateTrendsSnapshotForOrganization(params: {
     insightsSnap: params.insightsSnap,
     resultsByRound: [...roundBuckets.values()]
   });
+  if (deferredCompetitionIds.size) {
+    snapshotRaw.deferredUntilMatchdays = TRENDS_MIN_FINISHED_MATCHDAYS;
+    snapshotRaw.deferredCompetitionIds = [...deferredCompetitionIds];
+  }
 
   let snapshot = snapshotRaw;
   if (params.mergeCompetitionIds?.length) {
@@ -339,7 +375,14 @@ export async function regenerateTrendsSnapshotForOrganization(params: {
       snapshot = {
         ...snapshotRaw,
         trendIndex: { ...keepIndex, ...snapshotRaw.trendIndex },
-        rounds: [...keepRounds, ...(snapshotRaw.rounds ?? [])]
+        rounds: [...keepRounds, ...(snapshotRaw.rounds ?? [])],
+        deferredUntilMatchdays: snapshotRaw.deferredUntilMatchdays ?? existing.deferredUntilMatchdays,
+        deferredCompetitionIds: [
+          ...new Set([
+            ...(existing.deferredCompetitionIds ?? []).filter((id) => !scoped.has(canonicalCompetitionId(id))),
+            ...(snapshotRaw.deferredCompetitionIds ?? [])
+          ])
+        ]
       };
     }
   }
@@ -349,12 +392,15 @@ export async function regenerateTrendsSnapshotForOrganization(params: {
     insightsSnap: params.insightsSnap,
     snapshot,
     forceReplace:
-      params.forceReplace || Boolean(params.mergeCompetitionIds?.length && eventIds.length > 0)
+      params.forceReplace ||
+      Boolean(params.mergeCompetitionIds?.length && eventIds.length > 0) ||
+      deferredCompetitionIds.size > 0
   });
 
   console.info("[trends] regenerate_complete", {
     organizationId: params.organizationId,
-    matches: bundles.length,
+    matches: eligibleBundles.length,
+    deferredCompetitions: [...deferredCompetitionIds],
     analyzed: totalAnalyzed,
     withSample: totalWithSample,
     found: totalFound,

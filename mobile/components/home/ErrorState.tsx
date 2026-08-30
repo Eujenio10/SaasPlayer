@@ -1,5 +1,6 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import { colors, radii, spacing } from "@/lib/theme";
+import { homeColors } from "@/components/home/home-theme";
+import { radii, spacing } from "@/lib/theme";
 
 interface ErrorStateProps {
   message: string;
@@ -9,7 +10,7 @@ interface ErrorStateProps {
 export function ErrorState({ message, onRetry }: ErrorStateProps) {
   return (
     <View style={styles.wrap}>
-      <Text style={styles.title}>Impossibile caricare la dashboard</Text>
+      <Text style={styles.title}>Impossibile caricare i dati.</Text>
       <Text style={styles.message}>{message}</Text>
       <Pressable onPress={onRetry} style={({ pressed }) => [styles.btn, pressed && { opacity: 0.9 }]}>
         <Text style={styles.btnText}>Riprova</Text>
@@ -21,21 +22,21 @@ export function ErrorState({ message, onRetry }: ErrorStateProps) {
 const styles = StyleSheet.create({
   wrap: {
     padding: spacing.lg,
-    borderRadius: radii.xl,
+    borderRadius: 18,
     borderWidth: 1,
-    borderColor: "rgba(248,113,113,0.3)",
-    backgroundColor: "rgba(248,113,113,0.06)",
+    borderColor: homeColors.border,
+    backgroundColor: homeColors.card,
     alignItems: "center"
   },
   title: {
-    color: colors.danger,
+    color: homeColors.text,
     fontSize: 16,
     fontWeight: "800",
     textAlign: "center"
   },
   message: {
     marginTop: spacing.sm,
-    color: colors.textMuted,
+    color: homeColors.textMuted,
     fontSize: 13,
     textAlign: "center"
   },
@@ -44,12 +45,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingVertical: 12,
     borderRadius: radii.lg,
-    borderWidth: 1,
-    borderColor: colors.cyan,
-    backgroundColor: "rgba(56,189,248,0.1)"
+    backgroundColor: homeColors.green
   },
   btnText: {
-    color: colors.cyan,
+    color: homeColors.ctaText,
     fontSize: 13,
     fontWeight: "800"
   }

@@ -1,66 +1,48 @@
-import { Alert, Linking, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { useState } from "react";
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
-import { Screen } from "@/components/Screen";
-import { useAccessFlow } from "@/contexts/AccessFlowContext";
+import { Ionicons } from "@expo/vector-icons";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "@/contexts/AuthContext";
 import { userStatusLabel } from "@/lib/access/features";
-import { colors, radii, spacing } from "@/lib/theme";
-import { useState } from "react";
+import { pitchbrainColors } from "@/lib/pitchbrain-theme";
 
-function roleFeatures(role: string | undefined): string[] {
-  if (role === "admin") {
+function roleFeatures(isAdmin: boolean): string[] {
+  if (isAdmin) {
     return [
       "Accesso completo a tutte le competizioni",
       "Aggiornamento dati e refresh",
       "Gestione snapshot organizzazione"
     ];
   }
-  if (role === "pro") {
-    return [
-      "Analisi illimitate su tutte le competizioni",
-      "Report Pre-Partita completo",
-      "Nessun limite settimanale partite"
-    ];
-  }
   return [
-    "Partite e analisi base",
-    "Esplorazione moduli gratuiti",
-    "Upgrade a Pro per report completi"
+    "Analisi partita e report pre-partita",
+    "Trend e simulatore",
+    "Match Radar e statistiche complete"
   ];
 }
 
-async function openStoreSubscriptionManagement(): Promise<void> {
-  const url =
-    Platform.OS === "ios"
-      ? "https://apps.apple.com/account/subscriptions"
-      : "https://play.google.com/store/account/subscriptions";
-  try {
-    await Linking.openURL(url);
-  } catch {
-    Alert.alert(
-      "Gestione abbonamento",
-      Platform.OS === "ios"
-        ? "Apri Impostazioni → Apple ID → Abbonamenti per gestire PitchBrain Pro."
-        : "Apri Play Store → Profilo → Pagamenti e abbonamenti per gestire PitchBrain Pro."
-    );
-  }
+function StatusIcon({ name }: { name: keyof typeof Ionicons.glyphMap }) {
+  return (
+    <View style={styles.iconCircle}>
+      <Ionicons name={name} size={18} color={pitchbrainColors.green} />
+    </View>
+  );
 }
 
 export default function ProfileScreen() {
   const router = useRouter();
-  const { user, access, userStatus, signOut, deleteAccount, refreshAccess } = useAuth();
-  const { openPaywall, handleRestorePurchases } = useAccessFlow();
+  const { user, access, userStatus, signOut, deleteAccount } = useAuth();
   const [deleting, setDeleting] = useState(false);
 
   const email = user?.email ?? "—";
-  const isProActive =
-    userStatus === "authenticated_pro" || Boolean(access?.isPro) || Boolean(access?.isAdmin);
-  const features = roleFeatures(access?.isAdmin ? "admin" : isProActive ? "pro" : access?.role);
+  const isAdmin = Boolean(access?.isAdmin);
+  const features = roleFeatures(isAdmin);
 
   const confirmDeleteAccount = () => {
     Alert.alert(
       "Elimina account",
-      "Questa azione è definitiva: account, preferenze e dati personali collegati verranno cancellati. Gli abbonamenti store vanno gestiti anche da Impostazioni Apple/Google.",
+      "Questa azione è definitiva: account, preferenze e dati personali collegati verranno cancellati.",
       [
         { text: "Annulla", style: "cancel" },
         {
@@ -89,288 +71,354 @@ export default function ProfileScreen() {
 
   if (userStatus === "guest") {
     return (
-      <Screen>
-        <Text style={styles.title}>Modalità Guest</Text>
-        <Text style={styles.subtitle}>
-          Stai usando PitchBrain senza account. Durante la Beta hai accesso ad Analisi partita,
-          Marcature difficili e Pre-partita. Crea un account solo se vuoi sincronizzare i dati su più
-          dispositivi o recuperare il piano in futuro.
-        </Text>
-
-        <View style={styles.card}>
-          <Text style={styles.cardLabel}>Stato</Text>
-          <Text style={styles.statusBadge}>Modalità Guest</Text>
-        </View>
-
-        <Pressable
-          style={({ pressed }) => [styles.primaryBtn, pressed && { opacity: 0.92 }]}
-          onPress={() => router.push("/login")}
+      <SafeAreaView style={styles.safe} edges={["left", "right"]}>
+        <ScrollView
+          contentContainerStyle={styles.guestContent}
+          showsVerticalScrollIndicator={false}
         >
-          <Text style={styles.primaryBtnText}>Accedi</Text>
-        </Pressable>
+          <Text style={styles.heroTitle}>
+            <Text style={styles.heroTitlePlain}>Modalità </Text>
+            <Text style={styles.heroTitleAccent}>Guest</Text>
+          </Text>
+          <Text style={styles.subtitle}>
+            Stai usando PitchBrain senza account. Puoi consultare le analisi. Crea un account per
+            salvare i dati su più dispositivi.
+          </Text>
 
-        <Pressable
-          style={({ pressed }) => [styles.secondaryBtn, pressed && { opacity: 0.9 }]}
-          onPress={() => router.push({ pathname: "/login", params: { mode: "register" } })}
-        >
-          <Text style={styles.secondaryBtnText}>Crea account gratis</Text>
-        </Pressable>
+          <View style={styles.card}>
+            <View style={styles.statusRow}>
+              <StatusIcon name="person-outline" />
+              <View style={styles.statusCopy}>
+                <Text style={styles.cardLabel}>Stato</Text>
+                <Text style={styles.statusValue}>{userStatusLabel(userStatus)}</Text>
+              </View>
+            </View>
+          </View>
 
-        <Text style={styles.betaHint}>
-          Durante la Beta di PitchBrain tutte le funzionalità sono gratuite per tutti, anche senza account.
-        </Text>
-      </Screen>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Accedi"
+            style={({ pressed }) => [styles.primaryBtn, pressed && styles.pressed]}
+            onPress={() => router.push("/login")}
+          >
+            <Text style={styles.primaryBtnText}>Accedi</Text>
+            <Ionicons name="arrow-forward" size={18} color={pitchbrainColors.ctaText} />
+          </Pressable>
+
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Crea account gratis"
+            style={({ pressed }) => [styles.secondaryBtn, pressed && styles.pressed]}
+            onPress={() => router.push({ pathname: "/login", params: { mode: "register" } })}
+          >
+            <Ionicons name="person-add-outline" size={18} color={pitchbrainColors.green} />
+            <Text style={styles.secondaryBtnText}>Crea account gratis</Text>
+            <Ionicons name="chevron-forward" size={18} color={pitchbrainColors.green} />
+          </Pressable>
+        </ScrollView>
+      </SafeAreaView>
     );
   }
 
-  const planLabel =
-    userStatus === "authenticated_pro"
-      ? "Pro"
-      : userStatus === "expired_pro"
-        ? "Pro scaduto"
-        : "Free";
+  const planLabel = isAdmin ? "Admin" : "Free";
 
   return (
-    <Screen>
-      <Text style={styles.title}>Il mio profilo</Text>
-      <Text style={styles.subtitle}>Gestisci il tuo account e visualizza il piano assegnato.</Text>
-
-      <View style={styles.card}>
-        <Text style={styles.cardLabel}>Account</Text>
-        <Text style={styles.email}>{email}</Text>
-        <Text style={styles.role}>Piano {planLabel}</Text>
-        <Text style={styles.statusBadge}>{userStatusLabel(userStatus)}</Text>
-      </View>
-
-      {userStatus === "expired_pro" ? (
-        <View style={styles.card}>
-          <Text style={styles.cardLabel}>Abbonamento</Text>
-          <Text style={styles.feature}>
-            Il tuo Piano Pro non risulta più attivo. Riattivalo per sbloccare report completi e analisi
-            avanzate.
-          </Text>
-        </View>
-      ) : null}
-
-      <View style={styles.card}>
-        <Text style={styles.cardLabel}>Funzionalità incluse</Text>
-        {features.map((feature) => (
-          <Text key={feature} style={styles.feature}>
-            • {feature}
-          </Text>
-        ))}
-      </View>
-
-      {!isProActive && access?.isMember && access.matchUsage.limit != null ? (
-        <View style={styles.card}>
-          <Text style={styles.cardLabel}>Utilizzo settimanale</Text>
-          <Text style={styles.feature}>
-            Partite analizzate: {access.matchUsage.used}/{access.matchUsage.limit}
-          </Text>
-          <Text style={styles.feature}>Rimanenti: {access.matchUsage.remaining ?? 0}</Text>
-        </View>
-      ) : null}
-
-      {!isProActive && (userStatus === "authenticated_free" || userStatus === "expired_pro") ? (
-        <Pressable
-          style={({ pressed }) => [styles.primaryBtn, pressed && { opacity: 0.92 }]}
-          onPress={() => openPaywall("fullPreMatchReport")}
-        >
-          <Text style={styles.primaryBtnText}>
-            {userStatus === "expired_pro" ? "Riattiva Pro" : "Passa a Pro"}
-          </Text>
-        </Pressable>
-      ) : null}
-
-      <Pressable
-        style={({ pressed }) => [styles.secondaryBtn, pressed && { opacity: 0.9 }]}
-        onPress={() => void handleRestorePurchases().then(() => refreshAccess())}
+    <SafeAreaView style={styles.safe} edges={["left", "right"]}>
+      <ScrollView
+        contentContainerStyle={styles.authContent}
+        showsVerticalScrollIndicator={false}
       >
-        <Text style={styles.secondaryBtnText}>Ripristina acquisti</Text>
-      </Pressable>
-
-      {isProActive ? (
-        <Pressable
-          style={({ pressed }) => [styles.secondaryBtn, pressed && { opacity: 0.9 }]}
-          onPress={() => {
-            Alert.alert(
-              "PitchBrain Pro attivo",
-              "Il piano Pro è già attivo su questo account. Se l’hai acquistato dallo store, puoi gestirlo/cancellarlo dalle impostazioni Google Play o App Store.",
-              [
-                { text: "Chiudi", style: "cancel" },
-                {
-                  text: "Apri store",
-                  onPress: () => void openStoreSubscriptionManagement()
-                }
-              ]
-            );
-          }}
-        >
-          <Text style={styles.secondaryBtnText}>Gestisci abbonamento</Text>
-        </Pressable>
-      ) : null}
-
-      <Pressable
-        onPress={() => void signOut().then(() => router.replace("/"))}
-        style={({ pressed }) => [styles.logout, pressed && { opacity: 0.85 }]}
-      >
-        <Text style={styles.logoutText}>Logout</Text>
-      </Pressable>
-
-      <Pressable
-        disabled={deleting}
-        onPress={confirmDeleteAccount}
-        style={({ pressed }) => [styles.deleteBtn, pressed && { opacity: 0.85 }]}
-      >
-        <Text style={styles.deleteBtnText}>
-          {deleting ? "Eliminazione in corso…" : "Elimina account"}
+        <Text style={styles.heroTitle}>
+          <Text style={styles.heroTitlePlain}>Il mio </Text>
+          <Text style={styles.heroTitleAccent}>profilo</Text>
         </Text>
-      </Pressable>
+        <Text style={styles.subtitle}>Gestisci il tuo account e visualizza lo stato di accesso.</Text>
 
-      <Text style={styles.footer}>PitchBrain Hub © 2025 | IlDodicesimo</Text>
-      <Text style={styles.footerSub}>Piattaforma di Analisi Statistica ed Editoriale.</Text>
-    </Screen>
+        <View style={styles.card}>
+          <Text style={styles.cardLabelAccent}>Account</Text>
+          <View style={styles.accountRow}>
+            <StatusIcon name="person-outline" />
+            <View style={styles.accountCopy}>
+              <Text style={styles.email} numberOfLines={2}>
+                {email}
+              </Text>
+              <Text style={styles.accessType}>Accesso {planLabel}</Text>
+              <Text style={styles.roleLine}>
+                {isAdmin ? "Admin" : userStatusLabel(userStatus)}
+              </Text>
+            </View>
+          </View>
+        </View>
+
+        <View style={styles.card}>
+          <Text style={styles.cardLabelAccent}>Funzionalità incluse</Text>
+          {features.map((feature, index) => (
+            <View
+              key={feature}
+              style={[styles.featureRow, index > 0 && styles.featureDivider]}
+            >
+              <Ionicons name="checkmark" size={16} color={pitchbrainColors.green} />
+              <Text style={styles.feature}>{feature}</Text>
+            </View>
+          ))}
+        </View>
+
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Logout"
+          onPress={() => {
+            void signOut()
+              .then(() => router.replace("/"))
+              .catch(() => router.replace("/"));
+          }}
+          hitSlop={8}
+          style={({ pressed }) => [styles.logoutBtn, pressed && styles.pressed]}
+        >
+          <Ionicons name="log-out-outline" size={18} color={pitchbrainColors.danger} />
+          <Text style={styles.logoutText}>Logout</Text>
+          <Ionicons name="chevron-forward" size={18} color={pitchbrainColors.danger} />
+        </Pressable>
+
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={deleting ? "Eliminazione in corso" : "Elimina account"}
+          disabled={deleting}
+          onPress={confirmDeleteAccount}
+          hitSlop={8}
+          style={({ pressed }) => [styles.deleteBtn, pressed && styles.pressed]}
+        >
+          <Ionicons name="trash-outline" size={18} color={pitchbrainColors.danger} />
+          <Text style={styles.deleteBtnText}>
+            {deleting ? "Eliminazione in corso…" : "Elimina account"}
+          </Text>
+          <Ionicons name="chevron-forward" size={18} color={pitchbrainColors.danger} />
+        </Pressable>
+
+        <Text style={styles.footer}>PitchBrain Hub © 2025 | IlDodicesimo</Text>
+        <Text style={styles.footerSub}>Piattaforma di Analisi Statistica ed Editoriale.</Text>
+        <Text style={styles.legalDisclaimer}>
+          PitchBrain fornisce analisi statistiche sportive a fini esclusivamente informativi. Non
+          fornisce quote, consigli di scommessa, indicazioni di puntata o servizi relativi al gioco
+          con vincite in denaro.
+        </Text>
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  title: {
-    color: colors.text,
-    fontSize: 28,
-    fontWeight: "900"
+  safe: {
+    flex: 1,
+    backgroundColor: pitchbrainColors.bg
+  },
+  guestContent: {
+    paddingHorizontal: 20,
+    paddingTop: 36,
+    paddingBottom: 120,
+    gap: 0
+  },
+  authContent: {
+    paddingHorizontal: 20,
+    paddingTop: 28,
+    paddingBottom: 120
+  },
+  heroTitle: {
+    fontSize: 32,
+    fontWeight: "800",
+    lineHeight: 38
+  },
+  heroTitlePlain: {
+    color: pitchbrainColors.text
+  },
+  heroTitleAccent: {
+    color: pitchbrainColors.green
   },
   subtitle: {
-    marginTop: 6,
-    marginBottom: spacing.lg,
-    color: colors.textMuted,
-    fontSize: 14,
-    lineHeight: 20
+    marginTop: 12,
+    marginBottom: 28,
+    color: pitchbrainColors.textMuted,
+    fontSize: 16,
+    lineHeight: 23
   },
   card: {
-    marginBottom: spacing.md,
-    padding: spacing.md,
-    borderRadius: radii.xl,
+    borderRadius: 20,
     borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface
+    borderColor: pitchbrainColors.border,
+    backgroundColor: pitchbrainColors.card,
+    padding: 16
+  },
+  statusRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12
+  },
+  iconCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "rgba(154,242,56,0.12)",
+    alignItems: "center",
+    justifyContent: "center"
+  },
+  statusCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 4
   },
   cardLabel: {
-    color: colors.cyanMuted,
+    color: pitchbrainColors.textDim,
     fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 1,
+    fontWeight: "700",
+    letterSpacing: 1.1,
     textTransform: "uppercase"
   },
-  email: {
-    marginTop: spacing.sm,
-    color: colors.text,
-    fontSize: 17,
-    fontWeight: "800"
-  },
-  role: {
-    marginTop: 4,
-    color: colors.textMuted,
-    fontSize: 14
-  },
-  statusBadge: {
-    marginTop: spacing.sm,
-    alignSelf: "flex-start",
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: radii.pill,
-    overflow: "hidden",
-    color: colors.cyanMuted,
+  cardLabelAccent: {
+    color: pitchbrainColors.green,
     fontSize: 11,
-    fontWeight: "800",
-    backgroundColor: "rgba(56,189,248,0.08)",
-    borderWidth: 1,
-    borderColor: "rgba(56,189,248,0.18)"
+    fontWeight: "700",
+    letterSpacing: 1.1,
+    textTransform: "uppercase",
+    marginBottom: 12
+  },
+  statusValue: {
+    color: pitchbrainColors.green,
+    fontSize: 16,
+    fontWeight: "700"
+  },
+  accountRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12
+  },
+  accountCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 4
+  },
+  email: {
+    color: pitchbrainColors.text,
+    fontSize: 17,
+    fontWeight: "700"
+  },
+  accessType: {
+    color: pitchbrainColors.green,
+    fontSize: 15,
+    fontWeight: "700"
+  },
+  roleLine: {
+    color: pitchbrainColors.textMuted,
+    fontSize: 14,
+    fontWeight: "600"
+  },
+  featureRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    paddingVertical: 10
+  },
+  featureDivider: {
+    borderTopWidth: 1,
+    borderTopColor: pitchbrainColors.divider
   },
   feature: {
-    marginTop: 8,
-    color: colors.textMuted,
+    flex: 1,
+    color: pitchbrainColors.text,
     fontSize: 14,
     lineHeight: 20
   },
   primaryBtn: {
-    marginBottom: spacing.sm,
-    borderRadius: radii.lg,
-    backgroundColor: colors.amber,
-    paddingVertical: 14,
-    alignItems: "center"
+    marginTop: 24,
+    minHeight: 54,
+    borderRadius: 16,
+    backgroundColor: pitchbrainColors.green,
+    paddingHorizontal: 18,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8
   },
   primaryBtnText: {
-    color: "#041018",
-    fontSize: 15,
-    fontWeight: "900"
-  },
-  secondaryBtn: {
-    marginBottom: spacing.sm,
-    borderRadius: radii.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingVertical: 13,
-    alignItems: "center"
-  },
-  secondaryBtnText: {
-    color: colors.text,
-    fontSize: 14,
-    fontWeight: "700"
-  },
-  linkBtn: {
-    marginTop: spacing.xs,
-    paddingVertical: 10,
-    alignItems: "center"
-  },
-  linkBtnText: {
-    color: colors.cyanMuted,
-    fontSize: 13,
-    fontWeight: "700"
-  },
-  betaHint: {
-    marginTop: spacing.xs,
-    textAlign: "center",
-    color: colors.textDim,
-    fontSize: 12,
-    lineHeight: 17
-  },
-  logout: {
-    marginTop: spacing.md,
-    borderRadius: radii.lg,
-    borderWidth: 1,
-    borderColor: "rgba(248,113,113,0.35)",
-    paddingVertical: 14,
-    alignItems: "center"
-  },
-  logoutText: {
-    color: colors.danger,
-    fontSize: 15,
+    color: pitchbrainColors.ctaText,
+    fontSize: 16,
     fontWeight: "800"
   },
+  secondaryBtn: {
+    marginTop: 14,
+    minHeight: 54,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: pitchbrainColors.borderStrong,
+    backgroundColor: pitchbrainColors.bgAlt,
+    paddingHorizontal: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10
+  },
+  secondaryBtnText: {
+    flex: 1,
+    color: pitchbrainColors.text,
+    fontSize: 16,
+    fontWeight: "700"
+  },
+  logoutBtn: {
+    marginTop: 20,
+    minHeight: 52,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "rgba(248,113,113,0.35)",
+    backgroundColor: pitchbrainColors.bgAlt,
+    paddingHorizontal: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10
+  },
+  logoutText: {
+    flex: 1,
+    color: pitchbrainColors.text,
+    fontSize: 16,
+    fontWeight: "700"
+  },
   deleteBtn: {
-    marginTop: spacing.sm,
-    borderRadius: radii.lg,
+    marginTop: 12,
+    minHeight: 52,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: "rgba(248,113,113,0.55)",
     backgroundColor: "rgba(248,113,113,0.08)",
-    paddingVertical: 14,
-    alignItems: "center"
+    paddingHorizontal: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10
   },
   deleteBtnText: {
-    color: colors.danger,
-    fontSize: 14,
-    fontWeight: "800"
+    flex: 1,
+    color: pitchbrainColors.danger,
+    fontSize: 16,
+    fontWeight: "700"
+  },
+  pressed: {
+    opacity: 0.88
   },
   footer: {
-    marginTop: spacing.xl,
+    marginTop: 32,
     textAlign: "center",
-    color: colors.textDim,
-    fontSize: 11
+    color: pitchbrainColors.textDim,
+    fontSize: 11,
+    lineHeight: 16
   },
   footerSub: {
     marginTop: 4,
     textAlign: "center",
-    color: colors.textDim,
-    fontSize: 10
+    color: pitchbrainColors.textDim,
+    fontSize: 11,
+    lineHeight: 16
+  },
+  legalDisclaimer: {
+    marginTop: 10,
+    marginBottom: 8,
+    textAlign: "center",
+    color: pitchbrainColors.textDim,
+    fontSize: 11,
+    lineHeight: 16
   }
 });

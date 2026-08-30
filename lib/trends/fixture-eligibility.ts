@@ -1,6 +1,7 @@
 import { normalizePersistedMenuRows } from "@/lib/match-simulator/fixtures-menu";
 import {
   matchKickoffIsStillFuture,
+  filterMatchesWithinMenuHorizon,
   selectNextMatchdayPerCompetition
 } from "@/lib/tactical-matches-filters";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
@@ -128,7 +129,7 @@ export function upcomingRoundsForCompetition(
 }
 
 export function filterUpcomingMenuMatches(matches: UpcomingMatchItem[]): UpcomingMatchItem[] {
-  return matches.filter((match) => matchKickoffIsStillFuture(match));
+  return filterMatchesWithinMenuHorizon(matches.filter((match) => matchKickoffIsStillFuture(match)));
 }
 
 export async function loadOrganizationUpcomingMenuMatches(

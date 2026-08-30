@@ -1,13 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useFocusEffect } from "expo-router";
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { TrendSparkline } from "@/components/trends/TrendSparkline";
+import { PitchBrainLoading } from "@/components/PitchBrainLoading";
 import { fetchTrends } from "@/lib/trends/api";
 import { formatMonitoredCompetitionLabel, formatMonitoredCompetitionList } from "@/lib/competitions";
-import { metricLabelIt, metricUnitIt } from "@/lib/trends/text";
+import { formatRoundLabel, metricLabelIt, metricUnitIt } from "@/lib/trends/text";
 import type { PlayerTrend, TrendMetric } from "@/lib/trends/types";
+import { useAuth } from "@/contexts/AuthContext";
 import { translateTeamName } from "@/lib/italian-display";
-import { colors, radii, spacing } from "@/lib/theme";
+import { pitchbrainColors } from "@/lib/pitchbrain-theme";
+
+const USER_EMPTY_TRENDS = "Nessun trend disponibile per il campionato selezionato.";
 
 type MetricFilter = "all" | TrendMetric;
 
@@ -18,11 +22,40 @@ function metricFilterLabel(metric: MetricFilter): string {
   return metricLabelIt(metric);
 }
 
-function scoreColor(score: number): string {
-  if (score >= 85) return "#E879F9";
-  if (score >= 75) return "#FB923C";
-  if (score >= 65) return colors.amber;
-  return "#FDE68A";
+function growthDisplay(relativeDelta: number): {
+  arrow: string;
+  text: string;
+  color: string;
+} {
+  const pct = Math.round(relativeDelta * 100);
+  if (pct > 0) {
+    return { arrow: "↑", text: `+${pct}%`, color: pitchbrainColors.green };
+  }
+  if (pct < 0) {
+    return { arrow: "↓", text: `${pct}%`, color: pitchbrainColors.danger };
+  }
+  return { arrow: "→", text: "stabile", color: pitchbrainColors.textDim };
+}
+
+function FilterChip({
+  label,
+  selected,
+  onPress
+}: {
+  label: string;
+  selected: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityState={{ selected }}
+      style={[styles.chip, selected && styles.chipActive]}
+    >
+      <Text style={[styles.chipText, selected && styles.chipTextActive]}>{label}</Text>
+    </Pressable>
+  );
 }
 
 export function TrendsList({
@@ -34,6 +67,8 @@ export function TrendsList({
   refreshToken?: number;
   onCompetitionChange?: (competitionId: string) => void;
 }) {
+  const { access } = useAuth();
+  const isAdmin = Boolean(access?.isAdmin || access?.canRefreshData);
   const autoCompetitionAppliedRef = useRef<string | null>(null);
   const requestSeq = useRef(0);
   const [loading, setLoading] = useState(true);
@@ -86,7 +121,13 @@ export function TrendsList({
       }
 
       if (!data.results?.length) {
-        if (data.trendDatabaseReady === false) {
+        if (data.deferredUntilMatchdays && data.deferredUntilMatchdays > 0) {
+          setError(
+            `I Trend saranno disponibili dalla ${data.deferredUntilMatchdays}ª giornata di questa stagione.`
+          );
+        } else if (!isAdmin) {
+          setError(USER_EMPTY_TRENDS);
+        } else if (data.trendDatabaseReady === false) {
           setError(
             "Database Trend non configurato. Applica la migration Supabase, riavvia il server e usa Aggiorna dati."
           );
@@ -109,7 +150,7 @@ export function TrendsList({
         setLoading(false);
       }
     }
-  }, [competitionId, metric, round, onCompetitionChange]);
+  }, [competitionId, isAdmin, metric, round, onCompetitionChange]);
 
   useEffect(() => {
     autoCompetitionAppliedRef.current = null;
@@ -128,175 +169,349 @@ export function TrendsList({
 
   const hero = results[0] ?? null;
   const showFatalError = Boolean(error && !results.length);
+  const heroGrowth = hero ? growthDisplay(hero.relativeDelta) : null;
 
   return (
     <View style={styles.wrap}>
       {availableRounds.length > 1 ? (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filters}>
-          <Pressable onPress={() => setRound("")} style={[styles.chip, !round && styles.chipActive]}>
-            <Text style={[styles.chipText, !round && styles.chipTextActive]}>Tutte le giornate</Text>
-          </Pressable>
-          {availableRounds.map((item) => (
-            <Pressable
-              key={item}
-              onPress={() => setRound(item)}
-              style={[styles.chip, round === item && styles.chipActive]}
-            >
-              <Text style={[styles.chipText, round === item && styles.chipTextActive]}>{item}</Text>
-            </Pressable>
-          ))}
-        </ScrollView>
+        <View style={styles.filterGroup}>
+          <Text style={styles.filterLabel}>Giornata</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filters}>
+            <FilterChip label="Tutte" selected={!round} onPress={() => setRound("")} />
+            {availableRounds.map((item) => (
+              <FilterChip
+                key={item}
+                label={formatRoundLabel(item)}
+                selected={round === item}
+                onPress={() => setRound(item)}
+              />
+            ))}
+          </ScrollView>
+        </View>
       ) : null}
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filters}>
-        {METRIC_FILTERS.map((item) => (
-          <Pressable
-            key={item}
-            onPress={() => setMetric(item)}
-            style={[styles.chip, metric === item && styles.chipActive]}
-          >
-            <Text style={[styles.chipText, metric === item && styles.chipTextActive]}>
-              {metricFilterLabel(item)}
-            </Text>
-          </Pressable>
-        ))}
-      </ScrollView>
+      <View style={styles.filterGroup}>
+        <Text style={styles.filterLabel}>Statistica</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filters}>
+          {METRIC_FILTERS.map((item) => (
+            <FilterChip
+              key={item}
+              label={metricFilterLabel(item)}
+              selected={metric === item}
+              onPress={() => setMetric(item)}
+            />
+          ))}
+        </ScrollView>
+      </View>
 
-      {loading ? (
-        <View style={styles.center}>
-          <ActivityIndicator color={colors.cyan} size="large" />
-        </View>
-      ) : showFatalError ? (
-        <View style={styles.emptyWrap}>
-          <Text style={styles.emptyText}>{error}</Text>
-        </View>
-      ) : !results.length ? (
-        <View style={styles.emptyWrap}>
-          <Text style={styles.emptyText}>
-            {metric === "all"
-              ? "Nessun trend disponibile per il campionato selezionato."
-              : `Nessun trend su ${metricFilterLabel(metric)} per la giornata selezionata. Prova un'altra statistica.`}
-          </Text>
-        </View>
-      ) : (
+      <View style={styles.resultsShell}>
+        {showFatalError && !loading ? (
+          <View style={styles.emptyWrap}>
+            <Text style={styles.emptyText}>{error}</Text>
+          </View>
+        ) : !results.length && !loading ? (
+          <View style={styles.emptyWrap}>
+            <Text style={styles.emptyText}>
+              {metric === "all"
+                ? "Nessun trend disponibile per il campionato selezionato."
+                : `Nessun trend su ${metricFilterLabel(metric)} per la giornata selezionata. Prova un'altra statistica.`}
+            </Text>
+          </View>
+        ) : results.length ? (
         <>
-          {hero ? (
+          {hero && heroGrowth ? (
             <View style={styles.hero}>
-              <Text style={styles.heroLabel}>Trend del giorno</Text>
-              <Text style={styles.heroMetric}>
-                {metricLabelIt(hero.metric)} · {metricUnitIt(hero.metric)}
-              </Text>
+              <View style={styles.heroTop}>
+                <View style={styles.heroTopCopy}>
+                  <Text style={styles.heroLabel}>#1 Miglior trend</Text>
+                  <Text style={styles.heroMetric}>
+                    {metricLabelIt(hero.metric)} · {metricUnitIt(hero.metric)}
+                  </Text>
+                </View>
+                <View
+                  style={styles.scoreBlock}
+                  accessibilityLabel={`Trend Score ${hero.trendScore} su 100`}
+                >
+                  <Text style={styles.scoreLabel}>Trend Score</Text>
+                  <Text>
+                    <Text style={styles.scoreValue}>{hero.trendScore}</Text>
+                    <Text style={styles.scoreDenom}>/100</Text>
+                  </Text>
+                </View>
+              </View>
+
               <Text style={styles.heroName}>{hero.playerName}</Text>
               <Text style={styles.heroMeta}>
                 {translateTeamName(hero.teamName)} · vs {translateTeamName(hero.opponentName)}
               </Text>
-              <View style={styles.heroStats}>
-                <View>
-                  <Text style={styles.statLabel}>Baseline</Text>
-                  <Text style={styles.statValue}>{hero.baseline.per90.toFixed(1)}</Text>
+
+              <Text
+                style={[styles.growth, { color: heroGrowth.color }]}
+                accessibilityLabel={`${heroGrowth.arrow} ${heroGrowth.text} nelle ultime 5 presenze`}
+              >
+                {heroGrowth.arrow} {heroGrowth.text}
+              </Text>
+              <Text style={styles.growthHint}>nelle ultime 5 presenze</Text>
+
+              <View style={styles.compareRow}>
+                <View style={styles.compareCol}>
+                  <Text style={styles.compareLabel}>Media precedente</Text>
+                  <Text style={styles.comparePrev}>{hero.baseline.per90.toFixed(1)}</Text>
                 </View>
-                <View>
-                  <Text style={styles.statLabel}>Ultime 5</Text>
-                  <Text style={[styles.statValue, { color: colors.amber }]}>
-                    {hero.recent.per90.toFixed(1)}
-                  </Text>
-                </View>
-                <View>
-                  <Text style={styles.statLabel}>Score</Text>
-                  <Text style={[styles.statValue, { color: scoreColor(hero.trendScore) }]}>
-                    {hero.trendScore}
-                  </Text>
+                <Text style={styles.compareArrow}>→</Text>
+                <View style={styles.compareCol}>
+                  <Text style={styles.compareLabel}>Ultime 5</Text>
+                  <Text style={styles.compareRecent}>{hero.recent.per90.toFixed(1)}</Text>
                 </View>
               </View>
-              <TrendSparkline
-                values={hero.recent.valuesByMatch}
-                baselinePer90={hero.baseline.per90}
-                minutes={hero.recent.minutesByMatch}
-              />
+
+              <TrendSparkline previous={hero.baseline.per90} recent={hero.recent.per90} />
             </View>
           ) : null}
 
-          {results.slice(1).map((item, index) => (
-            <View key={item.id} style={styles.card}>
-              <View style={styles.cardHeader}>
-                <Text style={styles.cardRank}>#{index + 2}</Text>
-                <Text style={[styles.cardScore, { color: scoreColor(item.trendScore) }]}>
-                  {item.trendScore}
-                </Text>
+          {results.slice(1).map((item, index) => {
+            const growth = growthDisplay(item.relativeDelta);
+            return (
+              <View key={item.id} style={styles.card}>
+                <View style={styles.cardMain}>
+                  <Text style={styles.cardRank}>#{index + 2}</Text>
+                  <View style={styles.cardCopy}>
+                    <Text style={styles.cardName}>{item.playerName}</Text>
+                    <Text style={styles.cardMeta}>{translateTeamName(item.teamName)}</Text>
+                    {metric === "all" ? (
+                      <Text style={styles.cardMetric}>{metricLabelIt(item.metric)}</Text>
+                    ) : null}
+                    <View style={styles.cardValues}>
+                      <Text style={styles.cardDelta}>
+                        {item.baseline.per90.toFixed(1)} → {item.recent.per90.toFixed(1)}
+                      </Text>
+                      <Text
+                        style={[styles.cardGrowth, { color: growth.color }]}
+                        accessibilityLabel={`${growth.arrow} ${growth.text}`}
+                      >
+                        {growth.arrow} {growth.text}
+                      </Text>
+                      <Text style={styles.cardScore}>
+                        {item.trendScore}
+                        <Text style={styles.scoreDenom}>/100</Text>
+                      </Text>
+                    </View>
+                  </View>
+                </View>
               </View>
-              <Text style={styles.cardMetric}>
-                {metricLabelIt(item.metric)} · {metricUnitIt(item.metric)}
-              </Text>
-              <Text style={styles.cardName}>{item.playerName}</Text>
-              <Text style={styles.cardMeta}>{translateTeamName(item.teamName)}</Text>
-              <Text style={styles.cardDelta}>
-                {item.baseline.per90.toFixed(1)} → {item.recent.per90.toFixed(1)} · +
-                {Math.round(item.relativeDelta * 100)}%
-              </Text>
-            </View>
-          ))}
+            );
+          })}
         </>
-      )}
+      ) : null}
+        <PitchBrainLoading visible={loading} message="Analisi in corso…" />
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  wrap: { paddingTop: spacing.sm, gap: spacing.md, paddingBottom: 40 },
-  center: { alignItems: "center", justifyContent: "center", paddingVertical: spacing.xl },
-  emptyWrap: { padding: spacing.lg },
-  emptyText: { color: colors.textMuted, textAlign: "center", lineHeight: 22 },
-  filters: { gap: spacing.sm, paddingBottom: spacing.sm },
-  chip: {
-    borderRadius: radii.pill,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm
+  wrap: { paddingTop: 8, gap: 16, paddingBottom: 40 },
+  resultsShell: {
+    minHeight: 360,
+    position: "relative"
   },
-  chipActive: { borderColor: colors.amber, backgroundColor: "rgba(251,191,36,0.12)" },
-  chipText: { color: colors.textDim, fontWeight: "600", fontSize: 12 },
-  chipTextActive: { color: colors.amber },
-  hero: {
-    borderRadius: radii.xl,
-    borderWidth: 1,
-    borderColor: "rgba(251,191,36,0.25)",
-    backgroundColor: "rgba(251,191,36,0.06)",
-    padding: spacing.lg
-  },
-  heroLabel: { color: colors.amber, fontSize: 11, letterSpacing: 1.5, textTransform: "uppercase" },
-  heroMetric: {
-    color: colors.textDim,
+  filterGroup: { gap: 8 },
+  filterLabel: {
+    color: pitchbrainColors.textDim,
     fontSize: 11,
-    fontWeight: "700",
+    fontWeight: "800",
     letterSpacing: 1.1,
-    textTransform: "uppercase",
-    marginTop: spacing.xs
+    textTransform: "uppercase"
   },
-  heroName: { color: colors.text, fontSize: 24, fontWeight: "800", marginTop: spacing.xs },
-  heroMeta: { color: colors.textMuted, marginTop: 4 },
-  heroStats: { flexDirection: "row", gap: spacing.lg, marginTop: spacing.md },
-  statLabel: { color: colors.textDim, fontSize: 11, textTransform: "uppercase" },
-  statValue: { color: colors.text, fontSize: 22, fontWeight: "700", marginTop: 2 },
-  card: {
-    borderRadius: radii.lg,
+  filters: { gap: 8, paddingBottom: 2 },
+  chip: {
+    minHeight: 44,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 999,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
-    backgroundColor: colors.surfaceAlt,
-    padding: spacing.md
+    borderColor: "rgba(255,255,255,0.12)",
+    backgroundColor: pitchbrainColors.bgAlt,
+    justifyContent: "center"
   },
-  cardHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  cardRank: { color: colors.textDim, fontSize: 12 },
-  cardScore: { fontSize: 18, fontWeight: "800" },
-  cardMetric: {
-    color: colors.textDim,
+  chipActive: {
+    borderColor: pitchbrainColors.borderStrong,
+    backgroundColor: pitchbrainColors.bgAlt
+  },
+  chipText: {
+    color: pitchbrainColors.textMuted,
+    fontSize: 12,
+    fontWeight: "700"
+  },
+  chipTextActive: {
+    color: pitchbrainColors.green
+  },
+  emptyWrap: { padding: 20 },
+  emptyText: { color: pitchbrainColors.textMuted, textAlign: "center", lineHeight: 22 },
+  hero: {
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: pitchbrainColors.border,
+    backgroundColor: pitchbrainColors.card,
+    padding: 18,
+    gap: 8
+  },
+  heroTop: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: 12
+  },
+  heroTopCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 4
+  },
+  heroLabel: {
+    color: pitchbrainColors.green,
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 1.2,
+    textTransform: "uppercase"
+  },
+  heroMetric: {
+    color: pitchbrainColors.textDim,
+    fontSize: 11,
+    fontWeight: "700"
+  },
+  scoreBlock: {
+    alignItems: "flex-end"
+  },
+  scoreLabel: {
+    color: pitchbrainColors.textDim,
     fontSize: 10,
-    fontWeight: "700",
-    letterSpacing: 1,
-    textTransform: "uppercase",
-    marginTop: spacing.xs
+    fontWeight: "800",
+    letterSpacing: 0.6,
+    textTransform: "uppercase"
   },
-  cardName: { color: colors.text, fontSize: 18, fontWeight: "700", marginTop: spacing.xs },
-  cardMeta: { color: colors.textMuted, marginTop: 2 },
-  cardDelta: { color: colors.amber, marginTop: spacing.sm, fontWeight: "600" }
+  scoreValue: {
+    color: pitchbrainColors.green,
+    fontSize: 22,
+    fontWeight: "800"
+  },
+  scoreDenom: {
+    color: pitchbrainColors.textDim,
+    fontSize: 13,
+    fontWeight: "700"
+  },
+  heroName: {
+    color: pitchbrainColors.text,
+    fontSize: 26,
+    fontWeight: "800",
+    lineHeight: 32
+  },
+  heroMeta: {
+    color: pitchbrainColors.textMuted,
+    fontSize: 14,
+    lineHeight: 20
+  },
+  growth: {
+    marginTop: 8,
+    fontSize: 36,
+    fontWeight: "800",
+    lineHeight: 42
+  },
+  growthHint: {
+    marginTop: -4,
+    color: pitchbrainColors.textMuted,
+    fontSize: 14
+  },
+  compareRow: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    gap: 12,
+    marginTop: 8
+  },
+  compareCol: {
+    flex: 1,
+    minWidth: 0,
+    gap: 4
+  },
+  compareLabel: {
+    color: pitchbrainColors.textDim,
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 0.5,
+    textTransform: "uppercase"
+  },
+  comparePrev: {
+    color: pitchbrainColors.text,
+    fontSize: 22,
+    fontWeight: "800"
+  },
+  compareRecent: {
+    color: pitchbrainColors.green,
+    fontSize: 22,
+    fontWeight: "800"
+  },
+  compareArrow: {
+    color: pitchbrainColors.textDim,
+    fontSize: 18,
+    fontWeight: "700",
+    paddingBottom: 4
+  },
+  card: {
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: pitchbrainColors.border,
+    backgroundColor: pitchbrainColors.card,
+    padding: 14
+  },
+  cardMain: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10
+  },
+  cardRank: {
+    color: pitchbrainColors.textDim,
+    fontSize: 13,
+    fontWeight: "800",
+    minWidth: 28,
+    paddingTop: 2
+  },
+  cardCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2
+  },
+  cardName: {
+    color: pitchbrainColors.text,
+    fontSize: 16,
+    fontWeight: "800"
+  },
+  cardMeta: {
+    color: pitchbrainColors.textMuted,
+    fontSize: 13
+  },
+  cardMetric: {
+    color: pitchbrainColors.textDim,
+    fontSize: 12,
+    fontWeight: "600"
+  },
+  cardValues: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: 10,
+    marginTop: 6
+  },
+  cardDelta: {
+    color: pitchbrainColors.text,
+    fontSize: 13,
+    fontWeight: "700"
+  },
+  cardGrowth: {
+    fontSize: 15,
+    fontWeight: "800"
+  },
+  cardScore: {
+    color: pitchbrainColors.green,
+    fontSize: 14,
+    fontWeight: "800"
+  }
 });

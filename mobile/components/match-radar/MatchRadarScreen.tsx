@@ -1,7 +1,7 @@
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { useState } from "react";
-import { Ionicons } from "@expo/vector-icons";
+import { PitchBrainLoading } from "@/components/PitchBrainLoading";
 import { useAuth } from "@/contexts/AuthContext";
 import { canAccessFeatureId } from "@/lib/access/features";
 import { useAccessFlow } from "@/contexts/AccessFlowContext";
@@ -10,11 +10,12 @@ import type { MatchRadarMode } from "@/lib/match-radar/config";
 import {
   MATCH_RADAR_UI_TEXT,
   translateMatchRadarReason,
-  matchRadarEmptyMessage
+  matchRadarEmptyMessage,
+  matchRadarDisciplinaryPotentialLabel
 } from "@/lib/match-radar/text";
 import { formatKickoffInRome } from "@/lib/match-radar/date";
 import { translateCompetitionName } from "@/lib/italian-display";
-import { colors, radii, spacing } from "@/lib/theme";
+import { pitchbrainColors } from "@/lib/pitchbrain-theme";
 import type { MatchRadarListItem } from "@/lib/match-radar/types";
 
 function MiniBar({ label, value }: { label: string; value: number | null | undefined }) {
@@ -44,8 +45,12 @@ function MatchRadarCard({
   onPress: () => void;
 }) {
   const ui = MATCH_RADAR_UI_TEXT[locale];
+  const disciplinaryLabel = matchRadarDisciplinaryPotentialLabel(match.reasons, locale);
   return (
-    <Pressable style={styles.card} onPress={onPress}>
+    <Pressable
+      style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
+      onPress={onPress}
+    >
       <Text style={styles.meta}>
         {translateCompetitionName(match.competitionId)} · {formatKickoffInRome(match.kickoff, locale)}
       </Text>
@@ -56,7 +61,10 @@ function MatchRadarCard({
         </View>
         <View style={styles.scoreCol}>
           <Text style={styles.scoreLabel}>{ui.radarScore}</Text>
-          <Text style={styles.scoreValue}>{match.radarScore}/100</Text>
+          <Text style={styles.scoreValue}>
+            {match.radarScore}
+            <Text style={styles.scoreDenom}>/100</Text>
+          </Text>
         </View>
       </View>
       <MiniBar label={ui.dimensions.intensity} value={match.dimensions.intensity} />
@@ -73,21 +81,30 @@ function MatchRadarCard({
           • {translateMatchRadarReason(reason, locale)}
         </Text>
       ))}
+      {disciplinaryLabel ? <Text style={styles.highlight}>{disciplinaryLabel}</Text> : null}
       {match.highlights?.combinedFoulsPerMatch != null ? (
         <Text style={styles.highlight}>
-          Media falli combinati: {match.highlights.combinedFoulsPerMatch}/partita
+          {match.highlights.combinedFoulsPerMatch != null
+            ? `Media falli combinati: ${String(match.highlights.combinedFoulsPerMatch).replace(".", ",")}/partita`
+            : ""}
           {match.highlights.combinedCardsPerMatch != null
-            ? ` · Cartellini: ${match.highlights.combinedCardsPerMatch}`
+            ? ` · Cartellini: ${String(match.highlights.combinedCardsPerMatch).replace(".", ",")}`
             : ""}
           {match.highlights.combinedGoalsPerMatch != null
-            ? ` · Gol attesi: ${match.highlights.combinedGoalsPerMatch}`
+            ? ` · ${ui.highlightCombinedGoals}: ${String(match.highlights.combinedGoalsPerMatch).replace(".", ",")}`
             : ""}
           {match.highlights.combinedOffsidesPerMatch != null
-            ? ` · Fuorigioco: ${match.highlights.combinedOffsidesPerMatch}`
+            ? ` · Fuorigioco: ${String(match.highlights.combinedOffsidesPerMatch).replace(".", ",")}`
             : ""}
         </Text>
       ) : null}
-      <Text style={styles.confidence}>{ui.confidence[match.confidenceLevel]}</Text>
+      <Text
+        style={styles.confidence}
+        accessibilityLabel={ui.confidence[match.confidenceLevel]}
+        accessibilityHint={ui.confidenceNote}
+      >
+        {ui.confidence[match.confidenceLevel]}
+      </Text>
     </Pressable>
   );
 }
@@ -114,12 +131,7 @@ export function MatchRadarScreen({ compact = false }: { compact?: boolean }) {
 
   return (
     <View style={styles.section}>
-      {!compact ? (
-        <>
-          <Text style={styles.title}>{ui.title}</Text>
-          <Text style={styles.intro}>{ui.screenIntro}</Text>
-        </>
-      ) : null}
+      {!compact ? <Text style={styles.intro}>{ui.screenIntro}</Text> : null}
       <Text style={styles.subtitle}>{data?.ui?.subtitle ?? ui.subtitle}</Text>
 
       {!compact ? (
@@ -128,6 +140,8 @@ export function MatchRadarScreen({ compact = false }: { compact?: boolean }) {
             <Pressable
               key={item.id}
               onPress={() => setMode(item.id)}
+              accessibilityRole="button"
+              accessibilityState={{ selected: mode === item.id }}
               style={[styles.modeChip, mode === item.id && styles.modeChipActive]}
             >
               <Text style={[styles.modeChipText, mode === item.id && styles.modeChipTextActive]}>
@@ -138,81 +152,106 @@ export function MatchRadarScreen({ compact = false }: { compact?: boolean }) {
         </ScrollView>
       ) : null}
 
-      {loading ? <Text style={styles.muted}>{ui.loading}</Text> : null}
-      {error ? <Text style={styles.error}>{ui.error}</Text> : null}
-      {!loading && !error && data && !matches.length ? (
-        <Text style={styles.muted}>{matchRadarEmptyMessage(locale, data.emptyReason ?? null)}</Text>
-      ) : null}
+      <View style={styles.resultsShell}>
+        {error && !loading ? <Text style={styles.error}>{ui.error}</Text> : null}
+        {!loading && !error && data && !matches.length ? (
+          <Text style={styles.muted}>{matchRadarEmptyMessage(locale, data.emptyReason ?? null)}</Text>
+        ) : null}
 
-      {matches.map((match) => (
-        <MatchRadarCard
-          key={match.matchId}
-          match={match}
-          locale={locale}
-          isPro={isPro}
-          onPress={() => openDetail(match.matchId)}
-        />
-      ))}
+        {matches.map((match) => (
+          <MatchRadarCard
+            key={match.matchId}
+            match={match}
+            locale={locale}
+            isPro={isPro}
+            onPress={() => openDetail(match.matchId)}
+          />
+        ))}
 
-      {!compact && data?.isLimitedPreview ? (
-        <Text style={styles.previewHint}>{ui.limitedPreview}</Text>
-      ) : null}
+        {!compact && data?.isLimitedPreview ? (
+          <Text style={styles.previewHint}>{ui.limitedPreview}</Text>
+        ) : null}
+
+        {!compact ? (
+          <PitchBrainLoading visible={loading} message="Analisi in corso…" />
+        ) : null}
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  section: { gap: spacing.sm },
-  title: { color: colors.text, fontSize: 24, fontWeight: "900" },
-  intro: { color: colors.textMuted, fontSize: 13, lineHeight: 19 },
-  subtitle: { color: colors.textMuted, fontSize: 13, lineHeight: 18 },
-  modeRow: { gap: spacing.sm, paddingVertical: spacing.xs },
+  section: { gap: 12, paddingBottom: 24 },
+  intro: { color: pitchbrainColors.textMuted, fontSize: 14, lineHeight: 21 },
+  subtitle: { color: pitchbrainColors.textMuted, fontSize: 13, lineHeight: 19 },
+  modeRow: { gap: 8, paddingVertical: 4 },
   modeChip: {
-    borderRadius: radii.pill,
+    minHeight: 44,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 999,
     borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    backgroundColor: "rgba(255,255,255,0.03)"
+    borderColor: "rgba(255,255,255,0.12)",
+    backgroundColor: pitchbrainColors.bgAlt,
+    justifyContent: "center"
   },
   modeChipActive: {
-    borderColor: "rgba(56,189,248,0.45)",
-    backgroundColor: "rgba(56,189,248,0.12)"
+    borderColor: pitchbrainColors.borderStrong,
+    backgroundColor: pitchbrainColors.bgAlt
   },
-  modeChipText: { color: colors.textMuted, fontSize: 12, fontWeight: "700" },
-  modeChipTextActive: { color: colors.cyanMuted },
+  modeChipText: { color: pitchbrainColors.textMuted, fontSize: 12, fontWeight: "700" },
+  modeChipTextActive: { color: pitchbrainColors.green },
   card: {
-    borderRadius: radii.lg,
+    borderRadius: 18,
     borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surfaceAlt,
-    padding: spacing.md,
-    gap: spacing.sm
+    borderColor: pitchbrainColors.border,
+    backgroundColor: pitchbrainColors.card,
+    padding: 14,
+    gap: 10
   },
-  meta: { color: colors.textDim, fontSize: 11, fontWeight: "700" },
-  teamsRow: { flexDirection: "row", justifyContent: "space-between", gap: spacing.md },
+  cardPressed: { opacity: 0.94 },
+  meta: { color: pitchbrainColors.textDim, fontSize: 11, fontWeight: "700" },
+  teamsRow: { flexDirection: "row", justifyContent: "space-between", gap: 12 },
   teamsCol: { flex: 1, gap: 4 },
-  team: { color: colors.text, fontSize: 15, fontWeight: "800" },
+  team: { color: pitchbrainColors.text, fontSize: 16, fontWeight: "800" },
   scoreCol: { alignItems: "flex-end" },
-  scoreLabel: { color: colors.textDim, fontSize: 10, fontWeight: "800", textTransform: "uppercase" },
-  scoreValue: { color: colors.cyan, fontSize: 24, fontWeight: "900" },
+  scoreLabel: {
+    color: pitchbrainColors.textDim,
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 0.6,
+    textTransform: "uppercase"
+  },
+  scoreValue: { color: pitchbrainColors.green, fontSize: 24, fontWeight: "800" },
+  scoreDenom: { color: pitchbrainColors.textDim, fontSize: 13, fontWeight: "700" },
   whyLabel: {
-    color: colors.amber,
+    color: pitchbrainColors.green,
     fontSize: 11,
     fontWeight: "800",
+    letterSpacing: 1.1,
     textTransform: "uppercase",
-    marginTop: spacing.xs
+    marginTop: 4
   },
   barWrap: { gap: 4 },
   barHeader: { flexDirection: "row", justifyContent: "space-between" },
-  barLabel: { color: colors.textMuted, fontSize: 11, fontWeight: "700" },
-  barValue: { color: colors.text, fontSize: 11, fontWeight: "800" },
-  barTrack: { height: 6, borderRadius: 999, backgroundColor: "rgba(255,255,255,0.08)", overflow: "hidden" },
-  barFill: { height: 6, borderRadius: 999, backgroundColor: colors.cyan },
-  reason: { color: colors.textMuted, fontSize: 12, lineHeight: 18 },
-  highlight: { color: colors.cyanMuted, fontSize: 11, fontWeight: "700" },
-  confidence: { color: colors.cyanMuted, fontSize: 11, fontWeight: "700" },
-  muted: { color: colors.textDim, fontSize: 13 },
-  error: { color: colors.amber, fontSize: 13 },
-  previewHint: { color: colors.amber, fontSize: 12, lineHeight: 17 }
+  barLabel: { color: pitchbrainColors.textMuted, fontSize: 11, fontWeight: "700" },
+  barValue: { color: pitchbrainColors.text, fontSize: 11, fontWeight: "800" },
+  barTrack: {
+    height: 6,
+    borderRadius: 999,
+    backgroundColor: pitchbrainColors.track,
+    overflow: "hidden"
+  },
+  barFill: { height: 6, borderRadius: 999, backgroundColor: pitchbrainColors.green },
+  reason: { color: pitchbrainColors.textMuted, fontSize: 12, lineHeight: 18 },
+  highlight: { color: pitchbrainColors.greenMid, fontSize: 11, fontWeight: "700" },
+  confidence: { color: pitchbrainColors.textDim, fontSize: 11, fontWeight: "700" },
+  resultsShell: {
+    minHeight: 360,
+    position: "relative",
+    gap: 12
+  },
+  muted: { color: pitchbrainColors.textMuted, fontSize: 13, lineHeight: 20 },
+  error: { color: pitchbrainColors.danger, fontSize: 13 },
+  previewHint: { color: pitchbrainColors.textMuted, fontSize: 12, lineHeight: 17 }
 });

@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveApiAccessContext } from "@/lib/auth/resolve-api-access";
@@ -10,8 +11,22 @@ import {
 import { localizeUpcomingMatches } from "@/lib/italian-sports-display";
 import { getOrRefreshTacticalMatchesMenuFull } from "@/lib/tactical-matches-menu-cache";
 import { attachIntensityPreviewsToMatches } from "@/lib/match-intensity-preview";
+import { isConsumerMobileRequest } from "@/lib/entitlements/config";
 import { upsertMatchesMenuSnapshotForOrganization } from "@/lib/supabase/org-tactical-shared-writes";
 import type { UpcomingMatchItem } from "@/services/sportapi";
+
+async function withListIntensityPreviews(
+  request: Request,
+  supabase: SupabaseClient,
+  organizationId: string,
+  matches: UpcomingMatchItem[]
+) {
+  /** App mobile: solo snapshot calendario. I badge intensità si calcolano in analisi partita. */
+  if (isConsumerMobileRequest(request)) {
+    return matches.map((match) => ({ ...match, intensityPreview: null }));
+  }
+  return attachIntensityPreviewsToMatches(supabase, organizationId, matches);
+}
 
 
 function mergeInternationalMenuSlices(
@@ -63,28 +78,39 @@ function normalizePersistedMenuRows(raw: unknown): UpcomingMatchItem[] {
   return out;
 }
 
-async function loadPersistedInternationalMenu(supabase: SupabaseClient, organizationId: string): Promise<{
+async function loadSnapshotMenuRows(
+  supabase: SupabaseClient,
+  table: "organization_matches_menu_snapshot" | "organization_international_matches_snapshot",
+  organizationId: string
+): Promise<{
   matches: UpcomingMatchItem[];
   rowExists: boolean;
 }> {
+  /** `.limit(1)` invece di `.maybeSingle()`: 0 righe non deve diventare 406/PGRST116. */
   const { data, error } = await supabase
-    .from("organization_international_matches_snapshot")
+    .from(table)
     .select("matches")
     .eq("organization_id", organizationId)
-    .maybeSingle();
+    .limit(1);
 
   if (error) {
-    console.error("[matches] organization_international_matches_snapshot read failed:", error.message);
+    console.error(`[matches] ${table} read failed:`, error.code, error.message, { organizationId });
     return { matches: [], rowExists: false };
   }
 
-  const rowExists = data != null;
-  const raw = Array.isArray(data?.matches) ? normalizePersistedMenuRows(data.matches) : [];
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) {
+    return { matches: [], rowExists: false };
+  }
 
   return {
-    matches: raw,
-    rowExists
+    matches: normalizePersistedMenuRows(row.matches),
+    rowExists: true
   };
+}
+
+async function loadPersistedInternationalMenu(supabase: SupabaseClient, organizationId: string) {
+  return loadSnapshotMenuRows(supabase, "organization_international_matches_snapshot", organizationId);
 }
 
 function filterMatchesByTeamAndCompetition(
@@ -123,22 +149,17 @@ export async function GET(request: Request) {
   const away = url.searchParams.get("away")?.trim().toLowerCase() ?? "";
   const competition = url.searchParams.get("competition")?.trim().toLowerCase() ?? "";
   const menuCacheHours = Number(process.env.TACTICAL_MATCHES_MENU_CACHE_HOURS ?? "120");
-  const menuCacheKey = `tactical_matches_menu:v15:${home || "_"}:${away || "_"}:${competition || "_"}`;
+  const menuCacheKey = `tactical_matches_menu:v16:${home || "_"}:${away || "_"}:${competition || "_"}`;
 
   /** Pro/Member: zero SportAPI/RapidAPI — solo copia salvata dall’organizzazione. */
   if (organization.role !== "admin") {
     try {
-      const { data: row, error } = await supabase
-        .from("organization_matches_menu_snapshot")
-        .select("matches")
-        .eq("organization_id", organization.organizationId)
-        .maybeSingle();
-
-      if (error) {
-        return NextResponse.json({ error: "persisted_matches_read_failed" }, { status: 500 });
-      }
-
-      const rawMatches = normalizePersistedMenuRows(row?.matches);
+      const domestic = await loadSnapshotMenuRows(
+        supabase,
+        "organization_matches_menu_snapshot",
+        organization.organizationId
+      );
+      const rawMatches = domestic.matches;
       const intlPersisted = await loadPersistedInternationalMenu(supabase, organization.organizationId);
       const rawIntl = intlPersisted.matches;
       const mergedRaw = combinePersistedOrganizationMenuSnapshots(rawMatches, rawIntl);
@@ -147,13 +168,14 @@ export async function GET(request: Request) {
           ? mergedRaw
           : filterMatchesByTeamAndCompetition(mergedRaw, home, away, competition);
 
-      const matchesWithPreview = await attachIntensityPreviewsToMatches(
+      const matchesWithPreview = await withListIntensityPreviews(
+        request,
         supabase,
         organization.organizationId,
         matchesOut
       );
 
-      const persistedSnapshotMissing = row == null;
+      const persistedSnapshotMissing = !domestic.rowExists;
       const internationalPersistedMissing = !intlPersisted.rowExists;
 
       return NextResponse.json({
@@ -174,20 +196,16 @@ export async function GET(request: Request) {
   try {
     if (!home && !away && !competition) {
       /** Admin: stesso menu persistito dal refresh (domestic + internazionale in DB), non rifetch live. */
-      const { data: row, error } = await supabase
-        .from("organization_matches_menu_snapshot")
-        .select("matches")
-        .eq("organization_id", organization.organizationId)
-        .maybeSingle();
-
-      if (error) {
-        return NextResponse.json({ error: "persisted_matches_read_failed" }, { status: 500 });
-      }
-
-      const rawDomestic = normalizePersistedMenuRows(row?.matches);
+      const domestic = await loadSnapshotMenuRows(
+        supabase,
+        "organization_matches_menu_snapshot",
+        organization.organizationId
+      );
+      const rawDomestic = domestic.matches;
       const intlPersisted = await loadPersistedInternationalMenu(supabase, organization.organizationId);
       const upcoming = mergeInternationalMenuSlices(rawDomestic, intlPersisted.matches);
-      const upcomingWithPreview = await attachIntensityPreviewsToMatches(
+      const upcomingWithPreview = await withListIntensityPreviews(
+        request,
         supabase,
         organization.organizationId,
         upcoming
@@ -195,7 +213,7 @@ export async function GET(request: Request) {
       return NextResponse.json({
         matches: localizeUpcomingMatches(upcomingWithPreview),
         total: upcomingWithPreview.length,
-        persistedSnapshotMissing: row == null,
+        persistedSnapshotMissing: !domestic.rowExists,
         internationalPersistedMissing: !intlPersisted.rowExists,
         domesticPersistedCount: rawDomestic.length,
         internationalPersistedCount: intlPersisted.matches.length,
@@ -210,7 +228,8 @@ export async function GET(request: Request) {
         cached.matches,
         intlPersisted.matches
       );
-      const upcomingWithPreview = await attachIntensityPreviewsToMatches(
+      const upcomingWithPreview = await withListIntensityPreviews(
+        request,
         supabase,
         organization.organizationId,
         upcoming
@@ -234,7 +253,8 @@ export async function GET(request: Request) {
 
     const baseListMerged = mergeInternationalMenuSlices(baseListDomestic, intlPersisted.matches);
     const filtered = filterMatchesByTeamAndCompetition(baseListMerged, home, away, competition);
-    const filteredWithPreview = await attachIntensityPreviewsToMatches(
+    const filteredWithPreview = await withListIntensityPreviews(
+      request,
       supabase,
       organization.organizationId,
       filtered

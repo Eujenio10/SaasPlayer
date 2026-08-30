@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { MONITORED_COMPETITIONS } from "@/lib/competitions";
 import { persistPrunedTrendsSnapshotIfChanged } from "@/lib/catalog-snapshot-sync";
+import { TRENDS_MIN_FINISHED_MATCHDAYS } from "@/lib/season-fallback";
 import { areTrendDatabaseTablesAvailable } from "@/lib/trends/db-tables";
 import {
   collectTrendsForCompetition,
@@ -40,7 +41,7 @@ export function listMonitoredCompetitionOptions() {
 }
 
 async function loadTrendsSnapshotForCatalog(primaryOrganizationId: string) {
-  // Solo lettura: il ricalcolo avviene al refresh mattutino/admin (dalle 05:00, un campionato alla volta).
+  // Solo lettura: il ricalcolo avviene al refresh mattutino/admin (dalle 08:00, un campionato alla volta).
   return loadBestTrendsSnapshot(primaryOrganizationId);
 }
 
@@ -60,6 +61,7 @@ export async function buildTrendsListResponse(params: {
     storedCompetitions: string[];
     suggestedCompetitionId: string | null;
     resolvedCompetitionId: string;
+    deferredUntilMatchdays: number | null;
   }
 > {
   const loaded = await loadTrendsSnapshotForCatalog(params.organizationId);
@@ -82,7 +84,10 @@ export async function buildTrendsListResponse(params: {
   if (
     !collectTrendsForCompetition(snapshot, normalizedCompetition, params.round, kickoffByFixtureId).length &&
     bestCompetitionId &&
-    bestCompetitionId !== normalizedCompetition
+    bestCompetitionId !== normalizedCompetition &&
+    !(rawSnapshot?.deferredCompetitionIds ?? [])
+      .map((id) => canonicalCompetitionId(id))
+      .includes(normalizedCompetition)
   ) {
     normalizedCompetition = bestCompetitionId;
   }
@@ -114,6 +119,14 @@ export async function buildTrendsListResponse(params: {
       (roundKey ? String(r.round) === String(roundKey) : true)
   );
 
+  const deferredIds = (rawSnapshot?.deferredCompetitionIds ?? snapshot?.deferredCompetitionIds ?? []).map(
+    (id) => canonicalCompetitionId(id)
+  );
+  const competitionDeferred =
+    !results.length &&
+    (deferredIds.includes(normalizedCompetition) ||
+      Boolean(rawSnapshot?.deferredUntilMatchdays && !results.length && deferredIds.length === 0));
+
   return {
     competitionId: normalizedCompetition,
     seasonId: results[0]?.seasonId ?? "",
@@ -135,7 +148,10 @@ export async function buildTrendsListResponse(params: {
       results.length || !bestCompetitionId || bestCompetitionId === canonicalCompetitionId(params.competitionId)
         ? null
         : bestCompetitionId,
-    resolvedCompetitionId: normalizedCompetition
+    resolvedCompetitionId: normalizedCompetition,
+    deferredUntilMatchdays: competitionDeferred
+      ? rawSnapshot?.deferredUntilMatchdays ?? TRENDS_MIN_FINISHED_MATCHDAYS
+      : null
   };
 }
 

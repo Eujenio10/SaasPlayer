@@ -5,6 +5,7 @@ import {
   filterDifficultMarkings,
   dedupeAndSelectMatchups,
   sortDifficultMarkings,
+  MARKINGS_MAX_PER_MATCH,
   type DifficultMarkingFilterKey,
   type DifficultMarkingSortKey
 } from "@/lib/difficult-markings/publish";
@@ -85,37 +86,35 @@ export async function buildDifficultMarkingsListResponse(params: {
     normalizedCompetition = bestCompetitionId;
   }
 
-  let results = collectMarkingsForCompetition(snapshot, normalizedCompetition, kickoffByFixtureId);
-
-  if (params.eventId != null) {
-    results = results.filter((r) => r.eventId === params.eventId);
-  } else {
-    results = dedupeAndSelectMatchups(results, { maxPerMatch: 4, onePerDefender: true }).slice(0, 100);
-  }
-
-  if (!results.length && bestCompetitionId && bestCompetitionId !== normalizedCompetition) {
-    normalizedCompetition = bestCompetitionId;
-    results = collectMarkingsForCompetition(snapshot, normalizedCompetition, kickoffByFixtureId);
+  const selectForList = (competitionId: string) => {
+    let items = collectMarkingsForCompetition(snapshot, competitionId, kickoffByFixtureId);
+    const rounds = [
+      ...new Set(items.map((item) => String(item.roundKey)))
+    ].sort((a, b) => b.localeCompare(a));
+    const roundKey =
+      params.round ??
+      rounds[0] ??
+      snapshot?.rounds.find((r) => canonicalCompetitionId(r.competitionId) === competitionId)?.round ??
+      "";
     if (params.eventId != null) {
-      results = results.filter((r) => r.eventId === params.eventId);
-    } else {
-      results = dedupeAndSelectMatchups(results, { maxPerMatch: 4, onePerDefender: true }).slice(0, 100);
+      items = items.filter((r) => r.eventId === params.eventId);
     }
+    items = dedupeAndSelectMatchups(items, {
+      limit: MARKINGS_MAX_PER_MATCH
+    });
+    return { items, rounds, roundKey };
+  };
+
+  let selected = selectForList(normalizedCompetition);
+
+  if (!selected.items.length && bestCompetitionId && bestCompetitionId !== normalizedCompetition) {
+    normalizedCompetition = bestCompetitionId;
+    selected = selectForList(normalizedCompetition);
   }
 
-  const availableRounds = [
-    ...new Set(
-      collectMarkingsForCompetition(snapshot, normalizedCompetition, kickoffByFixtureId).map(
-        (item) => String(item.roundKey)
-      )
-    )
-  ].sort((a, b) => b.localeCompare(a));
-
-  const round =
-    params.round ??
-    availableRounds[0] ??
-    snapshot?.rounds.find((r) => canonicalCompetitionId(r.competitionId) === normalizedCompetition)?.round ??
-    "";
+  let results = selected.items;
+  const availableRounds = selected.rounds;
+  const round = selected.roundKey;
 
   if (!snapshot) {
     console.info("[difficult-markings] list_no_snapshot", {

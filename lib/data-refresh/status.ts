@@ -62,7 +62,7 @@ export async function buildDataRefreshStatus(organizationId: string): Promise<Da
     scheduleHour: DATA_REFRESH_CONFIG.hour,
     scheduleLabel: DATA_REFRESH_CONFIG.scheduleLabel,
     scheduleDetail:
-      "un campionato all'ora, finché tutti non sono stati aggiornati almeno una volta",
+      "i 5 campionati top, un campionato all'ora",
     nextScheduledAt,
     lastRefreshAt,
     lastRefreshLabel: lastRefreshAt ? formatLastRefreshItalian(lastRefreshAt) : null,

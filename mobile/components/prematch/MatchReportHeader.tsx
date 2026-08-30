@@ -1,5 +1,6 @@
 import { StyleSheet, Text, View } from "react-native";
-import { colors, radii, spacing } from "@/lib/theme";
+import { pitchbrainColors } from "@/lib/pitchbrain-theme";
+import { radii, spacing } from "@/lib/theme";
 
 export function MatchReportHeader({
   homeTeamName,
@@ -30,7 +31,7 @@ export function MatchReportHeader({
             {homeTeamName}
           </Text>
         </View>
-        <Text style={styles.vs}>vs</Text>
+        <Text style={styles.vs}>VS</Text>
         <View style={styles.teamCol}>
           <View style={styles.teamAvatar}>
             <Text style={styles.teamInitial}>{awayTeamName.charAt(0)}</Text>
@@ -50,8 +51,8 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     borderRadius: radii.xl,
     borderWidth: 1,
-    borderColor: colors.borderStrong,
-    backgroundColor: colors.surfaceAlt
+    borderColor: pitchbrainColors.border,
+    backgroundColor: pitchbrainColors.card
   },
   badgeRow: { flexDirection: "row", marginBottom: spacing.sm },
   premiumBadge: {
@@ -59,18 +60,18 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: radii.pill,
     borderWidth: 1,
-    borderColor: "rgba(252,211,77,0.4)",
-    backgroundColor: "rgba(252,211,77,0.1)"
+    borderColor: pitchbrainColors.borderStrong,
+    backgroundColor: pitchbrainColors.cardAlt
   },
   premiumBadgeText: {
-    color: colors.amber,
+    color: pitchbrainColors.green,
     fontSize: 10,
     fontWeight: "800",
     textTransform: "uppercase",
     letterSpacing: 0.6
   },
   competition: {
-    color: colors.cyanMuted,
+    color: pitchbrainColors.textDim,
     fontSize: 11,
     fontWeight: "700",
     textTransform: "uppercase",
@@ -78,7 +79,7 @@ const styles = StyleSheet.create({
   },
   kickoff: {
     marginTop: 4,
-    color: colors.textDim,
+    color: pitchbrainColors.textMuted,
     fontSize: 12,
     fontWeight: "600"
   },
@@ -88,29 +89,30 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between"
   },
-  teamCol: { flex: 1, alignItems: "center" },
+  teamCol: { flex: 1, minWidth: 0, alignItems: "center" },
   teamAvatar: {
     width: 44,
     height: 44,
     borderRadius: 22,
     borderWidth: 1,
-    borderColor: colors.borderStrong,
-    backgroundColor: "rgba(56,189,248,0.12)",
+    borderColor: pitchbrainColors.borderStrong,
+    backgroundColor: pitchbrainColors.cardAlt,
     alignItems: "center",
     justifyContent: "center"
   },
-  teamInitial: { color: colors.cyan, fontSize: 18, fontWeight: "900" },
+  teamInitial: { color: pitchbrainColors.green, fontSize: 18, fontWeight: "800" },
   teamName: {
     marginTop: spacing.sm,
-    color: colors.text,
+    color: pitchbrainColors.text,
     fontSize: 13,
     fontWeight: "800",
     textAlign: "center"
   },
   vs: {
-    color: colors.textDim,
+    color: pitchbrainColors.textDim,
     fontSize: 12,
     fontWeight: "800",
+    letterSpacing: 1.2,
     paddingHorizontal: spacing.sm
   }
 });

@@ -1,4 +1,4 @@
-import { PITCHBRAIN_BETA_FREE_FOR_ALL } from "@/lib/access/beta-config";
+import { PITCHBRAIN_MOBILE_PRO_PLANS_ENABLED } from "@/lib/access/pro-plans";
 import type { FeatureAccessLevel, FeatureId, UserAccessStatus } from "@/lib/access/types";
 
 export const FEATURE_ACCESS: Record<FeatureId, FeatureAccessLevel> = {
@@ -8,25 +8,23 @@ export const FEATURE_ACCESS: Record<FeatureId, FeatureAccessLevel> = {
   basicMatchPreview: "free",
   basicStats: "free",
   basicTrends: "free",
-  matchSimulator: "pro",
-  /** Completa solo Pro — Free e Guest vedono lock / paywall. */
-  difficultMarkings: "pro",
+  matchSimulator: "free",
+  difficultMarkings: "free",
   fullPreMatchReport: "free",
-  advancedMatchAnalysis: "pro",
-  advancedTrends: "pro",
-  exportReport: "pro",
-  savedReports: "pro",
-  customAlerts: "pro",
-  proFilters: "pro"
+  advancedMatchAnalysis: "free",
+  advancedTrends: "free",
+  exportReport: "free",
+  savedReports: "free",
+  customAlerts: "free",
+  proFilters: "free"
 };
 
 export function canAccessFeature(
   userStatus: UserAccessStatus,
   featureAccessLevel: FeatureAccessLevel
 ): boolean {
+  if (!PITCHBRAIN_MOBILE_PRO_PLANS_ENABLED) return true;
   if (featureAccessLevel === "free") return true;
-  /** Beta free-for-all: le feature "pro" sono aperte anche a guest e Free. */
-  if (PITCHBRAIN_BETA_FREE_FOR_ALL) return true;
   return userStatus === "authenticated_pro";
 }
 

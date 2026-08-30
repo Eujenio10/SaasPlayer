@@ -1,28 +1,15 @@
 import { env } from "@/lib/env";
-import { getOrCreateDeviceId } from "@/lib/device-id";
-import { supabase } from "@/lib/supabase";
+import { buildMobileHeaders, fetchWithTimeout } from "@/lib/mobile-http";
 import type {
   MatchSimulatorDetailResponse,
   MatchSimulatorFixturesResponse
 } from "@/lib/match-simulator/types";
 
+/** Generazione on-demand: backfill stats + Monte Carlo. Allineato a maxDuration 120s della route. */
+const SIMULATOR_DETAIL_TIMEOUT_MS = 110_000;
+
 async function buildHeaders(): Promise<HeadersInit> {
-  const [{ data: sessionData }, deviceId] = await Promise.all([
-    supabase.auth.getSession(),
-    getOrCreateDeviceId()
-  ]);
-  const headers: HeadersInit = {
-    "Content-Type": "application/json",
-    "Cache-Control": "no-cache, no-store, must-revalidate",
-    Pragma: "no-cache",
-    Expires: "0",
-    "X-Device-Id": deviceId,
-    "X-PitchBrain-Client": "mobile"
-  };
-  if (sessionData.session?.access_token) {
-    headers.Authorization = `Bearer ${sessionData.session.access_token}`;
-  }
-  return headers;
+  return buildMobileHeaders();
 }
 
 export async function fetchMatchSimulatorFixtures(params: {
@@ -33,7 +20,7 @@ export async function fetchMatchSimulatorFixtures(params: {
   if (params.round) search.set("round", params.round);
   search.set("_", String(Date.now()));
 
-  const res = await fetch(`${env.apiUrl}/api/mobile/match-simulator/fixtures?${search.toString()}`, {
+  const res = await fetchWithTimeout(`${env.apiUrl}/api/mobile/match-simulator/fixtures?${search.toString()}`, {
     headers: await buildHeaders(),
     cache: "no-store"
   });
@@ -47,12 +34,13 @@ export async function fetchMatchSimulatorFixtures(params: {
 export async function fetchMatchSimulatorDetail(
   fixtureId: string
 ): Promise<MatchSimulatorDetailResponse> {
-  const res = await fetch(
+  const res = await fetchWithTimeout(
     `${env.apiUrl}/api/mobile/match-simulator/${encodeURIComponent(fixtureId)}`,
     {
       headers: await buildHeaders(),
       cache: "no-store"
-    }
+    },
+    SIMULATOR_DETAIL_TIMEOUT_MS
   );
   if (!res.ok) throw new Error("match_simulator_detail_failed");
   return (await res.json()) as MatchSimulatorDetailResponse;

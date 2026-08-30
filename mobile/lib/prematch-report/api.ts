@@ -1,29 +1,13 @@
 import { localizePreMatchReport } from "@/lib/prematch-report/localize";
-import { getOrCreateDeviceId } from "@/lib/device-id";
 import { env } from "@/lib/env";
-import { supabase } from "@/lib/supabase";
+import { buildMobileHeaders, fetchWithTimeout } from "@/lib/mobile-http";
 import type { PreMatchReport, PreMatchReportResponse } from "@/lib/prematch-report/types";
 
 const memoryCache = new Map<number, { report: PreMatchReport; fetchedAt: number }>();
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 
 async function buildHeaders(): Promise<HeadersInit> {
-  const [{ data: sessionData }, deviceId] = await Promise.all([
-    supabase.auth.getSession(),
-    getOrCreateDeviceId()
-  ]);
-  const headers: HeadersInit = {
-    "Content-Type": "application/json",
-    "Cache-Control": "no-cache, no-store, must-revalidate",
-    Pragma: "no-cache",
-    Expires: "0",
-    "X-Device-Id": deviceId,
-    "X-PitchBrain-Client": "mobile"
-  };
-  if (sessionData.session?.access_token) {
-    headers.Authorization = `Bearer ${sessionData.session.access_token}`;
-  }
-  return headers;
+  return buildMobileHeaders();
 }
 
 export async function fetchPreMatchReport(
@@ -39,15 +23,21 @@ export async function fetchPreMatchReport(
 
   const refresh = options?.refresh ? "&refresh=1" : "";
   const headers = await buildHeaders();
-  const res = await fetch(
+  const res = await fetchWithTimeout(
     `${env.apiUrl}/api/mobile/pre-match-report?eventId=${encodeURIComponent(String(eventId))}${refresh}`,
-    { headers }
+    { headers },
+    22_000
   );
 
   const text = await res.text();
-  const body = text.trim()
-    ? (JSON.parse(text) as PreMatchReportResponse & { error?: string; message?: string })
-    : ({} as PreMatchReportResponse & { error?: string; message?: string });
+  let body: PreMatchReportResponse & { error?: string; message?: string };
+  try {
+    body = text.trim()
+      ? (JSON.parse(text) as PreMatchReportResponse & { error?: string; message?: string })
+      : ({} as PreMatchReportResponse & { error?: string; message?: string });
+  } catch {
+    throw new Error("empty_report");
+  }
 
   if (!res.ok) {
     const code = typeof body.error === "string" ? body.error : `request_failed_${res.status}`;

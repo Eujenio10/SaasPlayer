@@ -1,10 +1,12 @@
 import type { TacticalMetrics } from "@/lib/types";
+import { normalizePlayerNameKey } from "@/lib/player-identity";
+import type { UnavailablePlayerRefs } from "@/lib/tactical-probable-lineup";
 import {
   averagePositionFromHeatmap,
   capHeatmapPointsForVisualization,
-  normalizeHeatmapToHomeFrame,
-  toDefensiveHeatmapGrid,
-  toOffensiveHeatmapGrid
+  heatmapOccupation,
+  refineMidfieldRoleFromHeatmap,
+  toClashFrameGrid
 } from "@/lib/difficult-markings/heatmap";
 import {
   clamp,
@@ -12,6 +14,25 @@ import {
   resolveFormationSide
 } from "@/lib/difficult-markings/roles";
 import type { PlayerRecentProfile } from "@/lib/difficult-markings/types";
+
+export function isUnavailableForDifficultMarkings(
+  m: TacticalMetrics,
+  refs?: UnavailablePlayerRefs
+): boolean {
+  if (m.unavailableForMatch) return true;
+  if (!refs) return false;
+  const id = Number(m.playerId);
+  if (Number.isFinite(id) && id > 0 && refs.ids.has(id)) return true;
+  const name = normalizePlayerNameKey(m.playerName);
+  return Boolean(name && refs.names.has(name));
+}
+
+export function excludeUnavailableFromMarkingMetrics(
+  metrics: TacticalMetrics[],
+  refs?: UnavailablePlayerRefs
+): TacticalMetrics[] {
+  return metrics.filter((m) => !isUnavailableForDifficultMarkings(m, refs));
+}
 
 function n(v: unknown): number {
   return typeof v === "number" && Number.isFinite(v) ? v : 0;
@@ -69,23 +90,19 @@ function dataCompletenessFromMetrics(m: TacticalMetrics, hasHeatmap: boolean): n
 
 export function buildPlayerRecentProfile(params: {
   metric: TacticalMetrics;
-  homeTeamId: number;
+  homeTeamId?: number;
 }): PlayerRecentProfile {
-  const { metric, homeTeamId } = params;
-  const role = normalizeRoleFromMetrics(metric);
-  const side = resolveFormationSide(metric.positionCode, role);
+  const { metric } = params;
   const sampleMatches = estimateSampleMatches(metric);
   const sampleMinutes = estimateSampleMinutes(sampleMatches);
 
-  const rawHeatmap = metric.heatmapPointsMatchFrame ?? [];
-  const oriented =
-    rawHeatmap.length > 0
-      ? normalizeHeatmapToHomeFrame(rawHeatmap, metric.teamId, homeTeamId)
-      : [];
-
-  const offensiveHeatmap = oriented.length > 0 ? toOffensiveHeatmapGrid(oriented) : undefined;
-  const defensiveHeatmap = oriented.length > 0 ? toDefensiveHeatmapGrid(oriented) : undefined;
-  const avgPos = oriented.length > 0 ? averagePositionFromHeatmap(oriented) : undefined;
+  const clashPoints = metric.heatmapPointsMatchFrame ?? [];
+  const clashGrid = clashPoints.length >= 3 ? toClashFrameGrid(clashPoints) : undefined;
+  const avgPos = clashPoints.length > 0 ? averagePositionFromHeatmap(clashPoints) : undefined;
+  const occupation = heatmapOccupation(clashPoints);
+  const providerRole = normalizeRoleFromMetrics(metric);
+  const role = refineMidfieldRoleFromHeatmap(providerRole, clashPoints);
+  const side = resolveFormationSide(metric.positionCode, role);
 
   const foulsCommittedPer90 = blendMetric(
     n(metric.foulsCommittedSeasonAvg),
@@ -129,18 +146,38 @@ export function buildPlayerRecentProfile(params: {
     yellowCardsPer90,
     yellowCardMatchRate,
     averagePosition: avgPos,
-    normalizedHeatmap: offensiveHeatmap,
-    offensiveHeatmap,
-    defensiveHeatmap,
-    heatmapPointCount: oriented.length,
+    normalizedHeatmap: clashGrid,
+    offensiveHeatmap: clashGrid,
+    defensiveHeatmap: clashGrid,
+    heatmapPointCount: clashPoints.length,
+    heatmapAttackShare: occupation?.attackShare,
+    heatmapDefenseShare: occupation?.defenseShare,
     heatmapPointsMatchFrame:
-      rawHeatmap.length >= 3 ? capHeatmapPointsForVisualization(rawHeatmap) : undefined,
+      clashPoints.length >= 3 ? capHeatmapPointsForVisualization(clashPoints) : undefined,
     roleStability: sampleMatches >= 6 ? 0.82 : sampleMatches >= 4 ? 0.68 : 0.52,
-    dataCompleteness: dataCompletenessFromMetrics(metric, oriented.length >= 4),
+    dataCompleteness: dataCompletenessFromMetrics(metric, clashPoints.length >= 4),
     startProbability: 1,
     expectedMinutes: 75,
     roleIcon: metric.roleIcon
   };
+}
+
+/** XI prevista, plus offensivi pericolosi e marcatori con heatmap anche se il provider li ha messi in panchina. */
+function includeInMarkingProfiles(m: TacticalMetrics): boolean {
+  if (m.unavailableForMatch) return false;
+  if (m.roleIcon === "🧤") return false;
+  if (m.probableStarter !== false) return true;
+  const foulsDrawn = n(m.foulsSufferedSeasonAvg);
+  const dribbles = n(m.dribblesSeasonAvg ?? 0);
+  if (foulsDrawn > 1.2 || dribbles >= 2) return true;
+  const hm = m.heatmapPointsMatchFrame?.length ?? 0;
+  if (hm < 3) return false;
+  const pos = (m.positionCode ?? "").toUpperCase().trim().replace(/\s+/g, "");
+  return (
+    m.roleIcon === "🛡️" ||
+    /^(DC|CB|SW|DL|DR|LB|RB|LWB|RWB|DM|CDM|MD|MC|CM|M|ML|MR)(\/|$)/.test(pos) ||
+    pos === "D"
+  );
 }
 
 export function buildProfilesFromMetrics(params: {
@@ -150,6 +187,6 @@ export function buildProfilesFromMetrics(params: {
 }): PlayerRecentProfile[] {
   const teamIds = new Set([params.homeTeamId, params.awayTeamId]);
   return params.metrics
-    .filter((m) => teamIds.has(m.teamId) && m.roleIcon !== "🧤")
-    .map((metric) => buildPlayerRecentProfile({ metric, homeTeamId: params.homeTeamId }));
+    .filter((m) => teamIds.has(m.teamId) && includeInMarkingProfiles(m))
+    .map((metric) => buildPlayerRecentProfile({ metric }));
 }

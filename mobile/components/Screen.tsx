@@ -13,13 +13,17 @@ export function Screen({
   style?: ViewStyle;
 }) {
   const content = (
-    <View style={[styles.inner, style]}>{children}</View>
+    <View style={[scroll ? styles.innerScroll : styles.innerFill, style]}>{children}</View>
   );
 
   return (
     <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
       {scroll ? (
-        <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
           {content}
         </ScrollView>
       ) : (
@@ -36,10 +40,20 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     flexGrow: 1,
-    paddingBottom: spacing.xl
+    paddingBottom: 120
   },
-  inner: {
+  innerScroll: {
+    width: "100%",
+    maxWidth: 720,
+    alignSelf: "center",
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.md
+  },
+  innerFill: {
     flex: 1,
+    width: "100%",
+    maxWidth: 720,
+    alignSelf: "center",
     paddingHorizontal: spacing.md,
     paddingTop: spacing.md
   }

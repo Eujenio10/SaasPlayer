@@ -5,23 +5,38 @@ function p(params: Record<string, string | number> | undefined, key: string): st
   return value != null ? String(value) : "";
 }
 
+/** Stesso valore numerico, separatore decimale italiano in UI. */
+function pIt(params: Record<string, string | number> | undefined, key: string): string {
+  return p(params, key).replace(".", ",");
+}
+
+const DISCIPLINARY_REASON_KEYS = new Set([
+  "strict_referee_profile",
+  "both_teams_high_foul_average",
+  "high_foul_interaction",
+  "high_foul_interaction_away",
+  "physical_disciplinary_clash",
+  "elevated_card_frequency",
+  "elevated_match_intensity"
+]);
+
 export const MATCH_RADAR_REASON_TEXT: Record<
   "it" | "en",
   Record<string, (params?: Record<string, string | number>) => string>
 > = {
   it: {
     high_foul_interaction: (params) =>
-      `${p(params, "homeTeam")} commette molti falli (${p(params, "homeFoulsPct")}° percentile) e ${p(params, "awayTeam")} ne subisce spesso (${p(params, "awayDrawnPct")}°): il modello prevede una partita fisica.`,
+      `I dati indicano un profilo fisico elevato: ${p(params, "homeTeam")} commette molti falli (${p(params, "homeFoulsPct")}° percentile) e ${p(params, "awayTeam")} ne subisce spesso (${p(params, "awayDrawnPct")}°).`,
     high_foul_interaction_away: (params) =>
-      `${p(params, "awayTeam")} pressa con falli frequenti mentre ${p(params, "homeTeam")} subisce contatti (${p(params, "homeDrawnPct")}° percentile): elevata probabilità di interruzioni di gioco.`,
+      `Il profilo statistico mostra ${p(params, "awayTeam")} con falli commessi frequenti, mentre ${p(params, "homeTeam")} subisce molti contatti (${p(params, "homeDrawnPct")}° percentile): la partita presenta un alto volume di interruzioni nei dati recenti.`,
     elevated_card_frequency: (params) =>
-      `Entrambe le squadre stanno ricevendo cartellini sopra la media recente: ${p(params, "homeTeam")} ${p(params, "homeCardsAvg")}/partita e ${p(params, "awayTeam")} ${p(params, "awayCardsAvg")}/partita (indice ${p(params, "cardsPct")}/100). Contesto disciplinare teso.`,
+      `I dati recenti evidenziano cartellini sopra la media: ${p(params, "homeTeam")} ${pIt(params, "homeCardsAvg")}/partita e ${p(params, "awayTeam")} ${pIt(params, "awayCardsAvg")}/partita (indice ${p(params, "cardsPct")}/100). Potenziale disciplinare elevato.`,
     strict_referee_profile: (params) =>
-      `Arbitro designato con profilo severo: in media ${p(params, "foulsPerMatch")} falli e ${p(params, "yellowPerMatch")} gialli a partita (${p(params, "foulsVsCompetitionPct")}% e ${p(params, "yellowVsCompetitionPct")}% rispetto alla media del torneo, ${p(params, "sample")} gare). Segnale positivo per intensità e cartellini.`,
+      `Arbitro designato con profilo disciplinare elevato: ${pIt(params, "foulsPerMatch")} falli e ${pIt(params, "yellowPerMatch")} cartellini gialli di media a partita, rispettivamente pari al ${p(params, "foulsVsCompetitionPct")}% e al ${p(params, "yellowVsCompetitionPct")}% dei valori di riferimento della competizione. Analisi basata su ${p(params, "sample")} gare disponibili.`,
     both_teams_high_foul_average: (params) =>
-      `${p(params, "homeTeam")} (${p(params, "homeFoulsAvg")} falli/partita) e ${p(params, "awayTeam")} (${p(params, "awayFoulsAvg")} falli/partita) hanno medie elevate di falli commessi: partita fisica attesa.`,
+      `Il profilo statistico mostra medie elevate di falli commessi: ${p(params, "homeTeam")} ${pIt(params, "homeFoulsAvg")} a partita e ${p(params, "awayTeam")} ${pIt(params, "awayFoulsAvg")} a partita. La partita presenta un contesto fisico marcato.`,
     physical_disciplinary_clash: (params) =>
-      `Scontro fisico-disciplinare: ${p(params, "homeTeam")} e ${p(params, "awayTeam")} combinano medie alte di falli (${p(params, "homeFoulsAvg")} e ${p(params, "awayFoulsAvg")}) e cartellini (${p(params, "homeCardsAvg")} e ${p(params, "awayCardsAvg")}) nelle ultime gare.`,
+      `I dati indicano un potenziale disciplinare elevato: ${p(params, "homeTeam")} e ${p(params, "awayTeam")} combinano medie alte di falli (${pIt(params, "homeFoulsAvg")} e ${pIt(params, "awayFoulsAvg")}) e cartellini (${pIt(params, "homeCardsAvg")} e ${pIt(params, "awayCardsAvg")}) nelle ultime gare.`,
     elevated_offside_activity: (params) =>
       `Entrambe le squadre vivono linee alte e pressing: ${p(params, "homeTeam")} ${p(params, "homeOffsidesAvg")} fuorigioco/partita, ${p(params, "awayTeam")} ${p(params, "awayOffsidesAvg")} (indice ${p(params, "offsidesPct")}/100).`,
     long_range_shooting_volume: (params) =>
@@ -35,27 +50,27 @@ export const MATCH_RADAR_REASON_TEXT: Record<
     above_average_offensive_profile: (params) =>
       `Il profilo offensivo combinato di ${p(params, "homeTeam")} e ${p(params, "awayTeam")} è sopra la media della competizione: molte situazioni create di recente.`,
     teams_statistically_close: (params) =>
-      `${p(params, "homeTeam")} e ${p(params, "awayTeam")} presentano valori recenti molto simili: partita statisticamente equilibrata e difficile da separare.`,
+      `${p(params, "homeTeam")} e ${p(params, "awayTeam")} presentano valori recenti molto simili: profilo statisticamente equilibrato.`,
     high_recent_variability: (params) =>
       `Le ultime prestazioni di ${p(params, "homeTeam")} e ${p(params, "awayTeam")} oscillano molto: alta variabilità statistica nel campione recente.`,
     corner_pressure_mismatch: (params) =>
-      `${p(params, "homeTeam")} genera molti corner contro una ${p(params, "awayTeam")} che ne concede spesso: contrasto utile sulle fasce e sui calci piazzati.`,
+      `I dati indicano un contrasto sulle fasce: ${p(params, "homeTeam")} genera molti corner, ${p(params, "awayTeam")} ne concede spesso.`,
     statistical_style_contrast: (params) =>
       `Il modello rileva un contrasto netto tra ciò che ${p(params, "homeTeam")} produce e ciò che ${p(params, "awayTeam")} concede (o viceversa).`,
     elevated_match_intensity: (params) =>
-      `Complessivamente ${p(params, "homeTeam")}–${p(params, "awayTeam")} presenta un'elevata intensità statistica attesa su falli, cartellini e volume di gioco.`
+      `La partita ${p(params, "homeTeam")}–${p(params, "awayTeam")} presenta un'elevata intensità prevista sui dati di falli, cartellini e volume di gioco.`
   },
   en: {
     high_foul_interaction: (params) =>
-      `${p(params, "homeTeam")} commits many fouls (${p(params, "homeFoulsPct")}th percentile) and ${p(params, "awayTeam")} often draws contact (${p(params, "awayDrawnPct")}th): the model expects a physical match.`,
+      `The data indicate a physical profile: ${p(params, "homeTeam")} commits many fouls (${p(params, "homeFoulsPct")}th percentile) and ${p(params, "awayTeam")} often draws contact (${p(params, "awayDrawnPct")}th).`,
     high_foul_interaction_away: (params) =>
-      `${p(params, "awayTeam")} presses with frequent fouls while ${p(params, "homeTeam")} draws fouls (${p(params, "homeDrawnPct")}th percentile): many stoppages likely.`,
+      `The statistical profile shows ${p(params, "awayTeam")} committing fouls frequently, while ${p(params, "homeTeam")} draws contact (${p(params, "homeDrawnPct")}th percentile): recent data show a high volume of stoppages.`,
     elevated_card_frequency: (params) =>
-      `Both teams are picking up cards above their recent average: ${p(params, "homeTeam")} ${p(params, "homeCardsAvg")}/match and ${p(params, "awayTeam")} ${p(params, "awayCardsAvg")}/match (index ${p(params, "cardsPct")}/100).`,
+      `Recent data show cards above the average: ${p(params, "homeTeam")} ${p(params, "homeCardsAvg")}/match and ${p(params, "awayTeam")} ${p(params, "awayCardsAvg")}/match (index ${p(params, "cardsPct")}/100). Elevated disciplinary potential.`,
     strict_referee_profile: (params) =>
-      `Appointed referee with a strict profile: averages ${p(params, "foulsPerMatch")} fouls and ${p(params, "yellowPerMatch")} yellows per match (${p(params, "foulsVsCompetitionPct")}% and ${p(params, "yellowVsCompetitionPct")}% vs tournament average, ${p(params, "sample")} games). Positive signal for intensity and cards.`,
+      `Appointed referee with an elevated disciplinary profile: ${p(params, "foulsPerMatch")} fouls and ${p(params, "yellowPerMatch")} yellow cards per match on average, respectively ${p(params, "foulsVsCompetitionPct")}% and ${p(params, "yellowVsCompetitionPct")}% of the competition reference values. Analysis based on ${p(params, "sample")} available matches.`,
     both_teams_high_foul_average: (params) =>
-      `${p(params, "homeTeam")} (${p(params, "homeFoulsAvg")} fouls/match) and ${p(params, "awayTeam")} (${p(params, "awayFoulsAvg")} fouls/match) both commit fouls at an elevated rate: a physical match is expected.`,
+      `The statistical profile shows elevated foul averages: ${p(params, "homeTeam")} ${p(params, "homeFoulsAvg")} per match and ${p(params, "awayTeam")} ${p(params, "awayFoulsAvg")} per match.`,
     physical_disciplinary_clash: (params) =>
       `Physical-disciplinary clash: ${p(params, "homeTeam")} and ${p(params, "awayTeam")} combine high foul averages (${p(params, "homeFoulsAvg")} and ${p(params, "awayFoulsAvg")}) and card rates (${p(params, "homeCardsAvg")} and ${p(params, "awayCardsAvg")}) recently.`,
     elevated_offside_activity: (params) =>
@@ -65,7 +80,7 @@ export const MATCH_RADAR_REASON_TEXT: Record<
     home_long_range_threat: (params) =>
       `${p(params, "homeTeam")} shoots often from distance (${p(params, "homeOutsideAvg")} outside-box shots/match) against ${p(params, "awayTeam")} conceding long-range attempts (${p(params, "awayOutsideAvg")}/match).`,
     away_long_range_threat: (params) =>
-      `${p(params, "awayTeam")} threatens from outside the box (${p(params, "awayOutsideAvg")}/match) against ${p(params, "homeTeam")} allowing long shots (${p(params, "homeOutsideAvg")}/match).`,
+      `${p(params, "awayTeam")} takes many shots from outside the box (${p(params, "awayOutsideAvg")}/match) against ${p(params, "homeTeam")} allowing long-range attempts (${p(params, "homeOutsideAvg")}/match).`,
     high_attacking_volume: (params) =>
       `${p(params, "homeTeam")} and ${p(params, "awayTeam")} produce an above-average shot volume (index ${p(params, "shotsPct")}/100).`,
     above_average_offensive_profile: (params) =>
@@ -75,11 +90,11 @@ export const MATCH_RADAR_REASON_TEXT: Record<
     high_recent_variability: (params) =>
       `Recent performances by ${p(params, "homeTeam")} and ${p(params, "awayTeam")} swing widely: high statistical variability.`,
     corner_pressure_mismatch: (params) =>
-      `${p(params, "homeTeam")} creates many corners against a ${p(params, "awayTeam")} that frequently concedes them.`,
+      `The data indicate a wide contrast: ${p(params, "homeTeam")} creates many corners, ${p(params, "awayTeam")} frequently concedes them.`,
     statistical_style_contrast: (params) =>
       `The model detects a clear contrast between what ${p(params, "homeTeam")} produces and what ${p(params, "awayTeam")} allows.`,
     elevated_match_intensity: (params) =>
-      `Overall ${p(params, "homeTeam")} vs ${p(params, "awayTeam")} shows elevated expected statistical intensity.`
+      `The ${p(params, "homeTeam")} vs ${p(params, "awayTeam")} fixture shows elevated statistical intensity on fouls, cards and playing volume.`
   }
 };
 
@@ -98,9 +113,9 @@ export const MATCH_RADAR_UI_TEXT = {
     refereePending:
       "Arbitro non ancora designato da FootApi per questa partita. Il profilo arbitrale comparirà quando sarà disponibile.",
     refereeBoostNote: (boost: number) =>
-      `Profilo arbitrale severo: +${boost} punti sul punteggio Match Radar (più falli e cartellini del normale).`,
+      `Profilo arbitrale con valori disciplinari elevati: +${boost} punti sul punteggio Match Radar (falli e cartellini sopra il riferimento della competizione).`,
     refereeVsCompetitionNote: (foulsPct: number, yellowPct: number) =>
-      `${foulsPct}% falli e ${yellowPct}% gialli rispetto alla media del torneo — profilo favorevole per intensità e cartellini.`,
+      `I dati indicano valori pari al ${foulsPct}% dei falli e al ${yellowPct}% dei cartellini gialli rispetto ai riferimenti della competizione. Il profilo arbitrale è coerente con una gara ad alta intensità e con una maggiore frequenza di provvedimenti disciplinari.`,
     matchupInsightsTitle: "Confronto statistico",
     statGoalsFor: "Gol fatti / partita",
     statGoalsAgainst: "Gol subiti / partita",
@@ -122,10 +137,20 @@ export const MATCH_RADAR_UI_TEXT = {
       volatility: "Più imprevedibili"
     },
     confidence: {
-      low: "Affidabilità bassa",
-      medium: "Affidabilità media",
-      high: "Affidabilità alta"
+      low: "Qualità dati: Bassa",
+      medium: "Qualità dati: Media",
+      high: "Qualità dati: Alta"
     },
+    confidenceNote:
+      "La qualità dati indica quantità, completezza e coerenza dei dati disponibili utilizzati per generare l'analisi statistica.",
+    disciplinaryPotential: {
+      low: "Potenziale disciplinare: Basso",
+      medium: "Potenziale disciplinare: Medio",
+      high: "Potenziale disciplinare: Alto"
+    },
+    highlightCombinedGoals: "Media gol combinati",
+    legalDisclaimer:
+      "PitchBrain fornisce analisi statistiche sportive a fini esclusivamente informativi. Non fornisce quote, consigli di scommessa, indicazioni di puntata o servizi relativi al gioco con vincite in denaro.",
     dimensions: {
       intensity: "Intensità",
       attackingPotential: "Potenziale offensivo",
@@ -164,9 +189,9 @@ export const MATCH_RADAR_UI_TEXT = {
     refereePending:
       "No referee assigned yet in FootApi for this fixture. The referee profile will appear once available.",
     refereeBoostNote: (boost: number) =>
-      `Strict referee profile: +${boost} points on the Match Radar score (more fouls and cards than usual).`,
+      `Referee disciplinary values are elevated: +${boost} points on the Match Radar score (fouls and cards above the competition reference).`,
     refereeVsCompetitionNote: (foulsPct: number, yellowPct: number) =>
-      `${foulsPct}% fouls and ${yellowPct}% yellows vs tournament average — positive signal for intensity and cards.`,
+      `The data indicate values equal to ${foulsPct}% of fouls and ${yellowPct}% of yellow cards versus the competition reference. The referee profile is consistent with a high-intensity match and a higher frequency of disciplinary decisions.`,
     matchupInsightsTitle: "Statistical matchup",
     statGoalsFor: "Goals scored / match",
     statGoalsAgainst: "Goals conceded / match",
@@ -188,10 +213,20 @@ export const MATCH_RADAR_UI_TEXT = {
       volatility: "Most unpredictable"
     },
     confidence: {
-      low: "Low confidence",
-      medium: "Medium confidence",
-      high: "High confidence"
+      low: "Data quality: Low",
+      medium: "Data quality: Medium",
+      high: "Data quality: High"
     },
+    confidenceNote:
+      "Data quality reflects the volume, completeness and consistency of the data used to generate the statistical analysis.",
+    disciplinaryPotential: {
+      low: "Disciplinary potential: Low",
+      medium: "Disciplinary potential: Medium",
+      high: "Disciplinary potential: High"
+    },
+    highlightCombinedGoals: "Combined goals average",
+    legalDisclaimer:
+      "PitchBrain provides sports statistical analysis for informational purposes only. It does not provide odds, betting tips, wagering recommendations or services related to gambling for money.",
     dimensions: {
       intensity: "Intensity",
       attackingPotential: "Attacking potential",
@@ -217,6 +252,17 @@ export const MATCH_RADAR_UI_TEXT = {
     unavailable: "Unavailable"
   }
 } as const;
+
+export function matchRadarDisciplinaryPotentialLabel(
+  reasons: Array<{ key: string }>,
+  locale: "it" | "en"
+): string | null {
+  const count = reasons.filter((reason) => DISCIPLINARY_REASON_KEYS.has(reason.key)).length;
+  if (count <= 0) return null;
+  const ui = MATCH_RADAR_UI_TEXT[locale].disciplinaryPotential;
+  if (count >= 2) return ui.high;
+  return ui.medium;
+}
 
 export function translateMatchRadarReason(
   reason: MatchRadarReason,

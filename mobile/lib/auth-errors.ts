@@ -65,6 +65,10 @@ export function mapAuthError(error: AuthError | Error): string {
     return "Connessione non riuscita. Controlla internet e riprova.";
   }
 
+  if (message.includes("timeout") || message === "auth_timeout" || message === "signout_timeout") {
+    return "Connessione lenta. Riprova tra poco.";
+  }
+
   if (
     code === "flow_state_expired" ||
     code === "otp_expired" ||

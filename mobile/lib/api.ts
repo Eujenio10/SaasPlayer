@@ -1,12 +1,11 @@
 import { env } from "@/lib/env";
-import { getOrCreateDeviceId } from "@/lib/device-id";
 import {
   localizeTacticalMetrics,
   localizeUpcomingMatches,
   translateCompetitionName,
   translateTeamName
 } from "@/lib/italian-display";
-import { supabase } from "@/lib/supabase";
+import { buildMobileHeaders, fetchWithTimeout, USER_API_TIMEOUT_MS } from "@/lib/mobile-http";
 import type { HomeDashboardData } from "@/lib/home-dashboard/types";
 import type {
   TacticalMetrics,
@@ -16,30 +15,7 @@ import type {
 } from "@/lib/types";
 
 async function buildHeaders(requireAuth = false): Promise<HeadersInit> {
-  const [{ data: sessionData }, deviceId] = await Promise.all([
-    supabase.auth.getSession(),
-    getOrCreateDeviceId()
-  ]);
-
-  const headers: HeadersInit = {
-    "Content-Type": "application/json",
-    "Cache-Control": "no-cache, no-store, must-revalidate",
-    Pragma: "no-cache",
-    Expires: "0",
-    "X-Device-Id": deviceId,
-    /** Distingue le richieste dell'app mobile da quelle del kiosk web quando condividono lo
-     * stesso endpoint backend (es. entitlements, access, match-insights). */
-    "X-PitchBrain-Client": "mobile"
-  };
-
-  const accessToken = sessionData.session?.access_token;
-  if (accessToken) {
-    headers.Authorization = `Bearer ${accessToken}`;
-  } else if (requireAuth) {
-    throw new Error("not_authenticated");
-  }
-
-  return headers;
+  return buildMobileHeaders(requireAuth);
 }
 
 
@@ -58,40 +34,24 @@ async function parseJsonResponse<T>(res: Response): Promise<T> {
   }
 }
 
-const DEFAULT_API_TIMEOUT_MS = 25_000;
-
-/** React Native / Hermes non espone AbortSignal.timeout — polyfill con AbortController. */
-function createFetchTimeoutSignal(timeoutMs: number): { signal: AbortSignal; cancel: () => void } {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  return {
-    signal: controller.signal,
-    cancel: () => clearTimeout(timer)
-  };
-}
-
 async function apiFetch<T>(path: string, init?: RequestInit, requireAuth = false): Promise<T> {
   const headers = await buildHeaders(requireAuth);
 
-  const timeout =
-    init?.signal != null
-      ? null
-      : createFetchTimeoutSignal(DEFAULT_API_TIMEOUT_MS);
-
   let res: Response;
   try {
-    res = await fetch(`${env.apiUrl}${path}`, {
-      ...init,
-      headers: {
-        ...headers,
-        ...(init?.headers ?? {})
+    res = await fetchWithTimeout(
+      `${env.apiUrl}${path}`,
+      {
+        ...init,
+        headers: {
+          ...headers,
+          ...(init?.headers ?? {})
+        }
       },
-      signal: init?.signal ?? timeout?.signal
-    });
+      init?.signal != null ? 5 * 60 * 1000 : USER_API_TIMEOUT_MS
+    );
   } catch (error) {
     throw mapFetchTransportError(error);
-  } finally {
-    timeout?.cancel();
   }
 
 
@@ -119,8 +79,9 @@ function isAbortFetchError(error: unknown): boolean {
   if (error && typeof error === "object") {
     const candidate = error as { name?: string; message?: string };
     if (candidate.name === "AbortError") return true;
-    if (typeof candidate.message === "string" && candidate.message.toLowerCase() === "aborted") {
-      return true;
+    if (typeof candidate.message === "string") {
+      const msg = candidate.message.toLowerCase();
+      if (msg === "aborted" || msg === "timeout") return true;
     }
   }
   return false;
@@ -129,7 +90,7 @@ function isAbortFetchError(error: unknown): boolean {
 function mapFetchTransportError(error: unknown): Error {
   if (isAbortFetchError(error)) {
     return new Error(
-      "Operazione troppo lunga (timeout). Menu e statistiche potrebbero essere comunque in aggiornamento: attendi qualche minuto e ricarica."
+      "Connessione lenta. Il calendario è già in archivio: riprova tra qualche secondo."
     );
   }
   return error instanceof Error ? error : new Error(String(error));

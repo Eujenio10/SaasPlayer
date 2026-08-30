@@ -1,30 +1,14 @@
 import { env } from "@/lib/env";
-import { supabase } from "@/lib/supabase";
+import { buildMobileHeaders, fetchWithTimeout } from "@/lib/mobile-http";
 import { getOrCreateDeviceId } from "@/lib/device-id";
 import type { UserEntitlements, UnlockMatchResult } from "@/lib/entitlements-types";
 
-async function buildHeaders(): Promise<HeadersInit> {
-  const [{ data }, deviceId] = await Promise.all([
-    supabase.auth.getSession(),
-    getOrCreateDeviceId()
-  ]);
-  const headers: HeadersInit = {
-    "Content-Type": "application/json",
-    "X-Device-Id": deviceId,
-    "X-PitchBrain-Client": "mobile"
-  };
-  if (data.session?.access_token) {
-    headers.Authorization = `Bearer ${data.session.access_token}`;
-  }
-  return headers;
-}
-
 export async function fetchUserEntitlements(): Promise<UserEntitlements> {
   const deviceId = await getOrCreateDeviceId();
-  const res = await fetch(
+  const res = await fetchWithTimeout(
     `${env.apiUrl}/api/mobile/user/entitlements?deviceId=${encodeURIComponent(deviceId)}&_=${Date.now()}`,
     {
-      headers: await buildHeaders(),
+      headers: await buildMobileHeaders(),
       cache: "no-store"
     }
   );
@@ -39,9 +23,9 @@ export async function postUnlockMatchWithRewardedAd(params: {
   sourceScreen?: string;
 }): Promise<UnlockMatchResult> {
   const deviceId = await getOrCreateDeviceId();
-  const res = await fetch(`${env.apiUrl}/api/mobile/user/entitlements/unlock-match`, {
+  const res = await fetchWithTimeout(`${env.apiUrl}/api/mobile/user/entitlements/unlock-match`, {
     method: "POST",
-    headers: await buildHeaders(),
+    headers: await buildMobileHeaders(),
     body: JSON.stringify({
       matchId: params.matchId,
       rewardConfirmed: params.rewardConfirmed,

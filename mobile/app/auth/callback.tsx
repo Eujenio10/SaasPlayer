@@ -6,7 +6,8 @@ import { useURL } from "expo-linking";
 import { createSessionFromAuthParams, parseUrlParams } from "@/lib/auth-session-from-url";
 import { mapAuthError } from "@/lib/auth-errors";
 import { env } from "@/lib/env";
-import { colors, radii, spacing } from "@/lib/theme";
+import { pitchbrainColors } from "@/lib/pitchbrain-theme";
+import { radii, spacing } from "@/lib/theme";
 
 const CALLBACK_TIMEOUT_MS = 8_000;
 
@@ -120,7 +121,7 @@ export default function AuthCallbackScreen() {
 
   return (
     <View style={styles.root}>
-      <ActivityIndicator color={colors.cyan} size="large" />
+      <ActivityIndicator color={pitchbrainColors.green} size="large" />
       <Text style={styles.text}>{message}</Text>
       {failed && message.includes("Safari") ? (
         <Pressable style={styles.btn} onPress={() => router.replace("/login")}>
@@ -145,11 +146,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: spacing.md,
-    backgroundColor: colors.background,
+    backgroundColor: pitchbrainColors.bg,
     padding: spacing.lg
   },
   text: {
-    color: colors.textMuted,
+    color: pitchbrainColors.textMuted,
     fontSize: 14,
     textAlign: "center",
     lineHeight: 20
@@ -157,19 +158,23 @@ const styles = StyleSheet.create({
   btn: {
     marginTop: spacing.sm,
     borderRadius: radii.lg,
-    backgroundColor: colors.cyan,
+    backgroundColor: pitchbrainColors.green,
     paddingHorizontal: spacing.lg,
-    paddingVertical: 12
+    paddingVertical: 12,
+    minHeight: 48,
+    justifyContent: "center"
   },
   btnText: {
-    color: colors.background,
+    color: pitchbrainColors.ctaText,
     fontWeight: "800"
   },
   linkBtn: {
-    padding: spacing.sm
+    padding: spacing.sm,
+    minHeight: 44,
+    justifyContent: "center"
   },
   linkText: {
-    color: colors.cyan,
+    color: pitchbrainColors.green,
     fontSize: 13,
     fontWeight: "600"
   }

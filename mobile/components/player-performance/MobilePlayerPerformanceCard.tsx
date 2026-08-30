@@ -15,7 +15,7 @@ import {
   trendStatusLabelIt
 } from "@/lib/player-performance/text";
 import { translateTeamName } from "@/lib/italian-display";
-import { colors, radii, spacing } from "@/lib/theme";
+import { analysisColors, playerInitials } from "@/components/analysis/analysis-theme";
 
 function primaryIndex(
   item: PlayerPerformanceItem,
@@ -60,10 +60,17 @@ export function MobilePlayerPerformanceCard({
 
   return (
     <Pressable style={styles.card} onPress={() => onSelect(item)} accessibilityRole="button">
-      <Text style={styles.playerName}>{item.playerName}</Text>
-      <Text style={styles.playerMeta}>
-        {roleGroupLabelIt(item.roleGroup)} · {translateTeamName(item.teamName)}
-      </Text>
+      <View style={styles.header}>
+        <View style={styles.avatar}>
+          <Text style={styles.avatarText}>{playerInitials(item.playerName)}</Text>
+        </View>
+        <View style={styles.headerText}>
+          <Text style={styles.playerName}>{item.playerName}</Text>
+          <Text style={styles.playerMeta}>
+            {roleGroupLabelIt(item.roleGroup)} · {translateTeamName(item.teamName)}
+          </Text>
+        </View>
+      </View>
       <Text style={styles.metricHighlight}>
         {index.label}: {index.value}
       </Text>
@@ -98,19 +105,32 @@ export function MobilePlayerPerformanceCard({
 
 const styles = StyleSheet.create({
   card: {
-    borderRadius: radii.lg,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    padding: spacing.md,
-    gap: spacing.xs
+    borderColor: analysisColors.border,
+    backgroundColor: analysisColors.card,
+    padding: 14,
+    gap: 6
   },
-  playerName: { color: colors.text, fontSize: 16, fontWeight: "800" },
-  playerMeta: { color: colors.textMuted, fontSize: 12 },
-  metricHighlight: { color: colors.cyan, fontSize: 14, fontWeight: "800", marginTop: spacing.xs },
-  metricLine: { color: colors.text, fontSize: 13 },
-  sparkline: { color: colors.textDim, fontFamily: "monospace", fontSize: 11, marginTop: spacing.xs },
-  badge: { color: colors.textMuted, fontSize: 10, fontWeight: "700", textTransform: "uppercase" },
-  sampleLine: { color: colors.textDim, fontSize: 11, marginTop: spacing.xs },
-  insight: { color: colors.textMuted, fontSize: 11, lineHeight: 16 }
+  header: { flexDirection: "row", alignItems: "center", gap: 10 },
+  avatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: analysisColors.border,
+    backgroundColor: analysisColors.cardAlt,
+    alignItems: "center",
+    justifyContent: "center"
+  },
+  avatarText: { color: analysisColors.green, fontSize: 11, fontWeight: "800" },
+  headerText: { flex: 1, minWidth: 0, gap: 2 },
+  playerName: { color: analysisColors.text, fontSize: 16, fontWeight: "800" },
+  playerMeta: { color: analysisColors.textMuted, fontSize: 12 },
+  metricHighlight: { color: analysisColors.green, fontSize: 14, fontWeight: "800", marginTop: 4 },
+  metricLine: { color: analysisColors.text, fontSize: 13 },
+  sparkline: { color: analysisColors.textMuted, fontFamily: "monospace", fontSize: 11, marginTop: 4 },
+  badge: { color: analysisColors.textMuted, fontSize: 10, fontWeight: "700", textTransform: "uppercase" },
+  sampleLine: { color: analysisColors.textMuted, fontSize: 11, marginTop: 4 },
+  insight: { color: analysisColors.textMuted, fontSize: 11, lineHeight: 16 }
 });

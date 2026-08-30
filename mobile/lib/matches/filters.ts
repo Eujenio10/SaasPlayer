@@ -2,7 +2,7 @@ import {
   resolveMatchCompetitionId,
   type MonitoredCompetitionId
 } from "@/lib/competitions";
-import { isMatchTodayRome } from "@/lib/match-display";
+import { formatMatchDaySectionLabel, isMatchTodayRome, romeDateKey } from "@/lib/match-display";
 import type { UpcomingMatchItem } from "@/lib/types";
 
 export type MatchModeFilterId = "today" | "world" | "intensity" | "all";
@@ -53,11 +53,18 @@ export function groupMatchesByDayLabel(
 ): Array<{ label: string; data: UpcomingMatchItem[] }> {
   if (!matches.length) return [];
 
-  const today = matches.filter((m) => isMatchTodayRome(m.startTimestamp));
-  const rest = matches.filter((m) => !isMatchTodayRome(m.startTimestamp));
+  const buckets = new Map<string, UpcomingMatchItem[]>();
+  for (const match of matches) {
+    const key = romeDateKey(match.startTimestamp);
+    const list = buckets.get(key);
+    if (list) list.push(match);
+    else buckets.set(key, [match]);
+  }
 
-  const groups: Array<{ label: string; data: UpcomingMatchItem[] }> = [];
-  if (today.length) groups.push({ label: "OGGI", data: today });
-  if (rest.length) groups.push({ label: "PROSSIME", data: rest });
-  return groups;
+  return [...buckets.entries()]
+    .sort((a, b) => (a[1][0]?.startTimestamp ?? 0) - (b[1][0]?.startTimestamp ?? 0))
+    .map(([, data]) => ({
+      label: formatMatchDaySectionLabel(data[0]!.startTimestamp),
+      data
+    }));
 }

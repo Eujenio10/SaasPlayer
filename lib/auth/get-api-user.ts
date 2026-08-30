@@ -31,7 +31,23 @@ export function createApiSupabaseClient(request?: Request): SupabaseClient {
   return createSupabaseServerClient();
 }
 
-export async function getApiUser(request?: Request): Promise<User | null> {
+function withAuthLookupTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("auth_lookup_timeout")), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      }
+    );
+  });
+}
+
+async function lookupApiUser(request?: Request): Promise<User | null> {
   const token = extractBearerToken(request);
   if (token) {
     const client = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.NEXT_PUBLIC_SUPABASE_ANON_KEY, {
@@ -49,4 +65,12 @@ export async function getApiUser(request?: Request): Promise<User | null> {
     data: { user }
   } = await supabase.auth.getUser();
   return user ?? null;
+}
+
+export async function getApiUser(request?: Request, timeoutMs = 3_500): Promise<User | null> {
+  try {
+    return await withAuthLookupTimeout(lookupApiUser(request), timeoutMs);
+  } catch {
+    return null;
+  }
 }

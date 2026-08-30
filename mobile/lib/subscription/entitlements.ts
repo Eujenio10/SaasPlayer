@@ -4,6 +4,8 @@ import { fetchUserAccess } from "@/lib/api";
 import { fetchUserEntitlements } from "@/lib/entitlements/api";
 import type { SubscriptionEntitlement } from "@/lib/access/types";
 import { trackMobileEntitlementEvent } from "@/lib/entitlements/analytics";
+import { PITCHBRAIN_MOBILE_PRO_PLANS_ENABLED } from "@/lib/access/pro-plans";
+import { withTimeout } from "@/lib/with-timeout";
 import { getIapService, isIapUsingMock } from "@/lib/subscription/iap";
 import { syncIapProSubscription } from "@/lib/subscription/iap-api";
 
@@ -23,14 +25,18 @@ async function readStoredSubscriptionState(userId: string): Promise<"none" | "ex
  * Legge Pro da: ruolo backend, abbonamento IAP sincronizzato, override locale.
  */
 export async function refreshUserEntitlements(userId: string): Promise<SubscriptionEntitlement> {
+  if (!PITCHBRAIN_MOBILE_PRO_PLANS_ENABLED) {
+    return { state: "none", renewsAt: null };
+  }
+
   try {
     const iap = getIapService();
-    await iap.configure(userId).catch(() => undefined);
+    await withTimeout(iap.configure(userId), 4_000, "iap_timeout").catch(() => undefined);
 
     const [access, entitlements, iapActive] = await Promise.all([
       fetchUserAccess().catch(() => null),
       fetchUserEntitlements().catch(() => null),
-      iap.hasProEntitlement().catch(() => false)
+      withTimeout(iap.hasProEntitlement(), 4_000, "iap_timeout").catch(() => false)
     ]);
 
     if (access?.isPro || access?.isAdmin || entitlements?.subscriptionTier === "pro" || iapActive) {
@@ -39,7 +45,7 @@ export async function refreshUserEntitlements(userId: string): Promise<Subscript
     }
 
     const stored = await readStoredSubscriptionState(userId);
-    if (stored === "expired") {
+    if (stored === "expired" || access?.subscriptionStatus === "expired") {
       return { state: "expired", renewsAt: null };
     }
     return { state: "none", renewsAt: null };
@@ -82,7 +88,7 @@ export async function restorePurchases(userId: string): Promise<{
 }
 
 /**
- * Acquisto Pro mensile tramite App Store / Google Play (RevenueCat).
+ * Acquisto Pro mensile tramite store (RevenueCat).
  * Richiede account registrato. Alla scadenza store/webhook → Free.
  */
 export async function startProPurchase(userId: string): Promise<{
@@ -102,7 +108,7 @@ export async function startProPurchase(userId: string): Promise<{
       return {
         completed: false,
         message:
-          "Pagamenti store non configurati. Installa react-native-purchases e crea un build EAS (non Expo Go)."
+          "Acquisti non disponibili in questa sessione. Riprova da un'installazione dell'app dallo store."
       };
     }
 
@@ -147,17 +153,14 @@ export async function startProPurchase(userId: string): Promise<{
 
     return {
       completed: true,
-      message: isIapUsingMock()
-        ? "Pro attivato in modalità test (mock IAP)."
-        : "PitchBrain Pro attivo. L'abbonamento si rinnova ogni mese dallo store."
+      message: "PitchBrain Pro attivo. L'abbonamento si rinnova ogni mese dallo store."
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "iap_failed";
     if (message === "revenuecat_api_key_missing") {
       return {
         completed: false,
-        message:
-          "Chiavi RevenueCat mancanti. Imposta EXPO_PUBLIC_REVENUECAT_API_KEY_IOS / ANDROID."
+        message: "Acquisto non disponibile al momento. Riprova più tardi."
       };
     }
     return {

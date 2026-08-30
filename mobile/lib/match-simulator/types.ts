@@ -5,6 +5,8 @@ export type ReliabilityLabel = "high" | "medium_high" | "medium" | "low";
 export interface DistributionSummary {
   mean: number;
   median: number;
+  min?: number;
+  max?: number;
   p10: number;
   p25: number;
   p75: number;
@@ -54,6 +56,9 @@ export interface TeamSimulationSideResult {
   shotsOnTarget: DistributionSummary;
   fouls: DistributionSummary;
   yellowCards: DistributionSummary;
+  corners?: DistributionSummary;
+  offsides?: DistributionSummary;
+  saves?: DistributionSummary;
   possession?: DistributionSummary;
 }
 
@@ -72,6 +77,10 @@ export interface MatchSimulationResult {
   methodology?: SimulationMethodology;
   mostLikelyScores?: Array<{ homeGoals: number; awayGoals: number; probability: number }>;
   insights?: Array<{ id: string; text: string }>;
+  refereeContext?: {
+    yellowCardsPerMatch?: number | null;
+    foulsPerMatch?: number | null;
+  } | null;
 }
 
 export interface MatchSimulatorDetailResponse {

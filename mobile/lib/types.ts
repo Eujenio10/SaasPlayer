@@ -16,6 +16,7 @@ export interface UserAccessSummary {
   canRefreshData: boolean;
   matchUsage: WeeklyMatchUsage;
   yellowCardVisibleRows: number | null;
+  subscriptionStatus?: string;
 }
 
 export interface MatchIntensityPreview {
@@ -65,11 +66,18 @@ export interface TacticalMetrics {
   foulsSufferedSeasonAvg?: number;
   foulsSufferedLastTwoAvg?: number;
   foulsSufferedLastFiveAvg?: number;
+  seasonMinutesPlayed?: number;
+  seasonAppearances?: number;
+  foulsCommittedSeasonP90?: number;
+  foulsSufferedSeasonP90?: number;
+  currentSeasonSampleCount?: number;
   foulsCommittedLastTwoSampleCount?: number;
   foulsSufferedLastTwoSampleCount?: number;
   foulsCommittedLastFiveSampleCount?: number;
   foulsSufferedLastFiveSampleCount?: number;
   heatmapPointsMatchFrame?: Array<{ x: number; y: number; intensity?: number }>;
+  probableStarter?: boolean;
+  unavailableForMatch?: boolean;
   sparkFrictionHeatmap?: {
     labelA: string;
     labelB: string;

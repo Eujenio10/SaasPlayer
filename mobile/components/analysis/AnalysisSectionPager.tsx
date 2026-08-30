@@ -5,9 +5,10 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View
 } from "react-native";
-import { HintedScrollView } from "@/components/HintedScrollView";
+import { ScrollMoreHint } from "@/components/ScrollMoreHint";
 import { colors, radii, spacing } from "@/lib/theme";
 
 export type AnalysisSection = {
@@ -23,8 +24,10 @@ export function AnalysisSectionPager({
   sections: AnalysisSection[];
   disclaimer?: string;
 }) {
-  const [pageWidth, setPageWidth] = useState(0);
+  const { width: windowWidth } = useWindowDimensions();
+  const [measuredWidth, setMeasuredWidth] = useState(0);
   const [pageIndex, setPageIndex] = useState(0);
+  const pageWidth = measuredWidth > 0 ? measuredWidth : Math.max(windowWidth - 32, 1);
 
   const onPagerScroll = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -40,44 +43,42 @@ export function AnalysisSectionPager({
   return (
     <View style={styles.root}>
       {disclaimer ? <Text style={styles.disclaimer}>{disclaimer}</Text> : null}
+      {pageIndex < sections.length - 1 ? <ScrollMoreHint /> : null}
 
       <View
         style={styles.pagerHost}
         onLayout={(event) => {
           const width = event.nativeEvent.layout.width;
-          if (width > 0 && width !== pageWidth) setPageWidth(width);
+          if (width > 0 && width !== measuredWidth) setMeasuredWidth(width);
         }}
       >
-        {pageWidth > 0 ? (
-          <ScrollView
-            horizontal
-            style={styles.pager}
-            contentContainerStyle={styles.pagerContent}
-            pagingEnabled
-            showsHorizontalScrollIndicator={false}
-            decelerationRate="fast"
-            scrollEventThrottle={16}
-            onScroll={onPagerScroll}
-            nestedScrollEnabled
-          >
-            {sections.map((section) => (
-              <View key={section.id} style={[styles.page, { width: pageWidth }]}>
-                <View style={styles.pageCard}>
-                  <Text style={styles.pageTitle}>{section.title}</Text>
-                  <HintedScrollView
-                    style={styles.pageBody}
-                    contentContainerStyle={styles.pageBodyContent}
-                    showsVerticalScrollIndicator
-                    nestedScrollEnabled
-                    hint="Scorri in basso per vedere altro"
-                  >
-                    {section.content}
-                  </HintedScrollView>
-                </View>
+        <ScrollView
+          horizontal
+          style={styles.pager}
+          contentContainerStyle={styles.pagerContent}
+          pagingEnabled
+          showsHorizontalScrollIndicator={false}
+          decelerationRate="fast"
+          scrollEventThrottle={16}
+          onScroll={onPagerScroll}
+          nestedScrollEnabled
+        >
+          {sections.map((section) => (
+            <View key={section.id} style={[styles.page, { width: pageWidth }]}>
+              <View style={styles.pageCard}>
+                <Text style={styles.pageTitle}>{section.title}</Text>
+                <ScrollView
+                  style={styles.pageBody}
+                  contentContainerStyle={styles.pageBodyContent}
+                  showsVerticalScrollIndicator={false}
+                  nestedScrollEnabled
+                >
+                  {section.content}
+                </ScrollView>
               </View>
-            ))}
-          </ScrollView>
-        ) : null}
+            </View>
+          ))}
+        </ScrollView>
       </View>
 
       <View style={styles.footer}>
@@ -90,7 +91,7 @@ export function AnalysisSectionPager({
           ))}
         </View>
         <Text style={styles.footerHint}>
-          {pageIndex + 1}/{sections.length} · scorri a destra per le altre sezioni
+          {pageIndex + 1}/{sections.length}
         </Text>
       </View>
     </View>

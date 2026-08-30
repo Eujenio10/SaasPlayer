@@ -14,6 +14,7 @@ export interface ApiAccessContext {
   mode: ApiAccessMode;
   organizationId: string;
   userId: string | null;
+  email: string | null;
   role: UserAccessRole | "guest";
   supabase: SupabaseClient;
 }
@@ -35,6 +36,7 @@ export async function resolveApiAccessContext(request: Request): Promise<ApiAcce
       mode: "authenticated",
       organizationId: productOrganizationId,
       userId: user.id,
+      email: user.email ?? null,
       role: organization?.role ?? "member",
       supabase: createSupabaseServiceClient()
     };
@@ -44,6 +46,7 @@ export async function resolveApiAccessContext(request: Request): Promise<ApiAcce
     mode: "guest",
     organizationId: productOrganizationId,
     userId: null,
+    email: null,
     role: "guest",
     supabase: createSupabaseServiceClient()
   };

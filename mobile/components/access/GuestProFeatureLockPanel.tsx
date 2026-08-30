@@ -7,7 +7,7 @@ export function GuestProFeatureLockPanel({
   description,
   onDiscoverPro,
   ctaLabel = "Crea un account gratuito",
-  badgeLabel = "BETA GRATUITA"
+  badgeLabel = "PRO"
 }: {
   title: string;
   description: string;

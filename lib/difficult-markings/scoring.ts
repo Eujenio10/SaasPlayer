@@ -14,10 +14,14 @@ import { buildReasonsForMatchup } from "@/lib/difficult-markings/reasons";
 import {
   clamp,
   percentileGroupForRole,
-  profileActsAsAttacker,
   profileActsAsDefender,
+  profileIsMarkingCoverTarget,
+  coverPairAllowed,
+  heatmapOccupiesAttackingThird,
+  COVER_HEATMAP_MIN_OVERLAP_PCT,
   roleCompatibilityScore,
-  rolesAreCompatible
+  rolesAreCompatible,
+  roleLabelIt
 } from "@/lib/difficult-markings/roles";
 import type {
   DifficultMarkingLevel,
@@ -26,54 +30,49 @@ import type {
   ProbableZone
 } from "@/lib/difficult-markings/types";
 import type { UpcomingMatchItem } from "@/services/sportapi";
-import { canonicalCompetitionId } from "@/lib/difficult-markings/query";
 import {
   attackerMarkingDifficultyIndex,
-  isHighMarkingThreatAttacker
+  defensiveDifficultyScore,
+  difficultyScoreAgainstMatchMax,
+  offensiveThreatBreakdown,
+  zonePressureContribution,
+  zonePressureLabelIt
 } from "@/lib/difficult-markings/attacker-threat";
+import { MARKING_THREAT_CONFIG } from "@/lib/difficult-markings/threat-config";
 
 const MATCHUP_THRESHOLD = 0.52;
-const MIN_ATTACKER_THREAT = 0.32;
-const MIN_ATTACKER_FOULS_DRAWN = 0.95;
-const MIN_ATTACKER_DRIBBLES_OK = 0.85;
-const MIN_ATTACKER_DRIBBLES_ATT = 1.8;
-const DUAL_LOAD_MIN_THREAT = 0.3;
-const DUAL_LOAD_MIN_OVERLAP_PCT = 32;
+const MIN_FOULS_SUFFERED_TO_COVER = 1;
+const MIN_MARKING_LOAD = 2;
+const DUAL_LOAD_MIN_OVERLAP_PCT = COVER_HEATMAP_MIN_OVERLAP_PCT;
+/** Massimo 3 attaccanti coperti dallo stesso marcatore (1 principale + 2 extra). */
+const MAX_MARKING_ATTACKERS = 3;
+/** Falli subiti/90 che valgono 100 sul componente falli (poi media con overlap 0–100). */
+const FOULS_DRAWN_SCORE_REF = 2;
 
-function isInternationalMarkingsCompetition(competitionId?: string): boolean {
-  const id = canonicalCompetitionId(competitionId);
-  return id === "world-cup" || id === "uefa-nations-league";
+/** Indice 0–100: media tra % overlap heatmap e falli subiti (normalizzati) dei marcati. */
+export function foulsOverlapMarkingScore(overlapPct: number, foulsDrawnPer90: number): number {
+  const overlapScore = clamp(overlapPct, 0, 100);
+  const foulsScore = clamp((foulsDrawnPer90 / FOULS_DRAWN_SCORE_REF) * 100, 0, 100);
+  return Math.round((overlapScore + foulsScore) / 2);
 }
 
-function publicationThresholds(competitionId?: string) {
-  const international = isInternationalMarkingsCompetition(competitionId);
-  return {
-    matchupThreshold: international ? 0.42 : MATCHUP_THRESHOLD,
-    minAttackerThreat: international ? 0.28 : MIN_ATTACKER_THREAT,
-    minAttackerFoulsDrawn: international ? 0.45 : MIN_ATTACKER_FOULS_DRAWN,
-    minAttackerDribblesOk: international ? 0.4 : MIN_ATTACKER_DRIBBLES_OK,
-    minAttackerDribblesAtt: international ? 0.9 : MIN_ATTACKER_DRIBBLES_ATT,
-    minDifficultMarkingScore: international ? 32 : 48,
-    minReliability: international ? 0.22 : 0.45,
-    minSampleMatches: international ? 1 : 3,
-    minSampleMinutes: international ? 90 : 270
-  };
+/** Falli/90 e dribbling riusciti/90 che valgono 100 sul 1 vs 1 di ruolo. */
+const FOULS_DRIBBLES_SCORE_REF = 2.6;
+
+/** Indice 0–100: media tra falli subiti e dribbling riusciti dell’attaccante. */
+export function foulsDribblesMarkingScore(foulsDrawnPer90: number, dribblesSuccessfulPer90: number): number {
+  const foulsScore = clamp((foulsDrawnPer90 / FOULS_DRIBBLES_SCORE_REF) * 100, 0, 100);
+  const dribbleScore = clamp((dribblesSuccessfulPer90 / FOULS_DRIBBLES_SCORE_REF) * 100, 0, 100);
+  return Math.round((foulsScore + dribbleScore) / 2);
 }
 
-/** Soglie di emergenza: se i filtri stretti azzerano tutto, pubblica comunque i top pairing. */
-function softPublicationThresholds(competitionId?: string) {
-  const international = isInternationalMarkingsCompetition(competitionId);
-  return {
-    matchupThreshold: international ? 0.28 : 0.4,
-    minAttackerThreat: international ? 0.18 : 0.24,
-    minAttackerFoulsDrawn: international ? 0.35 : 0.65,
-    minAttackerDribblesOk: international ? 0.25 : 0.5,
-    minAttackerDribblesAtt: international ? 0.7 : 1.1,
-    minDifficultMarkingScore: international ? 26 : 36,
-    minReliability: international ? 0.12 : 0.28,
-    minSampleMatches: international ? 1 : 2,
-    minSampleMinutes: international ? 45 : 180
-  };
+export function clusterFoulsOverlapScore(
+  items: Array<{ heatmapOverlapPct: number; foulsDrawnPer90: number }>
+): number {
+  if (!items.length) return 0;
+  const meanOverlap = items.reduce((sum, item) => sum + item.heatmapOverlapPct, 0) / items.length;
+  const meanFouls = items.reduce((sum, item) => sum + item.foulsDrawnPer90, 0) / items.length;
+  return foulsOverlapMarkingScore(meanOverlap, meanFouls);
 }
 
 function formationPositionScore(attacker: PlayerRecentProfile, defender: PlayerRecentProfile): number {
@@ -190,8 +189,11 @@ function computeMatchupScore(params: {
   const formationScore = formationPositionScore(params.attacker, params.defender);
 
   if (params.usedHeatmap) {
+    const overlapWeight = roleScore >= 0.55 ? 0.5 : 0.62;
+    const roleWeight = roleScore >= 0.55 ? 0.3 : 0.2;
+    const formationWeight = 1 - overlapWeight - roleWeight;
     return clamp(
-      0.5 * params.overlap + 0.3 * roleScore + 0.2 * formationScore,
+      overlapWeight * params.overlap + roleWeight * roleScore + formationWeight * formationScore,
       0,
       1
     );
@@ -220,31 +222,6 @@ function computeAttackerMarkingThreat(
   }
 
   return { score, metrics: percentileResult.metrics };
-}
-
-function defenderDisciplineModifier(defender: PlayerRecentProfile): number {
-  const vuln = absoluteDefenderVulnerabilityScore(defender) ?? 0.45;
-  return clamp(0.92 + vuln * 0.14, 0.92, 1.06);
-}
-
-/** Tetto massimo plausibile in base alle medie reali dell'attaccante (evita 100% senza numeri). */
-function attackerStatScoreCap(attacker: PlayerRecentProfile): number {
-  const foulsDrawn = attacker.foulsDrawnPer90 ?? 0;
-  const dribblesOk = attacker.dribblesSuccessfulPer90 ?? 0;
-  const dribblesAtt = attacker.dribblesAttemptedPer90 ?? 0;
-  const raw =
-    0.48 * clamp(foulsDrawn / 3.0, 0, 1) +
-    0.34 * clamp(dribblesOk / 2.4, 0, 1) +
-    0.18 * clamp(dribblesAtt / 5.5, 0, 1);
-  return Math.round(44 + raw * 52);
-}
-
-function attackerHasMeaningfulOffensiveProfile(
-  attacker: PlayerRecentProfile,
-  _competitionId?: string,
-  soft = false
-): boolean {
-  return isHighMarkingThreatAttacker(attacker, soft);
 }
 
 function computeAttackerChallengeScore(
@@ -348,57 +325,20 @@ function absoluteDefenderVulnerabilityScore(defender: PlayerRecentProfile): numb
   return score;
 }
 
-function meetsSampleRequirement(
-  player: PlayerRecentProfile,
-  competitionId?: string,
-  soft = false
-): boolean {
-  const thresholds = soft
-    ? softPublicationThresholds(competitionId)
-    : publicationThresholds(competitionId);
-  if (player.sampleMatches >= 5 && player.sampleMinutes >= 450) return true;
-
-  const hasRealMetrics =
-    (player.foulsDrawnPer90 ?? 0) >= (soft ? 0.3 : 0.8) ||
-    (player.foulsCommittedPer90 ?? 0) >= (soft ? 0.3 : 0.8) ||
-    (player.dribblesAttemptedPer90 ?? 0) >= (soft ? 0.5 : 1.5) ||
-    (soft && player.sampleMatches >= 1 && player.sampleMinutes >= 45);
-
-  return (
-    hasRealMetrics &&
-    player.sampleMatches >= thresholds.minSampleMatches &&
-    player.sampleMinutes >= thresholds.minSampleMinutes
-  );
-}
-
-function passesPublicationThresholds(params: {
-  matchupScore: number;
-  attackerChallengeScore: number;
-  difficultMarkingScore: number;
-  reliabilityScore: number;
-  attacker: PlayerRecentProfile;
-  defender: PlayerRecentProfile;
-  competitionId?: string;
-  soft?: boolean;
-}): boolean {
-  const thresholds = params.soft
-    ? softPublicationThresholds(params.competitionId)
-    : publicationThresholds(params.competitionId);
-  return (
-    meetsSampleRequirement(params.attacker, params.competitionId, params.soft) &&
-    meetsSampleRequirement(params.defender, params.competitionId, params.soft) &&
-    attackerHasMeaningfulOffensiveProfile(params.attacker, params.competitionId, params.soft) &&
-    params.matchupScore >= thresholds.matchupThreshold &&
-    params.attackerChallengeScore >= thresholds.minAttackerThreat &&
-    params.difficultMarkingScore >= thresholds.minDifficultMarkingScore &&
-    params.reliabilityScore >= thresholds.minReliability
-  );
-}
-
 export function buildMatchupId(fixtureId: string, defenderId: string, attackerId: string): string {
   return `${fixtureId}-${defenderId}-${attackerId}`;
 }
 
+/**
+ * Per ogni difensore: matchup di ruolo + pressione di zona dalla heatmap.
+ *
+ * Individual Threat = 0.6 × dribbling riusciti + 0.4 × falli subiti (0–100).
+ * Zone Pressure = Σ (Threat × presenza heatmap) degli offensivi nella zona.
+ * Difficulty =
+ *   0.5 × PrimaryThreat + 0.3 × ZonePressureNorm + 0.2 × SecondaryThreat
+ *
+ * Pesi in MARKING_THREAT_CONFIG.
+ */
 export function computeDifficultMarkingsForMatch(params: {
   match: UpcomingMatchItem;
   profiles: PlayerRecentProfile[];
@@ -412,195 +352,341 @@ export function computeDifficultMarkingsForMatch(params: {
   const generatedAt = params.generatedAt ?? new Date().toISOString();
   const fixtureId = String(params.match.eventId);
   const percentilePoolSize = params.percentilePool.length;
-  const hardThresholds = publicationThresholds(params.competitionId);
-  const softThresholds = softPublicationThresholds(params.competitionId);
+  const zoneMin = MARKING_THREAT_CONFIG.zonePresenceMin;
 
   const defenders = params.profiles.filter((p) => profileActsAsDefender(p));
-  const attackers = params.profiles.filter((p) => profileActsAsAttacker(p));
+  const coverTargets = params.profiles.filter((p) => profileIsMarkingCoverTarget(p));
 
-  const scoreCandidates = (soft: boolean): DifficultMarkingMatchup[] => {
-    const thresholds = soft ? softThresholds : hardThresholds;
-    const results: DifficultMarkingMatchup[] = [];
-
-    for (const defender of defenders) {
-      for (const attacker of attackers) {
-        if (defender.teamId === attacker.teamId) continue;
-        if (!rolesAreCompatible(attacker.normalizedRole, defender.normalizedRole)) continue;
-
-        const defenderPoints = defender.heatmapPointsMatchFrame;
-        const attackerPoints = attacker.heatmapPointsMatchFrame;
-        const usedHeatmap =
-          (defenderPoints?.length ?? 0) >= 3 && (attackerPoints?.length ?? 0) >= 3;
-
-        let attackerGrid: number[];
-        let defenderGrid: number[];
-        if (usedHeatmap && attacker.offensiveHeatmap && defender.defensiveHeatmap) {
-          attackerGrid = attacker.offensiveHeatmap;
-          defenderGrid = defender.defensiveHeatmap;
-        } else if (usedHeatmap && attacker.offensiveHeatmap && defender.offensiveHeatmap) {
-          attackerGrid = attacker.offensiveHeatmap;
-          defenderGrid = defender.offensiveHeatmap;
-        } else {
-          /** Solo heatmap reali: niente zone stimate da ruolo. */
-          continue;
-        }
-
-        const usedHeatmapForScore = true;
-        const overlap = heatmapOverlap(attackerGrid, defenderGrid);
-        if (overlap < 0.32) {
-          /** Senza overlap reale sufficiente non pubblichiamo il duello (niente zone stimate). */
-          continue;
-        }
-
-        const matchupScore = computeMatchupScore({
-          attacker,
-          defender,
-          usedHeatmap: usedHeatmapForScore,
-          overlap
-        });
-        if (matchupScore < thresholds.matchupThreshold) continue;
-
-        const attackerChallenge = computeAttackerMarkingThreat(attacker, lookup, percentilePoolSize);
-        const defenderVulnerability = computeDefenderVulnerabilityScore(defender, lookup);
-        const attackerChallengeScore = attackerChallenge.score;
-        const defenderVulnerabilityScore =
-          defenderVulnerability.score ?? absoluteDefenderVulnerabilityScore(defender);
-
-        if (attackerChallengeScore == null || defenderVulnerabilityScore == null) continue;
-        if (!attackerHasMeaningfulOffensiveProfile(attacker, params.competitionId, soft)) continue;
-
-        const lineupConfidence = lineupConfidenceScore(attacker, defender);
-        const fitBlend = 0.72 + 0.28 * matchupScore;
-        const rawDifficultMarkingScore =
-          attackerChallengeScore * fitBlend * defenderDisciplineModifier(defender);
-        let difficultMarkingScore = Math.round(
-          calibrateDifficultMarkingScore(rawDifficultMarkingScore, params.competitionId) * 100
-        );
-        difficultMarkingScore = Math.min(
-          difficultMarkingScore,
-          attackerStatScoreCap(attacker) + Math.round(matchupScore * 6)
-        );
-        const reliability = reliabilityScore({
-          attacker,
-          defender,
-          lineupConfidence,
-          usedHeatmap: usedHeatmapForScore,
-          percentileGroupSize: lookup.groupSize(percentileGroupForRole(attacker.normalizedRole))
-        });
-
-        if (
-          !passesPublicationThresholds({
-            matchupScore,
-            attackerChallengeScore,
-            difficultMarkingScore,
-            reliabilityScore: reliability,
-            attacker,
-            defender,
-            competitionId: params.competitionId,
-            soft
-          })
-        ) {
-          continue;
-        }
-
-        const level = difficultMarkingLevelFromScore(difficultMarkingScore);
-        const probableZone = resolveProbableZone(overlap, attacker, defender);
-        const reasons = buildReasonsForMatchup({
-          attacker,
-          defender,
-          overlapPct: Math.round(overlap * 100),
-          attackerMetrics: attackerChallenge.metrics,
-          defenderMetrics: defenderVulnerability.metrics,
-          usedHeatmap
-        });
-
-        results.push({
-          id: buildMatchupId(fixtureId, defender.playerId, attacker.playerId),
-          fixtureId,
-          eventId: params.match.eventId,
-          competitionId: params.competitionId,
-          roundKey: params.roundKey,
-          homeTeamName: params.match.homeTeam.name,
-          awayTeamName: params.match.awayTeam.name,
-          kickoffTimestamp: params.match.startTimestamp,
-          defenderPlayerId: defender.playerId,
-          attackerPlayerId: attacker.playerId,
-          defenderPlayerName: defender.playerName,
-          attackerPlayerName: attacker.playerName,
-          defenderTeamId: String(defender.teamId),
-          attackerTeamId: String(attacker.teamId),
-          defenderTeamName: defender.teamName,
-          attackerTeamName: attacker.teamName,
-          defenderRole: defender.normalizedRole,
-          attackerRole: attacker.normalizedRole,
-          matchupScore,
-          attackerChallengeScore,
-          defenderVulnerabilityScore,
-          lineupConfidenceScore: lineupConfidence,
-          reliabilityScore: reliability,
-          difficultMarkingScore,
-          difficultMarkingLevel: level,
-          probableZone,
-          reasons,
-          attackerMetrics: attackerChallenge.metrics,
-          defenderMetrics: defenderVulnerability.metrics,
-          sample: {
-            attackerMatches: attacker.sampleMatches,
-            attackerMinutes: attacker.sampleMinutes,
-            defenderMatches: defender.sampleMatches,
-            defenderMinutes: defender.sampleMinutes
-          },
-          usedHeatmap: usedHeatmapForScore,
-          heatmapOverlapPct: Math.round(overlap * 100),
-          officialLineupsUsed: params.officialLineupsUsed ?? false,
-          generatedAt,
-          markingLoadCount: 1,
-          extraAttackers: [],
-          visualization: {
-            attackerHeatmapPoints: attackerPoints ? [...attackerPoints] : [],
-            defenderHeatmapPoints: defenderPoints ? [...defenderPoints] : [],
-            attackerClubColor: attacker.clubColor,
-            defenderClubColor: defender.clubColor,
-            attackerGrid: [...attackerGrid],
-            defenderGrid: [...defenderGrid],
-            overlapGrid: overlapGridFromLayers(attackerGrid, defenderGrid),
-            estimatedZoneOnly: !usedHeatmapForScore
-          }
-        });
-      }
-    }
-
-    return results.sort((a, b) => b.difficultMarkingScore - a.difficultMarkingScore);
+  type ZoneOccupant = {
+    attacker: PlayerRecentProfile;
+    overlap: number;
+    threat: ReturnType<typeof offensiveThreatBreakdown>;
+    roleScore: number;
+    attackerGrid: number[];
+    attackerPoints: NonNullable<PlayerRecentProfile["heatmapPointsMatchFrame"]>;
   };
 
-  const hard = collapseDefenderMultiLoad(scoreCandidates(false));
-  if (hard.length > 0) return hard;
+  type DefenderDraft = {
+    defender: PlayerRecentProfile;
+    defenderGrid: number[];
+    defenderPoints: NonNullable<PlayerRecentProfile["heatmapPointsMatchFrame"]>;
+    occupants: ZoneOccupant[];
+  };
 
-  const soft = collapseDefenderMultiLoad(scoreCandidates(true)).slice(0, 8);
-  if (soft.length > 0) {
-    console.info("[difficult-markings] soft_publish_fallback", {
-      fixtureId,
-      competitionId: params.competitionId,
-      softMatchups: soft.length
+  const drafts: DefenderDraft[] = [];
+
+  for (const defender of defenders) {
+    const defenderPoints = defender.heatmapPointsMatchFrame;
+    const clashDefender = defender.offensiveHeatmap ?? defender.defensiveHeatmap;
+    if (!defenderPoints || defenderPoints.length < 3 || !clashDefender?.length) continue;
+
+    const occupants: ZoneOccupant[] = [];
+    for (const attacker of coverTargets) {
+      if (defender.teamId === attacker.teamId) continue;
+      if (defender.playerId === attacker.playerId) continue;
+      const attackerPoints = attacker.heatmapPointsMatchFrame;
+      const clashAttacker = attacker.offensiveHeatmap;
+      if (!attackerPoints || attackerPoints.length < 3 || !clashAttacker?.length) continue;
+
+      const overlap = heatmapOverlap(clashAttacker, clashDefender);
+      if (overlap < zoneMin) continue;
+      if (!coverPairAllowed(attacker.normalizedRole, defender.normalizedRole, overlap)) continue;
+
+      const threat = offensiveThreatBreakdown(attacker);
+      if (threat.threat100 <= 0) continue;
+
+      occupants.push({
+        attacker,
+        overlap,
+        threat,
+        roleScore: roleCompatibilityScore(attacker.normalizedRole, defender.normalizedRole),
+        attackerGrid: clashAttacker,
+        attackerPoints
+      });
+    }
+
+    if (!occupants.length) continue;
+    drafts.push({
+      defender,
+      defenderGrid: clashDefender,
+      defenderPoints,
+      occupants
     });
   }
-  return soft;
+
+  /** Matchup principale: un attaccante → il difensore di ruolo con overlap migliore. */
+  const primaryByDefender = new Map<string, ZoneOccupant>();
+  const usedAttackers = new Set<string>();
+  const primaryPairs = drafts.flatMap((draft) =>
+    draft.occupants
+      .filter((occ) =>
+        rolesAreCompatible(occ.attacker.normalizedRole, draft.defender.normalizedRole) ||
+        heatmapOccupiesAttackingThird(occ.attacker)
+      )
+      .map((occ) => ({ draft, occ }))
+  );
+  primaryPairs.sort((a, b) => {
+    const threatDelta = b.occ.threat.threat100 - a.occ.threat.threat100;
+    if (threatDelta !== 0) return threatDelta;
+    const roleDelta = b.occ.roleScore - a.occ.roleScore;
+    if (Math.abs(roleDelta) > 0.02) return roleDelta;
+    return b.occ.overlap - a.occ.overlap;
+  });
+  for (const pair of primaryPairs) {
+    if (usedAttackers.has(pair.occ.attacker.playerId)) continue;
+    if (primaryByDefender.has(pair.draft.defender.playerId)) continue;
+    primaryByDefender.set(pair.draft.defender.playerId, pair.occ);
+    usedAttackers.add(pair.occ.attacker.playerId);
+  }
+
+  const scoredDrafts: Array<{
+    draft: DefenderDraft;
+    primary: ZoneOccupant;
+    extras: ZoneOccupant[];
+    zoneRaw: number;
+    primaryThreat: number;
+    secondaryThreat: number;
+  }> = [];
+
+  for (const draft of drafts) {
+    const primary = primaryByDefender.get(draft.defender.playerId);
+    if (!primary) continue;
+
+    const extras = [...draft.occupants]
+      .filter((occ) => occ.attacker.playerId !== primary.attacker.playerId)
+      .filter((occ) => occ.threat.threat100 >= MARKING_THREAT_CONFIG.minZoneExtraThreat)
+      .sort((a, b) => {
+        const threatDelta = b.threat.threat100 - a.threat.threat100;
+        if (threatDelta !== 0) return threatDelta;
+        return b.overlap - a.overlap;
+      })
+      .slice(0, MARKING_THREAT_CONFIG.maxZoneExtras);
+
+    const zoneMembers = [primary, ...extras];
+    const zoneRaw = zoneMembers.reduce(
+      (sum, occ) => sum + zonePressureContribution(occ.threat.threat100, occ.overlap),
+      0
+    );
+    scoredDrafts.push({
+      draft,
+      primary,
+      extras,
+      zoneRaw,
+      primaryThreat: primary.threat.threat100,
+      secondaryThreat: extras[0]?.threat.threat100 ?? 0
+    });
+  }
+
+  const maxZoneRaw = Math.max(...scoredDrafts.map((item) => item.zoneRaw), 0);
+  const results: DifficultMarkingMatchup[] = [];
+
+  for (const item of scoredDrafts) {
+    const { draft, primary, extras } = item;
+    const defender = draft.defender;
+    const attacker = primary.attacker;
+    const overlap = primary.overlap;
+    const zoneNorm = difficultyScoreAgainstMatchMax(item.zoneRaw, maxZoneRaw);
+    const score = defensiveDifficultyScore({
+      primaryThreat: item.primaryThreat,
+      zonePressureNormalized: zoneNorm,
+      secondaryThreat: item.secondaryThreat
+    });
+    const zoneLabel = zonePressureLabelIt(zoneNorm);
+
+    const matchupScore = computeMatchupScore({
+      attacker,
+      defender,
+      usedHeatmap: true,
+      overlap
+    });
+    const attackerChallenge = computeAttackerMarkingThreat(attacker, lookup, percentilePoolSize);
+    const defenderVulnerability = computeDefenderVulnerabilityScore(defender, lookup);
+    const lineupConfidence = lineupConfidenceScore(attacker, defender);
+    const reliability = reliabilityScore({
+      attacker,
+      defender,
+      lineupConfidence,
+      usedHeatmap: true,
+      percentileGroupSize: lookup.groupSize(percentileGroupForRole(attacker.normalizedRole))
+    });
+    const extraAttackers = extras.map((occ) => ({
+      playerId: occ.attacker.playerId,
+      playerName: occ.attacker.playerName,
+      foulsDrawnPer90: occ.attacker.foulsDrawnPer90 ?? null,
+      dribblesSuccessfulPer90: occ.attacker.dribblesSuccessfulPer90 ?? null,
+      heatmapOverlapPct: Math.round(occ.overlap * 100)
+    }));
+    const reasons = buildReasonsForMatchup({
+      attacker,
+      defender,
+      overlapPct: Math.round(overlap * 100),
+      attackerMetrics: attackerChallenge.metrics,
+      defenderMetrics: defenderVulnerability.metrics,
+      usedHeatmap: true,
+      extraAttackers,
+      zonePressureLabel: zoneLabel,
+      difficultMarkingScore: score
+    });
+
+    results.push({
+      id: buildMatchupId(fixtureId, defender.playerId, attacker.playerId),
+      fixtureId,
+      eventId: params.match.eventId,
+      competitionId: params.competitionId,
+      roundKey: params.roundKey,
+      homeTeamName: params.match.homeTeam.name,
+      awayTeamName: params.match.awayTeam.name,
+      kickoffTimestamp: params.match.startTimestamp,
+      defenderPlayerId: defender.playerId,
+      attackerPlayerId: attacker.playerId,
+      defenderPlayerName: defender.playerName,
+      attackerPlayerName: attacker.playerName,
+      defenderTeamId: String(defender.teamId),
+      attackerTeamId: String(attacker.teamId),
+      defenderTeamName: defender.teamName,
+      attackerTeamName: attacker.teamName,
+      defenderRole: defender.normalizedRole,
+      attackerRole: attacker.normalizedRole,
+      matchupScore,
+      attackerChallengeScore: primary.threat.threat01,
+      defenderVulnerabilityScore:
+        defenderVulnerability.score ?? absoluteDefenderVulnerabilityScore(defender) ?? 0.45,
+      lineupConfidenceScore: lineupConfidence,
+      reliabilityScore: reliability,
+      difficultMarkingScore: score,
+      difficultMarkingLevel: difficultMarkingLevelFromScore(score),
+      probableZone: resolveProbableZone(overlap, attacker, defender),
+      reasons,
+      attackerMetrics: attackerChallenge.metrics,
+      defenderMetrics: defenderVulnerability.metrics,
+      sample: {
+        attackerMatches: attacker.sampleMatches,
+        attackerMinutes: attacker.sampleMinutes,
+        defenderMatches: defender.sampleMatches,
+        defenderMinutes: defender.sampleMinutes
+      },
+      usedHeatmap: true,
+      heatmapOverlapPct: Math.round(overlap * 100),
+      officialLineupsUsed: params.officialLineupsUsed ?? false,
+      generatedAt,
+      markingLoadCount: 1 + extras.length,
+      markingKind: extras.length ? "multi" : "single",
+      extraAttackers,
+      leadKind: "marker",
+      primaryThreatScore: item.primaryThreat,
+      zonePressureScore: zoneNorm,
+      secondaryThreatScore: item.secondaryThreat,
+      zonePressureLabel: zoneLabel,
+      visualization: {
+        attackerHeatmapPoints: [...primary.attackerPoints],
+        defenderHeatmapPoints: [...draft.defenderPoints],
+        attackerClubColor: attacker.clubColor,
+        defenderClubColor: defender.clubColor,
+        attackerGrid: [...primary.attackerGrid],
+        defenderGrid: [...draft.defenderGrid],
+        overlapGrid: overlapGridFromLayers(primary.attackerGrid, draft.defenderGrid),
+        estimatedZoneOnly: false
+      }
+    });
+  }
+
+  return results.sort((a, b) => b.difficultMarkingScore - a.difficultMarkingScore);
 }
 
-/**
- * Se lo stesso marcatore copre 2+ attaccanti difficili (heatmap + ruolo già filtrati),
- * tiene la coppia principale e allega gli altri: è il caso “carico doppio”.
- */
-export function collapseDefenderMultiLoad(
-  matchups: DifficultMarkingMatchup[]
-): DifficultMarkingMatchup[] {
-  if (matchups.length < 2) {
-    return matchups.map((item) => ({
-      ...item,
-      markingLoadCount: item.markingLoadCount ?? 1,
-      extraAttackers: item.extraAttackers ?? []
-    }));
-  }
+function rankCoverPairs(group: DifficultMarkingMatchup[]): DifficultMarkingMatchup[] {
+  return [...group]
+    .sort((a, b) => {
+      const aKey = foulsOverlapMarkingScore(a.heatmapOverlapPct, a.attackerMetrics.foulsDrawnPer90 ?? 0);
+      const bKey = foulsOverlapMarkingScore(b.heatmapOverlapPct, b.attackerMetrics.foulsDrawnPer90 ?? 0);
+      if (aKey !== bKey) return bKey - aKey;
+      if (a.heatmapOverlapPct !== b.heatmapOverlapPct) return b.heatmapOverlapPct - a.heatmapOverlapPct;
+      return (b.attackerMetrics.foulsDrawnPer90 ?? 0) - (a.attackerMetrics.foulsDrawnPer90 ?? 0);
+    })
+    .filter(
+      (item) =>
+        (item.attackerMetrics.foulsDrawnPer90 ?? 0) >= MIN_FOULS_SUFFERED_TO_COVER &&
+        item.heatmapOverlapPct >= DUAL_LOAD_MIN_OVERLAP_PCT
+    );
+}
+
+function buildMultiLoadCard(dual: DifficultMarkingMatchup[]): DifficultMarkingMatchup {
+  const primary = dual[0];
+  const extras = dual.slice(1).map((item) => ({
+    playerId: item.attackerPlayerId,
+    playerName: item.attackerPlayerName,
+    foulsDrawnPer90: item.attackerMetrics.foulsDrawnPer90 ?? null,
+    dribblesSuccessfulPer90: item.attackerMetrics.dribblesSuccessfulPer90 ?? null,
+    heatmapOverlapPct: item.heatmapOverlapPct
+  }));
+  const clusterScore = clusterFoulsOverlapScore(
+    dual.map((item) => ({
+      heatmapOverlapPct: item.heatmapOverlapPct,
+      foulsDrawnPer90: item.attackerMetrics.foulsDrawnPer90 ?? 0
+    }))
+  );
+  const overlapDetail = dual
+    .map((item) => {
+      const fouls = item.attackerMetrics.foulsDrawnPer90 ?? 0;
+      return `${item.attackerPlayerName} ${item.heatmapOverlapPct}% (${fouls.toFixed(1)} falli/90')`;
+    })
+    .join(" · ");
+  const loadReason = {
+    type: "MULTI_ATTACKER_LOAD" as const,
+    label: `Marca ${dual.length} attaccanti con 1+ falli subiti`,
+    detail: overlapDetail
+  };
+  const mergedAttackerPoints = dual.flatMap((item) => item.visualization?.attackerHeatmapPoints ?? []);
+  return {
+    ...primary,
+    markingLoadCount: dual.length,
+    extraAttackers: extras,
+    markingKind: "multi",
+    leadKind: "marker",
+    difficultMarkingScore: clusterScore,
+    difficultMarkingLevel: difficultMarkingLevelFromScore(clusterScore),
+    visualization: primary.visualization
+      ? {
+          ...primary.visualization,
+          attackerHeatmapPoints: mergedAttackerPoints.length
+            ? mergedAttackerPoints
+            : primary.visualization.attackerHeatmapPoints
+        }
+      : primary.visualization,
+    reasons: [loadReason, ...primary.reasons.filter((r) => r.type !== "MULTI_ATTACKER_LOAD")].slice(0, 4)
+  };
+}
+
+function buildSingleRoleCard(primary: DifficultMarkingMatchup): DifficultMarkingMatchup {
+  const fouls = primary.attackerMetrics.foulsDrawnPer90 ?? 0;
+  const dribbles = primary.attackerMetrics.dribblesSuccessfulPer90 ?? 0;
+  const score = foulsDribblesMarkingScore(fouls, dribbles);
+  const roleReason = {
+    type: "SINGLE_ROLE_DUEL" as const,
+    label: "Marcatura 1 vs 1 di ruolo",
+    detail: `${roleLabelIt(primary.defenderRole)} vs ${roleLabelIt(primary.attackerRole)} · ${fouls.toFixed(1)} falli subiti e ${dribbles.toFixed(1)} dribbling riusciti /90'`
+  };
+  return {
+    ...primary,
+    markingLoadCount: 1,
+    extraAttackers: [],
+    markingKind: "single",
+    leadKind: "marker",
+    difficultMarkingScore: score,
+    difficultMarkingLevel: difficultMarkingLevelFromScore(score),
+    reasons: [
+      roleReason,
+      ...primary.reasons.filter((r) => r.type !== "SINGLE_ROLE_DUEL" && r.type !== "MULTI_ATTACKER_LOAD")
+    ].slice(0, 4)
+  };
+}
+
+export function partitionDefenderMarkings(matchups: DifficultMarkingMatchup[]): {
+  multi: DifficultMarkingMatchup[];
+  singles: DifficultMarkingMatchup[];
+} {
+  const multi: DifficultMarkingMatchup[] = [];
+  const singles: DifficultMarkingMatchup[] = [];
+  if (!matchups.length) return { multi, singles };
 
   const groups = new Map<string, DifficultMarkingMatchup[]>();
   for (const item of matchups) {
@@ -610,59 +696,37 @@ export function collapseDefenderMultiLoad(
     groups.set(key, list);
   }
 
-  const out: DifficultMarkingMatchup[] = [];
   for (const group of groups.values()) {
-    const ranked = [...group].sort((a, b) => {
-      const threat = b.attackerChallengeScore - a.attackerChallengeScore;
-      if (Math.abs(threat) > 0.02) return threat;
-      return b.difficultMarkingScore - a.difficultMarkingScore;
-    });
-    const dual = ranked.filter(
-      (item) =>
-        item.attackerChallengeScore >= DUAL_LOAD_MIN_THREAT &&
-        item.heatmapOverlapPct >= DUAL_LOAD_MIN_OVERLAP_PCT
-    );
-
-    if (dual.length >= 2) {
-      const primary = dual[0];
-      const extras = dual.slice(1).map((item) => ({
-        playerId: item.attackerPlayerId,
-        playerName: item.attackerPlayerName,
-        foulsDrawnPer90: item.attackerMetrics.foulsDrawnPer90 ?? null,
-        dribblesSuccessfulPer90: item.attackerMetrics.dribblesSuccessfulPer90 ?? null,
-        heatmapOverlapPct: item.heatmapOverlapPct
-      }));
-      const loadBoost = Math.min(16, 7 * (dual.length - 1));
-      const boostedScore = Math.min(100, primary.difficultMarkingScore + loadBoost);
-      const loadReason = {
-        type: "MULTI_ATTACKER_LOAD" as const,
-        label: `Dovrà coprire ${dual.length} attaccanti difficili`,
-        detail: dual.map((item) => item.attackerPlayerName).join(", ")
-      };
-      out.push({
-        ...primary,
-        markingLoadCount: dual.length,
-        extraAttackers: extras,
-        difficultMarkingScore: boostedScore,
-        difficultMarkingLevel: difficultMarkingLevelFromScore(boostedScore),
-        reasons: [loadReason, ...primary.reasons.filter((r) => r.type !== "MULTI_ATTACKER_LOAD")].slice(
-          0,
-          4
-        )
-      });
+    const ranked = rankCoverPairs(group);
+    if (ranked.length >= MIN_MARKING_LOAD) {
+      multi.push(buildMultiLoadCard(ranked.slice(0, MAX_MARKING_ATTACKERS)));
       continue;
     }
-
-    for (const item of ranked) {
-      out.push({
-        ...item,
-        markingLoadCount: 1,
-        extraAttackers: item.extraAttackers ?? []
-      });
+    const primary = ranked[0];
+    if (
+      primary &&
+      primary.attackerRole &&
+      primary.defenderRole &&
+      rolesAreCompatible(primary.attackerRole, primary.defenderRole)
+    ) {
+      singles.push(buildSingleRoleCard(primary));
     }
   }
 
-  return out.sort((a, b) => b.difficultMarkingScore - a.difficultMarkingScore);
+  return {
+    multi: multi.sort((a, b) => b.difficultMarkingScore - a.difficultMarkingScore),
+    singles: singles.sort((a, b) => b.difficultMarkingScore - a.difficultMarkingScore)
+  };
+}
+
+/**
+ * Se lo stesso marcatore copre 2–3 attaccanti con 1+ falli subiti (heatmap allineate),
+ * pubblica un solo card e allega gli altri con la % di sovrapposizione di ciascuno.
+ */
+export function collapseDefenderMultiLoad(
+  matchups: DifficultMarkingMatchup[]
+): DifficultMarkingMatchup[] {
+  return partitionDefenderMarkings(matchups).multi;
 }
 
 export { zoneLabelIt, MATCHUP_THRESHOLD };

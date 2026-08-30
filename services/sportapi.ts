@@ -4,6 +4,7 @@ import {
   detectSportApiProvider,
   isBulkScheduledEventsEndpoint,
   sportApiEventLineupsPath,
+  sportApiEventMissingPlayersPath,
   sportApiEventPath,
   sportApiEventStatisticsPath,
   sportApiPlayerSeasonHeatmapPath,
@@ -24,13 +25,31 @@ import {
   type TeamSeasonFallbackResolution
 } from "@/lib/season-fallback";
 import { isMonitoredInternationalCompetitionSlug, resolveCompetitionId } from "@/lib/competitions";
-import { MATCHES_WINDOW_DAYS } from "@/lib/tactical-matches-filters";
+import { matchesWindowLookaheadDays } from "@/lib/tactical-matches-filters";
 import { throttledSportApiRequest } from "@/lib/sportapi-rate-limiter";
 import {
+  foulsP90FromSeries,
+  foulsP90FromTotals,
   foulsPerMatchFromSeasonTotal,
+  isLikelyPerMatchFoulRate,
+  MIN_MINUTES_FOR_FOUL_P90,
+  perMatchRateToP90,
   pickExplicitFoulAverage
 } from "@/lib/player-season-foul-average";
 import { createSupabaseServiceClient } from "@/lib/supabase/server";
+import {
+  dedupeSquadPlayers,
+  isSameSquadPlayer,
+  namesLikelySamePlayer,
+  normalizePlayerNameKey,
+  preferLongerPlayerName
+} from "@/lib/player-identity";
+import {
+  extractUnavailablePlayerIds,
+  extractUnavailablePlayers,
+  pickProbableLineupPlayers
+} from "@/lib/tactical-probable-lineup";
+import { FOULS_PROFILE_MIN_AVG } from "@/lib/intensity-analysis";
 import type {
   CompetitionScope,
   SportPerformanceInput,
@@ -133,12 +152,16 @@ interface SportApiLineupPlayer {
 }
 
 interface SportApiLineupsResponse {
+  confirmed?: boolean;
   home?: {
     players?: SportApiLineupPlayer[];
+    missingPlayers?: unknown[];
   };
   away?: {
     players?: SportApiLineupPlayer[];
+    missingPlayers?: unknown[];
   };
+  missingPlayers?: unknown[];
 }
 
 interface SportApiEventDetailsResponse {
@@ -464,32 +487,142 @@ function seasonFoulPerMatchFromSources(
   const overallApps =
     overall && appearancesTrustworthyForOverall(overall) ? appearanceCountFromOverall(overall) : 0;
 
-  if (fromOverall != null && overallApps >= 2) {
-    if (seriesCount < 2 || overallApps >= seriesCount) {
+  if (fromOverall != null && overallApps >= 1) {
+    const seriesMean = meanFromSeries(series, 1);
+    // Serie lineup di soli zeri: i falli spesso non arrivano dal match, l'overall stagione sì.
+    if (seriesCount < 1 || overallApps >= seriesCount || (seriesMean ?? 0) <= 0) {
       return fromOverall;
     }
   }
 
-  const fromSeries = meanFromSeries(series, 2);
+  const fromSeries = meanFromSeries(series, 1);
   if (fromSeries != null) return fromSeries;
   if (fromOverall != null) return fromOverall;
-  const single = meanFromSeries(series, 1);
-  return single ?? 0;
+  return 0;
 }
 
-function normalizePlayerNameKey(name: string): string {
-  return (name ?? "")
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .toUpperCase();
+function minutesPlayedFromOverall(overall: Record<string, number> | null): number {
+  if (!overall) return 0;
+  const wide = overall as unknown as Record<string, unknown>;
+  const flat = readNumericByAliases(wide, MINUTES_PLAYED_STAT_KEYS);
+  if (flat !== undefined && flat > 0) return flat;
+  const deep = deepFindNumericForStatKeys(overall, MINUTES_PLAYED_STAT_KEYS);
+  return deep !== undefined && deep > 0 ? deep : 0;
 }
 
-/**
- * Per totali stagionali duplicati sotto più chiavi (es. totalShots=0 ma shots=12),
- * usa il massimo tra le chiavi definite invece del primo valore (che può essere 0).
- */
+function sumSeriesMinutes(minutes: number[]): number {
+  return minutes.reduce((sum, value) => sum + (Number.isFinite(value) && value > 0 ? value : 0), 0);
+}
+
+function seasonFoulP90FromOverall(
+  overall: Record<string, number> | null,
+  kind: "committed" | "suffered"
+): number | undefined {
+  if (!overall) return undefined;
+  const minutes = minutesPlayedFromOverall(overall);
+  const total =
+    kind === "committed"
+      ? foulsCommittedSeasonTotalFromOverall(overall)
+      : foulsSufferedSeasonTotalFromOverall(overall);
+  if (total === undefined) return undefined;
+  if (isLikelyPerMatchFoulRate(total)) {
+    const apps = appearanceCountFromOverall(overall);
+    return perMatchRateToP90(total, minutes, apps) ?? undefined;
+  }
+  return foulsP90FromTotals(total, minutes) ?? undefined;
+}
+
+function seasonFoulP90FromSources(
+  series: number[],
+  minutesSeries: number[],
+  overall: Record<string, number> | null,
+  kind: "committed" | "suffered"
+): number | undefined {
+  const fromOverall = seasonFoulP90FromOverall(overall, kind);
+  const overallMinutes = minutesPlayedFromOverall(overall);
+  const seriesP90 = foulsP90FromSeries(series, minutesSeries);
+  const seriesMinutes = sumSeriesMinutes(minutesSeries);
+
+  if (fromOverall != null && overallMinutes >= MIN_MINUTES_FOR_FOUL_P90) {
+    if (seriesMinutes < MIN_MINUTES_FOR_FOUL_P90 || overallMinutes >= seriesMinutes) {
+      return fromOverall;
+    }
+  }
+  if (seriesP90 != null) return seriesP90;
+  if (fromOverall != null) return fromOverall;
+  return undefined;
+}
+
+function foulRateContextFields(params: {
+  committedSeries: number[];
+  sufferedSeries: number[];
+  minutesSeries: number[];
+  overall: Record<string, number> | null;
+}): Pick<
+  SportPerformanceInput,
+  | "seasonMinutesPlayed"
+  | "seasonAppearances"
+  | "foulsCommittedSeasonP90"
+  | "foulsSufferedSeasonP90"
+> {
+  const overallMinutes = minutesPlayedFromOverall(params.overall);
+  const seriesMinutes = sumSeriesMinutes(params.minutesSeries);
+  const seasonMinutesPlayed = overallMinutes >= seriesMinutes ? overallMinutes : seriesMinutes;
+  const overallApps = appearanceCountFromOverall(params.overall);
+  const seriesApps = params.minutesSeries.filter((value) => value > 0).length || params.committedSeries.length;
+  const seasonAppearances = overallApps >= 1 ? overallApps : seriesApps;
+  return {
+    seasonMinutesPlayed: seasonMinutesPlayed > 0 ? seasonMinutesPlayed : undefined,
+    seasonAppearances: seasonAppearances > 0 ? seasonAppearances : undefined,
+    foulsCommittedSeasonP90: seasonFoulP90FromSources(
+      params.committedSeries,
+      params.minutesSeries,
+      params.overall,
+      "committed"
+    ),
+    foulsSufferedSeasonP90: seasonFoulP90FromSources(
+      params.sufferedSeries,
+      params.minutesSeries,
+      params.overall,
+      "suffered"
+    )
+  };
+}
+
+function sportPerformanceIdentity(row: SportPerformanceInput) {
+  return { playerId: row.athleteId, teamId: row.teamId, playerName: row.athleteName };
+}
+
+function sportRowMeetsFoulsProfile(row: SportPerformanceInput): boolean {
+  if ((row.currentSeasonSampleCount ?? 0) < 1) return false;
+  const committed = row.foulsCommittedSeasonAvg ?? 0;
+  const suffered = row.foulsSufferedSeasonAvg ?? 0;
+  return committed > FOULS_PROFILE_MIN_AVG || suffered > FOULS_PROFILE_MIN_AVG;
+}
+
+function sportPerformanceRichness(row: SportPerformanceInput): number {
+  return (
+    (row.athleteId && row.athleteId > 0 ? 10000 : 0) +
+    (row.seasonMinutesPlayed ?? 0) +
+    (row.foulsCommittedLastFiveSampleCount ?? 0) * 20 +
+    (row.foulsSufferedLastFiveSampleCount ?? 0) * 20 +
+    (row.heatmapPoints?.length ?? 0)
+  );
+}
+
+function pickRicherSportPerformance(
+  current: SportPerformanceInput,
+  incoming: SportPerformanceInput
+): SportPerformanceInput {
+  const winner = sportPerformanceRichness(current) >= sportPerformanceRichness(incoming) ? current : incoming;
+  const loser = winner === current ? incoming : current;
+  return {
+    ...winner,
+    athleteId: winner.athleteId && winner.athleteId > 0 ? winner.athleteId : loser.athleteId,
+    athleteName: preferLongerPlayerName(winner.athleteName, loser.athleteName)
+  };
+}
+
 function overallNumericMaxAcrossKeys(row: Record<string, number> | null, keys: readonly string[]): number {
   if (!row) return 0;
   const wide = row as unknown as Record<string, unknown>;
@@ -656,6 +789,14 @@ const FOULS_COMMITTED_STAT_KEYS = [
   "fouls_committed"
 ] as const;
 
+const MINUTES_PLAYED_STAT_KEYS = [
+  "minutesPlayed",
+  "minutes",
+  "playedMinutes",
+  "timePlayed",
+  "minutes_played"
+] as const;
+
 const KEY_PASSES_STAT_KEYS = [
   "keyPass",
   "keyPasses",
@@ -746,6 +887,14 @@ function foulsCommittedFromLineupStats(
   if (n !== undefined) return n;
   const fouls = coerceFiniteNumber(s.fouls);
   return fouls ?? 0;
+}
+
+function minutesFromLineupStats(
+  stats: SportApiLineupPlayer["statistics"] | undefined
+): number {
+  if (!stats) return 0;
+  const n = readNumericByAliases(stats as Record<string, unknown>, MINUTES_PLAYED_STAT_KEYS);
+  return n !== undefined && n > 0 ? n : 0;
 }
 
 function foulsCommittedSeasonTotalFromOverall(overall: Record<string, number> | null): number | undefined {
@@ -1018,11 +1167,30 @@ export async function fetchEventSeasonContextForInsights(eventId: number): Promi
   return parseSeasonContextFromEventJson(payload);
 }
 
+/** Infortunati/squalificati da GET match lineups (`missingPlayers` home/away). */
+export async function fetchMatchLineupUnavailablePlayers(eventId: number): Promise<{
+  ids: Set<number>;
+  names: Set<string>;
+}> {
+  if (!eventId || eventId <= 0) return { ids: new Set(), names: new Set() };
+  try {
+    const response = await sportApiFetch(sportApiEventLineupsPath(eventId), {
+      requestType: "snapshot",
+      revalidateSeconds: 120
+    });
+    if (!response.ok) return { ids: new Set(), names: new Set() };
+    const payload = await readSportApiJson(response);
+    return extractUnavailablePlayers(payload);
+  } catch {
+    return { ids: new Set(), names: new Set() };
+  }
+}
+
 /**
- * Contesto stagione effettivo per analisi di una squadra: solo alla prima giornata
- * (0 partite finite nel torneo corrente) usa le statistiche della stagione precedente;
- * rosa e formazioni restano della stagione corrente. Dalla seconda giornata in poi
- * si usano i dati dell'annata in corso.
+ * Contesto stagione effettivo per analisi di una squadra: 0 partite finite nel
+ * torneo corrente → stagione precedente; dalla 1ª giornata finita → stagione in corso
+ * (Analisi partita, marcature, simulatore). I Trend restano in attesa di
+ * TRENDS_MIN_FINISHED_MATCHDAYS giornate.
  */
 export async function resolveEffectiveSeasonContextForTeam(params: {
   teamId: number;
@@ -1030,6 +1198,7 @@ export async function resolveEffectiveSeasonContextForTeam(params: {
   tournamentId?: number;
   seasonId?: number;
   bypassCache?: boolean;
+  switchThreshold?: number;
 }): Promise<{
   current: SeasonContext | null;
   effective: SeasonContext | null;
@@ -1063,6 +1232,7 @@ export async function resolveEffectiveSeasonContextForTeam(params: {
     teamId: params.teamId,
     current,
     bypassCache: params.bypassCache,
+    switchThreshold: params.switchThreshold,
     sportApiFetch: sportApiFetch as (
       endpoint: string,
       options?: Record<string, unknown>
@@ -1984,11 +2154,7 @@ async function discoverInternationalTournamentEventsViaWorldCupCalendar(): Promi
   const ctx = resolveWorldCupTournamentSeasonIds();
   if (!ctx) return [];
 
-  const rawLookahead = Number(process.env.TACTICAL_INTL_LOOKAHEAD_DAYS ?? process.env.TACTICAL_LOOKAHEAD_DAYS ?? "60");
-  const safeLookaheadDays = Math.min(
-    180,
-    Math.max(1, Number.isFinite(rawLookahead) && rawLookahead >= 1 ? Math.floor(rawLookahead) : 60)
-  );
+  const safeLookaheadDays = resolveInternationalLookaheadDays();
   const maxKickoff = Math.floor(Date.now() / 1000) + safeLookaheadDays * 24 * 60 * 60;
   const nowSec = Math.floor(Date.now() / 1000);
 
@@ -2236,11 +2402,7 @@ function eventMatchesDiscoverCompetitionFilter(
   filter: DiscoverCompetitionFilter
 ): boolean {
   if (filter === "kiosk_top5_and_uefa_cups") {
-    return (
-      isStrictTop5DomesticEvent(event) ||
-      isUefaChampionsOrEuropaLeagueEvent(event) ||
-      isUefaConferenceLeagueEvent(event)
-    );
+    return isStrictTop5DomesticEvent(event) || isUefaChampionsOrEuropaLeagueEvent(event);
   }
   return isStrictTop5DomesticEvent(event);
 }
@@ -2396,6 +2558,7 @@ function resolveClubDiscoveryTournaments(
   const overrides = parseCompetitionTournamentOverrides();
   const out: Array<{ competitionId: string; tournamentId: number }> = [];
   for (const row of FOOTAPI_CLUB_TOURNAMENT_DEFAULTS) {
+    if (row.competitionId === "uefa-europa-conference-league") continue;
     if (competitionFilter === "domestic_top5_only" && row.uefa) continue;
     if (competitionFilter === "kiosk_top5_and_uefa_cups" || !row.uefa) {
       const tournamentId = overrides.get(row.competitionId) ?? row.tournamentId;
@@ -2467,12 +2630,22 @@ async function discoverClubEventsViaTournamentCalendars(
   return Array.from(byEventId.values());
 }
 
-/** Giorni di discovery calendario club/UEFA: almeno quanto MATCHES_WINDOW_DAYS. */
+/** Giorni di discovery calendario club/UEFA: allineati all'orizzonte menu (oggi → 7 giorni dopo domani). */
 function resolveTacticalLookaheadDays(): number {
-  const raw = Number(process.env.TACTICAL_LOOKAHEAD_DAYS ?? String(MATCHES_WINDOW_DAYS));
-  const fromEnv = Number.isFinite(raw) && raw >= 1 ? Math.floor(raw) : MATCHES_WINDOW_DAYS;
-  /** Mai meno della finestra menu: altrimenti partite “nel menu” non vengono mai scaricate. */
-  return Math.min(90, Math.max(fromEnv, MATCHES_WINDOW_DAYS));
+  const horizon = matchesWindowLookaheadDays();
+  const raw = Number(process.env.TACTICAL_LOOKAHEAD_DAYS ?? String(horizon));
+  const fromEnv = Number.isFinite(raw) && raw >= 1 ? Math.floor(raw) : horizon;
+  /** Mai sotto l'orizzonte menu; mai oltre +1 giorno (evita Nations League a +25g). */
+  return Math.min(Math.max(fromEnv, horizon), horizon + 1);
+}
+
+function resolveInternationalLookaheadDays(): number {
+  const horizon = matchesWindowLookaheadDays();
+  const raw = Number(
+    process.env.TACTICAL_INTL_LOOKAHEAD_DAYS ?? process.env.TACTICAL_LOOKAHEAD_DAYS ?? String(horizon)
+  );
+  const fromEnv = Number.isFinite(raw) && raw >= 1 ? Math.floor(raw) : horizon;
+  return Math.min(Math.max(fromEnv, horizon), horizon + 1);
 }
 
 /** FootApi: il calendario `/api/matches/d/m/y` risponde spesso `[]`; discovery via prossime partite squadre anchor. */
@@ -2518,11 +2691,7 @@ async function discoverTargetEventsViaTeamAnchors(
 
 /** FootApi: calendario per data vuoto → prossime partite delle nazionali anchor (filtrate su Mundial maschile). */
 async function discoverInternationalTournamentEventsViaNationalTeamAnchors(): Promise<SportApiEvent[]> {
-  const rawLookahead = Number(process.env.TACTICAL_INTL_LOOKAHEAD_DAYS ?? process.env.TACTICAL_LOOKAHEAD_DAYS ?? "60");
-  const safeLookaheadDays = Math.min(
-    180,
-    Math.max(1, Number.isFinite(rawLookahead) && rawLookahead >= 1 ? Math.floor(rawLookahead) : 60)
-  );
+  const safeLookaheadDays = resolveInternationalLookaheadDays();
   const maxKickoff = Math.floor(Date.now() / 1000) + safeLookaheadDays * 24 * 60 * 60;
   const nowSec = Math.floor(Date.now() / 1000);
   const byEventId = new Map<number, SportApiEvent>();
@@ -2558,11 +2727,7 @@ async function discoverInternationalTournamentEventsViaNationalTeamAnchors(): Pr
 
 /** Calendario Mondiali via scheduled-events giorno per giorno (SportAPI7 e fallback FootApi). */
 async function discoverInternationalTournamentScheduledEventsByDay(): Promise<SportApiEvent[]> {
-  const rawLookahead = Number(process.env.TACTICAL_INTL_LOOKAHEAD_DAYS ?? process.env.TACTICAL_LOOKAHEAD_DAYS ?? "60");
-  const safeLookaheadDays = Math.min(
-    180,
-    Math.max(1, Number.isFinite(rawLookahead) && rawLookahead >= 1 ? Math.floor(rawLookahead) : 60)
-  );
+  const safeLookaheadDays = resolveInternationalLookaheadDays();
   const rawBuffer = Number(process.env.TACTICAL_INTL_EMPTY_DAYS_STOP ?? "10");
   const emptyDaysStopAfter = Math.max(
     3,
@@ -2723,12 +2888,12 @@ async function discoverTargetEvents(
 }
 
 async function discoverUpcomingTargetEvents(): Promise<SportApiEvent[]> {
-  return discoverTargetEvents(isUpcomingEvent, "domestic_top5_only");
+  return discoverTargetEvents(isUpcomingEvent, "kiosk_top5_and_uefa_cups");
 }
 
-/** Menu kiosk/API tactical: solo Top 5 domestici (UEFA club temporaneamente esclusi). */
+/** Menu kiosk/API tactical: Top 5 + Champions/Europa League (Conference esclusa). */
 async function discoverUpcomingKioskMenuEvents(): Promise<SportApiEvent[]> {
-  return discoverTargetEvents(isUpcomingEvent, "domestic_top5_only");
+  return discoverTargetEvents(isUpcomingEvent, "kiosk_top5_and_uefa_cups");
 }
 
 /**
@@ -2772,6 +2937,23 @@ function mapPositionToRole(position?: string): SportPerformanceInput["role"] {
  * Alcuni lineup includono panchinari con `substitute: true` e stats minime a zero.
  * Per le medie stagionali dobbiamo contare solo le partite realmente giocate.
  */
+function lineupPlayerId(player: SportApiLineupPlayer): number {
+  const id = Number(player.player?.id);
+  return Number.isFinite(id) && id > 0 ? id : 0;
+}
+
+function nameMatchesRoster(name: string, roster: Set<string>): boolean {
+  const key = normalizePlayerNameKey(name);
+  if (!key) return false;
+  if (roster.has(key)) return true;
+  for (const rosterName of roster) {
+    if (namesLikelySamePlayer(rosterName, name) || namesLikelySamePlayer(rosterName, key)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function lineupPlayerHasPlayed(player: SportApiLineupPlayer): boolean {
   if (player.substitute === false) return true;
   const stats = player.statistics as Record<string, unknown> | undefined;
@@ -2826,6 +3008,10 @@ function mapLineupPlayerToPerformance(params: {
     foulsSufferedSeasonAvg: foulsSufferedFromLineupStats(params.player.statistics),
     foulsSufferedLastTwoAvg: foulsSufferedFromLineupStats(params.player.statistics),
     foulsSufferedLastFiveAvg: foulsSufferedFromLineupStats(params.player.statistics),
+    seasonMinutesPlayed: minutesFromLineupStats(params.player.statistics) || undefined,
+    seasonAppearances: 1,
+    foulsCommittedSeasonP90: undefined,
+    foulsSufferedSeasonP90: undefined,
     dribblesSeasonAvg: dribblesFromLineupStats(params.player.statistics),
     opponentExpectedGoalsCreated: 0,
     savePercentage: saveDenominator > 0 ? (saves / saveDenominator) * 100 : 65,
@@ -3176,12 +3362,27 @@ export async function fetchSportPerformanceForTeams(params: {
                 ? ((await readSportApiJson(response)) as SportApiEventDetailsResponse | null)
                 : null
             )
+            .catch(() => null),
+          sportApiFetch(sportApiEventMissingPlayersPath(params.eventId), {
+            requestType: "snapshot",
+            revalidateSeconds: 120,
+            bypassCache: params.bypassCache
+          })
+            .then(async (response) => (response.ok ? readSportApiJson(response) : null))
             .catch(() => null)
         ])
       : null;
 
   const selectedEventLineups = selectedEventBundle?.[0] ?? null;
   const selectedEventDetails = selectedEventBundle?.[1] ?? null;
+  const unavailablePlayers = extractUnavailablePlayers(selectedEventBundle?.[2] ?? null);
+  for (const id of extractUnavailablePlayerIds(selectedEventLineups)) {
+    unavailablePlayers.ids.add(id);
+  }
+  const lineupMissing = extractUnavailablePlayers(selectedEventLineups);
+  for (const id of lineupMissing.ids) unavailablePlayers.ids.add(id);
+  for (const name of lineupMissing.names) unavailablePlayers.names.add(name);
+  const unavailablePlayerIds = unavailablePlayers.ids;
   const eventHomeTeamId =
     coerceFiniteNumber(selectedEventDetails?.event?.homeTeam?.id) ?? params.homeTeamId;
   const eventAwayTeamId =
@@ -3362,7 +3563,16 @@ export async function fetchSportPerformanceForTeams(params: {
       return Number(evSid) === Number(ctxSeasonId);
     }
 
+    function isCurrentCompetitionSeasonEvent(event: SportApiEvent): boolean {
+      return eventBelongsToTournamentContext(
+        event,
+        binding.currentTournamentId,
+        binding.currentSeasonId
+      );
+    }
+
     function eventEligibleForPlayerHistory(event: SportApiEvent): boolean {
+      if (isCurrentCompetitionSeasonEvent(event)) return true;
       if (playerUseAnyCompetition) {
         return eventEligibleForPlayerSeasonFallback({
           event,
@@ -3373,6 +3583,36 @@ export async function fetchSportPerformanceForTeams(params: {
         });
       }
       return eventBelongsToTournamentContext(event, tournamentId, seasonId);
+    }
+
+    async function fetchCurrentSeasonOverallMap(
+      playerIds: Array<number | undefined>
+    ): Promise<Map<number, Record<string, number> | null>> {
+      const unique = [
+        ...new Set(
+          playerIds.filter((id): id is number => typeof id === "number" && Number.isFinite(id) && id > 0)
+        )
+      ];
+      const map = new Map<number, Record<string, number> | null>();
+      const concurrency = 2;
+      for (let i = 0; i < unique.length; i += concurrency) {
+        const batch = unique.slice(i, i + concurrency);
+        const rows = await Promise.all(
+          batch.map(async (id) => {
+            const overall = await fetchPlayerSeasonOverall(
+              id,
+              binding.currentTournamentId,
+              binding.currentSeasonId
+            );
+            return [id, overall] as const;
+          })
+        );
+        for (const [id, overall] of rows) map.set(id, overall);
+        if (i + concurrency < unique.length) {
+          await sleepMs(150);
+        }
+      }
+      return map;
     }
 
     async function sleepMs(ms: number): Promise<void> {
@@ -3469,13 +3709,17 @@ export async function fetchSportPerformanceForTeams(params: {
   }
 
     async function finalizeTeamRows(rows: SportPerformanceInput[]): Promise<SportPerformanceInput[]> {
-      const realRows = rows.filter((row) => performanceRowHasRealSample(row));
+      const realRows = dedupeSquadPlayers(
+        rows.filter((row) => performanceRowHasRealSample(row)),
+        sportPerformanceIdentity,
+        pickRicherSportPerformance
+      );
       if (realRows.length > 0) return realRows;
 
       const lineupStarters = (lineupsByTeam.get(team.teamId) ?? [])
-        .filter((player) => player.substitute !== true)
-        .filter((player) => Boolean(player.player?.id))
-        .slice(0, 11);
+        .filter((player) => lineupPlayerId(player) > 0)
+        .filter((player) => player.substitute !== true || lineupPlayerHasPlayed(player))
+        .slice(0, maxPlayersPerTeam);
       if (!lineupStarters.length) {
         return [];
       }
@@ -3498,6 +3742,12 @@ export async function fetchSportPerformanceForTeams(params: {
         const foulsSufferedSeasonAvg = seasonFoulPerMatchFromOverall(overall, "suffered") ?? 0;
         const apps = appearanceCountFromOverall(overall);
         const sampleN = hasOverall ? Math.max(1, apps) : hasHeatmap ? 1 : 0;
+        const overallP90 = foulRateContextFields({
+          committedSeries: [],
+          sufferedSeries: [],
+          minutesSeries: [],
+          overall
+        });
 
         quickRows.push({
           athleteId: playerId,
@@ -3523,6 +3773,12 @@ export async function fetchSportPerformanceForTeams(params: {
           foulsSufferedSeasonAvg,
           foulsSufferedLastTwoAvg: foulsSufferedSeasonAvg,
           foulsSufferedLastFiveAvg: foulsSufferedSeasonAvg,
+          seasonMinutesPlayed: overallP90.seasonMinutesPlayed,
+          seasonAppearances: overallP90.seasonAppearances,
+          foulsCommittedSeasonP90: overallP90.foulsCommittedSeasonP90,
+          foulsSufferedSeasonP90: overallP90.foulsSufferedSeasonP90,
+          currentSeasonSampleCount:
+            binding.seasonFallback.mode === "current_season" && apps >= 1 ? apps : 0,
           dribblesSeasonAvg: dribblesFromLineupStats(starter.statistics),
           opponentExpectedGoalsCreated: 0,
           savePercentage: 0,
@@ -3574,21 +3830,18 @@ export async function fetchSportPerformanceForTeams(params: {
       return heatmapByName;
     }
 
-    const startersFromSelectedMatch = (lineupsByTeam.get(team.teamId) ?? [])
-      .filter((player) => player.substitute !== true)
-      .filter((player) => Boolean(player.player?.id))
-      .slice(0, 11);
-    const useStarterMode = Boolean(startersFromSelectedMatch.length > 0 && tournamentId && seasonId);
+    const selectedMatchPlayers = (lineupsByTeam.get(team.teamId) ?? []).filter(
+      (player) => lineupPlayerId(player) > 0
+    );
+    const useStarterMode = Boolean(tournamentId && seasonId);
     const currentRosterNameSet = new Set<string>();
-    for (const starter of startersFromSelectedMatch) {
-      const n = normalizePlayerNameKey(starter.player?.name ?? starter.player?.shortName ?? "");
+    for (const player of selectedMatchPlayers) {
+      const n = normalizePlayerNameKey(player.player?.name ?? player.player?.shortName ?? "");
       if (n) currentRosterNameSet.add(n);
     }
-    /** Prima giornata: formazioni/giocatori dalla rosa corrente, stats dalla stagione precedente. */
-    if (binding.seasonFallback.mode === "previous_season") {
-      const currentSquad = await fetchCurrentTeamRosterNames(team.teamId, params.bypassCache);
-      for (const name of currentSquad) currentRosterNameSet.add(name);
-    }
+    /** Rosa completa: serve anche a stagione in corso, altrimenti restano fuori i subentrati della 1ª. */
+    const currentSquad = await fetchCurrentTeamRosterNames(team.teamId, params.bypassCache);
+    for (const name of currentSquad) currentRosterNameSet.add(name);
 
     const seasonEventCap = isMonitoredInternationalCompetitionSlug(normalizedCompetition)
       ? Math.min(maxSeasonMatches, intlStarterEventCap)
@@ -3646,7 +3899,10 @@ export async function fetchSportPerformanceForTeams(params: {
       const playerLastStartTs = new Map<string, number>();
       const playerFoulsCommitted = new Map<string, number[]>();
       const playerFoulsSuffered = new Map<string, number[]>();
+      const playerMinutes = new Map<string, number[]>();
       const playerDribbles = new Map<string, number[]>();
+      const playerCurrentFoulsCommitted = new Map<string, number[]>();
+      const playerCurrentFoulsSuffered = new Map<string, number[]>();
       const playerRole = new Map<string, string>();
       const playerPositionCode = new Map<string, string>();
       const playerJersey = new Map<string, number>();
@@ -3687,6 +3943,7 @@ export async function fetchSportPerformanceForTeams(params: {
           if (!playerSaves.has(name)) playerSaves.set(name, []);
           if (!playerFoulsCommitted.has(name)) playerFoulsCommitted.set(name, []);
           if (!playerFoulsSuffered.has(name)) playerFoulsSuffered.set(name, []);
+          if (!playerMinutes.has(name)) playerMinutes.set(name, []);
           if (!playerDribbles.has(name)) playerDribbles.set(name, []);
           playerAppearances.set(name, (playerAppearances.get(name) ?? 0) + 1);
 
@@ -3694,7 +3951,14 @@ export async function fetchSportPerformanceForTeams(params: {
           playerSaves.get(name)?.push(savesFromLineupStats(player.statistics));
           playerFoulsCommitted.get(name)?.push(foulsCommittedFromLineupStats(player.statistics));
           playerFoulsSuffered.get(name)?.push(foulsSufferedFromLineupStats(player.statistics));
+          playerMinutes.get(name)?.push(minutesFromLineupStats(player.statistics));
           playerDribbles.get(name)?.push(dribblesFromLineupStats(player.statistics));
+          if (isCurrentCompetitionSeasonEvent(event)) {
+            if (!playerCurrentFoulsCommitted.has(name)) playerCurrentFoulsCommitted.set(name, []);
+            if (!playerCurrentFoulsSuffered.has(name)) playerCurrentFoulsSuffered.set(name, []);
+            playerCurrentFoulsCommitted.get(name)?.push(foulsCommittedFromLineupStats(player.statistics));
+            playerCurrentFoulsSuffered.get(name)?.push(foulsSufferedFromLineupStats(player.statistics));
+          }
           playerRole.set(name, mapPositionToRole(player.position));
           if (player.position?.trim()) playerPositionCode.set(name, player.position.trim());
           playerJersey.set(name, player.jerseyNumber ?? player.shirtNumber ?? 0);
@@ -3704,6 +3968,11 @@ export async function fetchSportPerformanceForTeams(params: {
       }
 
       const rosterOrder = Array.from(playerShots.keys()).sort((a, b) => {
+        const contact = (name: string) =>
+          (playerFoulsCommitted.get(name) ?? []).reduce((sum, n) => sum + n, 0) +
+          (playerFoulsSuffered.get(name) ?? []).reduce((sum, n) => sum + n, 0);
+        const contactDelta = contact(b) - contact(a);
+        if (contactDelta !== 0) return contactDelta;
         const shotsA = playerShots.get(a) ?? [];
         const shotsB = playerShots.get(b) ?? [];
         const avgA = shotsA.length ? shotsA.reduce((x, y) => x + y, 0) / shotsA.length : 0;
@@ -3744,13 +4013,43 @@ export async function fetchSportPerformanceForTeams(params: {
         : null;
 
       const basePool = startersPool ?? rosterOrder;
-      const rosterCandidates =
-        currentRosterNameSet.size > 0
-          ? basePool.filter((name) => currentRosterNameSet.has(name))
-          : basePool;
+      const restrictToCurrentRoster =
+        binding.seasonFallback.mode === "previous_season" && currentRosterNameSet.size > 0;
+      const rosterCandidates = restrictToCurrentRoster
+        ? basePool.filter((name) => nameMatchesRoster(name, currentRosterNameSet))
+        : basePool;
       const effectivePool = rosterCandidates.length > 0 ? rosterCandidates : basePool;
       const sizeLimit = isIntlContext ? 11 : maxPlayersPerTeam;
-      const rosterForOutput = effectivePool.slice(0, sizeLimit);
+      const limitedPool = effectivePool.slice(0, sizeLimit);
+      const extraCurrentSeasonNames = effectivePool.filter((name) => {
+        if (limitedPool.includes(name)) return false;
+        const committedSeries = playerCurrentFoulsCommitted.get(name) ?? [];
+        const sufferedSeries = playerCurrentFoulsSuffered.get(name) ?? [];
+        return committedSeries.length >= 1 || sufferedSeries.length >= 1;
+      });
+      const rosterForOverall = [...limitedPool, ...extraCurrentSeasonNames];
+      const currentOverallByPlayer = await fetchCurrentSeasonOverallMap(
+        rosterForOverall.map((name) => playerIdByName.get(name))
+      );
+      const extraFoulProfiles = extraCurrentSeasonNames.filter((name) => {
+        const playerId = playerIdByName.get(name);
+        if (playerId && unavailablePlayerIds.has(playerId)) return false;
+        const nameKey = normalizePlayerNameKey(name);
+        if (nameKey && unavailablePlayers.names.has(nameKey)) return false;
+        const overall = playerId ? currentOverallByPlayer.get(playerId) ?? null : null;
+        const committed = seasonFoulPerMatchFromSources(
+          playerCurrentFoulsCommitted.get(name) ?? [],
+          overall,
+          "committed"
+        );
+        const suffered = seasonFoulPerMatchFromSources(
+          playerCurrentFoulsSuffered.get(name) ?? [],
+          overall,
+          "suffered"
+        );
+        return committed > FOULS_PROFILE_MIN_AVG || suffered > FOULS_PROFILE_MIN_AVG;
+      });
+      const rosterForOutput = [...limitedPool, ...extraFoulProfiles];
 
       const heatmapByName = await fetchHeatmapsBatched(rosterForOutput, (name) =>
         playerIdByName.get(name)
@@ -3761,6 +4060,7 @@ export async function fetchSportPerformanceForTeams(params: {
         const savesSeries = playerSaves.get(name) ?? [0];
         const foulsCommittedSeries = playerFoulsCommitted.get(name) ?? [0];
         const foulsSufferedSeries = playerFoulsSuffered.get(name) ?? [0];
+        const minutesSeries = playerMinutes.get(name) ?? [];
         const dribblesSeries = playerDribbles.get(name) ?? [0];
         const shotsSeasonAvg =
           shotsSeries.reduce((a, b) => a + b, 0) / Math.max(1, shotsSeries.length);
@@ -3776,30 +4076,46 @@ export async function fetchSportPerformanceForTeams(params: {
         const savesLastFiveAvg =
           savesSeries.slice(0, starterLastFiveMatches).reduce((a, b) => a + b, 0) /
           Math.max(1, Math.min(starterLastFiveMatches, savesSeries.length));
+        const currentCommittedSeries = playerCurrentFoulsCommitted.get(name) ?? [];
+        const currentSufferedSeries = playerCurrentFoulsSuffered.get(name) ?? [];
+        const currentOverall =
+          (playerIdByName.get(name)
+            ? currentOverallByPlayer.get(playerIdByName.get(name) as number)
+            : null) ?? null;
+        const foulsCommittedForAvg =
+          currentCommittedSeries.length > 0 ? currentCommittedSeries : foulsCommittedSeries;
+        const foulsSufferedForAvg =
+          currentSufferedSeries.length > 0 ? currentSufferedSeries : foulsSufferedSeries;
         const foulsCommittedSeasonAvg = seasonFoulPerMatchFromSources(
-          foulsCommittedSeries,
-          null,
+          foulsCommittedForAvg,
+          currentOverall,
           "committed"
         );
         const foulsCommittedLastTwoAvg =
-          foulsCommittedSeries.slice(0, 2).reduce((a, b) => a + b, 0) /
-          Math.max(1, Math.min(2, foulsCommittedSeries.length));
+          foulsCommittedForAvg.slice(0, 2).reduce((a, b) => a + b, 0) /
+          Math.max(1, Math.min(2, foulsCommittedForAvg.length));
         const foulsCommittedLastFiveAvg =
-          foulsCommittedSeries.slice(0, starterLastFiveMatches).reduce((a, b) => a + b, 0) /
-          Math.max(1, Math.min(starterLastFiveMatches, foulsCommittedSeries.length));
+          foulsCommittedForAvg.slice(0, starterLastFiveMatches).reduce((a, b) => a + b, 0) /
+          Math.max(1, Math.min(starterLastFiveMatches, foulsCommittedForAvg.length));
         const foulsSufferedSeasonAvg = seasonFoulPerMatchFromSources(
-          foulsSufferedSeries,
-          null,
+          foulsSufferedForAvg,
+          currentOverall,
           "suffered"
         );
         const foulsSufferedLastTwoAvg =
-          foulsSufferedSeries.slice(0, 2).reduce((a, b) => a + b, 0) /
-          Math.max(1, Math.min(2, foulsSufferedSeries.length));
+          foulsSufferedForAvg.slice(0, 2).reduce((a, b) => a + b, 0) /
+          Math.max(1, Math.min(2, foulsSufferedForAvg.length));
         const foulsSufferedLastFiveAvg =
-          foulsSufferedSeries.slice(0, starterLastFiveMatches).reduce((a, b) => a + b, 0) /
-          Math.max(1, Math.min(starterLastFiveMatches, foulsSufferedSeries.length));
+          foulsSufferedForAvg.slice(0, starterLastFiveMatches).reduce((a, b) => a + b, 0) /
+          Math.max(1, Math.min(starterLastFiveMatches, foulsSufferedForAvg.length));
         const dribblesSeasonAvg =
           dribblesSeries.reduce((a, b) => a + b, 0) / Math.max(1, dribblesSeries.length);
+        const p90Fields = foulRateContextFields({
+          committedSeries: foulsCommittedForAvg,
+          sufferedSeries: foulsSufferedForAvg,
+          minutesSeries,
+          overall: currentOverall
+        });
 
         const row = {
           athleteId: playerIdByName.get(name),
@@ -3824,6 +4140,15 @@ export async function fetchSportPerformanceForTeams(params: {
           foulsSufferedSeasonAvg,
           foulsSufferedLastTwoAvg,
           foulsSufferedLastFiveAvg,
+          seasonMinutesPlayed: p90Fields.seasonMinutesPlayed,
+          seasonAppearances: p90Fields.seasonAppearances,
+          foulsCommittedSeasonP90: p90Fields.foulsCommittedSeasonP90,
+          foulsSufferedSeasonP90: p90Fields.foulsSufferedSeasonP90,
+          currentSeasonSampleCount: Math.max(
+            playerCurrentFoulsCommitted.get(name)?.length ?? 0,
+            playerCurrentFoulsSuffered.get(name)?.length ?? 0,
+            appearanceCountFromOverall(currentOverall)
+          ),
           dribblesSeasonAvg,
           opponentExpectedGoalsCreated: 0,
           savePercentage: 65,
@@ -3837,12 +4162,12 @@ export async function fetchSportPerformanceForTeams(params: {
           heatmapPoints: heatmapByName.get(name) ?? [],
           shotsLastTwoSampleCount: Math.min(2, shotsSeries.length),
           savesLastTwoSampleCount: Math.min(2, savesSeries.length),
-          foulsCommittedLastTwoSampleCount: Math.min(2, foulsCommittedSeries.length),
-          foulsSufferedLastTwoSampleCount: Math.min(2, foulsSufferedSeries.length),
+          foulsCommittedLastTwoSampleCount: Math.min(2, foulsCommittedForAvg.length),
+          foulsSufferedLastTwoSampleCount: Math.min(2, foulsSufferedForAvg.length),
           shotsLastFiveSampleCount: Math.min(starterLastFiveMatches, shotsSeries.length),
           savesLastFiveSampleCount: Math.min(starterLastFiveMatches, savesSeries.length),
-          foulsCommittedLastFiveSampleCount: Math.min(starterLastFiveMatches, foulsCommittedSeries.length),
-          foulsSufferedLastFiveSampleCount: Math.min(starterLastFiveMatches, foulsSufferedSeries.length)
+          foulsCommittedLastFiveSampleCount: Math.min(starterLastFiveMatches, foulsCommittedForAvg.length),
+          foulsSufferedLastFiveSampleCount: Math.min(starterLastFiveMatches, foulsSufferedForAvg.length)
         } satisfies SportPerformanceInput;
 
         params.savesDiagnosticsCollector?.({
@@ -3859,11 +4184,6 @@ export async function fetchSportPerformanceForTeams(params: {
 
         return row;
       });
-    }
-
-    if (useStarterMode && isMonitoredInternationalCompetitionSlug(normalizedCompetition)) {
-      const aggregateRows = await rowsFromTeamMatchAggregates(false);
-      return finalizeTeamRows(aggregateRows);
     }
 
     if (useStarterMode) {
@@ -3901,9 +4221,13 @@ export async function fetchSportPerformanceForTeams(params: {
       const fouledLastFiveByPlayer = new Map<number, number[]>();
       const foulsSeasonByPlayer = new Map<number, number[]>();
       const fouledSeasonByPlayer = new Map<number, number[]>();
+      const minutesSeasonByPlayer = new Map<number, number[]>();
       const dribblesSeasonByPlayer = new Map<number, number[]>();
+      const currentSeasonFoulsByPlayer = new Map<number, number[]>();
+      const currentSeasonFouledByPlayer = new Map<number, number[]>();
       const teamConcededShotsOnTarget: number[] = [];
-      const starterIds = new Set(startersFromSelectedMatch.map((player) => player.player?.id as number));
+      const playedById = new Map<number, SportApiLineupPlayer>();
+      let lastFinishedStarters: SportApiLineupPlayer[] = [];
 
       for (const event of eventsForSeason) {
         const eventId = event.id as number;
@@ -3916,10 +4240,16 @@ export async function fetchSportPerformanceForTeams(params: {
         teamConcededShotsOnTarget.push(isHome ? shotsOnTarget.away : shotsOnTarget.home);
 
         const matchPlayers = isHome ? lineups.home?.players ?? [] : lineups.away?.players ?? [];
+        if (!lastFinishedStarters.length) {
+          lastFinishedStarters = matchPlayers.filter(
+            (player) => player.substitute !== true && lineupPlayerId(player) > 0
+          );
+        }
         for (const matchPlayer of matchPlayers) {
           if (!lineupPlayerHasPlayed(matchPlayer)) continue;
-          const playerId = matchPlayer.player?.id;
-          if (!playerId || !starterIds.has(playerId)) continue;
+          const playerId = lineupPlayerId(matchPlayer);
+          if (!playerId) continue;
+          if (!playedById.has(playerId)) playedById.set(playerId, matchPlayer);
           if (!shotsLastTwoByPlayer.has(playerId)) shotsLastTwoByPlayer.set(playerId, []);
           if (!shotsLastFiveByPlayer.has(playerId)) shotsLastFiveByPlayer.set(playerId, []);
           if (!savesLastTwoByPlayer.has(playerId)) savesLastTwoByPlayer.set(playerId, []);
@@ -3931,12 +4261,20 @@ export async function fetchSportPerformanceForTeams(params: {
           if (!fouledLastFiveByPlayer.has(playerId)) fouledLastFiveByPlayer.set(playerId, []);
           if (!foulsSeasonByPlayer.has(playerId)) foulsSeasonByPlayer.set(playerId, []);
           if (!fouledSeasonByPlayer.has(playerId)) fouledSeasonByPlayer.set(playerId, []);
+          if (!minutesSeasonByPlayer.has(playerId)) minutesSeasonByPlayer.set(playerId, []);
           if (!dribblesSeasonByPlayer.has(playerId)) dribblesSeasonByPlayer.set(playerId, []);
 
           savesSeasonByPlayer.get(playerId)?.push(savesFromLineupStats(matchPlayer.statistics));
           foulsSeasonByPlayer.get(playerId)?.push(foulsCommittedFromLineupStats(matchPlayer.statistics));
           fouledSeasonByPlayer.get(playerId)?.push(foulsSufferedFromLineupStats(matchPlayer.statistics));
+          minutesSeasonByPlayer.get(playerId)?.push(minutesFromLineupStats(matchPlayer.statistics));
           dribblesSeasonByPlayer.get(playerId)?.push(dribblesFromLineupStats(matchPlayer.statistics));
+          if (isCurrentCompetitionSeasonEvent(event)) {
+            if (!currentSeasonFoulsByPlayer.has(playerId)) currentSeasonFoulsByPlayer.set(playerId, []);
+            if (!currentSeasonFouledByPlayer.has(playerId)) currentSeasonFouledByPlayer.set(playerId, []);
+            currentSeasonFoulsByPlayer.get(playerId)?.push(foulsCommittedFromLineupStats(matchPlayer.statistics));
+            currentSeasonFouledByPlayer.get(playerId)?.push(foulsSufferedFromLineupStats(matchPlayer.statistics));
+          }
 
           if ((shotsLastTwoByPlayer.get(playerId)?.length ?? 0) < starterLastTwoMatches) {
             shotsLastTwoByPlayer.get(playerId)?.push(matchPlayer.statistics?.totalShots ?? 0);
@@ -3965,26 +4303,51 @@ export async function fetchSportPerformanceForTeams(params: {
         }
       }
 
+      const probableXi = pickProbableLineupPlayers({
+        predicted: selectedMatchPlayers,
+        lastMatchStarters: lastFinishedStarters,
+        unavailableIds: unavailablePlayerIds,
+        playerId: lineupPlayerId,
+        maxStarters: 11
+      });
+      const analysisById = new Map<number, SportApiLineupPlayer>();
+      for (const player of probableXi) {
+        const id = lineupPlayerId(player);
+        if (id) analysisById.set(id, player);
+      }
+      const analysisSquad = [...analysisById.values()];
+
       const seasonOverallRows: Array<{
         starter: SportApiLineupPlayer;
         overall: Record<string, number> | null;
+        currentOverall: Record<string, number> | null;
         heatmapPoints: SportPerformanceInput["heatmapPoints"];
       }> = [];
       const starterConcurrency = 2;
-      for (let i = 0; i < startersFromSelectedMatch.length; i += starterConcurrency) {
-        const batch = startersFromSelectedMatch.slice(i, i + starterConcurrency);
+      const sameSeasonContext =
+        Number(tournamentId) === Number(binding.currentTournamentId) &&
+        Number(seasonId) === Number(binding.currentSeasonId);
+      for (let i = 0; i < analysisSquad.length; i += starterConcurrency) {
+        const batch = analysisSquad.slice(i, i + starterConcurrency);
         const batchRows = await Promise.all(
           batch.map(async (starter) => {
-            const playerId = starter.player?.id as number;
+            const playerId = lineupPlayerId(starter);
             const [overall, heatmapPoints] = await Promise.all([
               fetchPlayerSeasonOverall(playerId, tournamentId, seasonId),
               resolvePlayerSeasonHeatmapOnly(playerId)
             ]);
-            return { starter, overall, heatmapPoints };
+            const currentOverall = sameSeasonContext
+              ? overall
+              : await fetchPlayerSeasonOverall(
+                  playerId,
+                  binding.currentTournamentId,
+                  binding.currentSeasonId
+                );
+            return { starter, overall, currentOverall, heatmapPoints };
           })
         );
         seasonOverallRows.push(...batchRows);
-        if (i + starterConcurrency < startersFromSelectedMatch.length) {
+        if (i + starterConcurrency < analysisSquad.length) {
           await sleepMs(150);
         }
       }
@@ -3999,7 +4362,7 @@ export async function fetchSportPerformanceForTeams(params: {
             Math.max(1, Math.min(2, teamConcededShotsOnTarget.length))
           : 0;
 
-      const starterRows = seasonOverallRows.map(({ starter, overall, heatmapPoints }) => {
+      const starterRows = seasonOverallRows.map(({ starter, overall, currentOverall, heatmapPoints }) => {
         const playerId = starter.player?.id as number;
         const appearancesRaw = appearanceCountFromOverall(overall);
         const seasonDivisor = appearancesRaw >= 1 ? appearancesRaw : 0;
@@ -4031,13 +4394,24 @@ export async function fetchSportPerformanceForTeams(params: {
         const shotsLastFiveSeries = shotsLastFiveByPlayer.get(playerId) ?? [];
         const savesLastTwoSeries = savesLastTwoByPlayer.get(playerId) ?? [];
         const savesLastFiveSeries = savesLastFiveByPlayer.get(playerId) ?? [];
-        const foulsLastTwoSeries = foulsLastTwoByPlayer.get(playerId) ?? [];
-        const foulsLastFiveSeries = foulsLastFiveByPlayer.get(playerId) ?? [];
-        const fouledLastTwoSeries = fouledLastTwoByPlayer.get(playerId) ?? [];
-        const fouledLastFiveSeries = fouledLastFiveByPlayer.get(playerId) ?? [];
+        const currentFoulsSeries = currentSeasonFoulsByPlayer.get(playerId) ?? [];
+        const currentFouledSeries = currentSeasonFouledByPlayer.get(playerId) ?? [];
+        const foulsLastTwoSeries = currentFoulsSeries.length
+          ? currentFoulsSeries.slice(0, starterLastTwoMatches)
+          : (foulsLastTwoByPlayer.get(playerId) ?? []);
+        const foulsLastFiveSeries = currentFoulsSeries.length
+          ? currentFoulsSeries.slice(0, starterLastFiveMatches)
+          : (foulsLastFiveByPlayer.get(playerId) ?? []);
+        const fouledLastTwoSeries = currentFouledSeries.length
+          ? currentFouledSeries.slice(0, starterLastTwoMatches)
+          : (fouledLastTwoByPlayer.get(playerId) ?? []);
+        const fouledLastFiveSeries = currentFouledSeries.length
+          ? currentFouledSeries.slice(0, starterLastFiveMatches)
+          : (fouledLastFiveByPlayer.get(playerId) ?? []);
         const savesSeasonSeries = savesSeasonByPlayer.get(playerId) ?? [];
         const foulsSeasonSeries = foulsSeasonByPlayer.get(playerId) ?? [];
         const fouledSeasonSeries = fouledSeasonByPlayer.get(playerId) ?? [];
+        const minutesSeasonSeries = minutesSeasonByPlayer.get(playerId) ?? [];
         const dribblesSeasonSeries = dribblesSeasonByPlayer.get(playerId) ?? [];
         const capLt = starterLastTwoMatches;
         const capLf = starterLastFiveMatches;
@@ -4098,16 +4472,22 @@ export async function fetchSportPerformanceForTeams(params: {
           savesSeasonAvg = savesSeasonSeries.reduce((a, b) => a + b, 0) / Math.max(1, savesSeasonN);
         }
         foulsCommittedSeasonAvg = seasonFoulPerMatchFromSources(
-          foulsSeasonSeries,
-          overall,
+          currentFoulsSeries,
+          currentOverall,
           "committed"
         );
 
         foulsSufferedSeasonAvg = seasonFoulPerMatchFromSources(
-          fouledSeasonSeries,
-          overall,
+          currentFouledSeries,
+          currentOverall,
           "suffered"
         );
+        const p90Fields = foulRateContextFields({
+          committedSeries: currentFoulsSeries.length ? currentFoulsSeries : foulsSeasonSeries,
+          sufferedSeries: currentFouledSeries.length ? currentFouledSeries : fouledSeasonSeries,
+          minutesSeries: minutesSeasonSeries,
+          overall: currentOverall ?? overall
+        });
 
         if (dribblesSeasonN > 0) {
           dribblesSeasonAvg =
@@ -4138,6 +4518,15 @@ export async function fetchSportPerformanceForTeams(params: {
           foulsSufferedSeasonAvg,
           foulsSufferedLastTwoAvg,
           foulsSufferedLastFiveAvg,
+          seasonMinutesPlayed: p90Fields.seasonMinutesPlayed,
+          seasonAppearances: p90Fields.seasonAppearances,
+          foulsCommittedSeasonP90: p90Fields.foulsCommittedSeasonP90,
+          foulsSufferedSeasonP90: p90Fields.foulsSufferedSeasonP90,
+          currentSeasonSampleCount: Math.max(
+            currentSeasonFoulsByPlayer.get(playerId)?.length ?? 0,
+            currentSeasonFouledByPlayer.get(playerId)?.length ?? 0,
+            appearanceCountFromOverall(currentOverall)
+          ),
           dribblesSeasonAvg,
           opponentExpectedGoalsCreated: 0,
           savePercentage: 65,
@@ -4196,7 +4585,8 @@ export async function fetchSportPerformanceForTeams(params: {
               ? fouledLastFiveN
               : appearancesTrustworthyForOverall(overall) && foulsSufferedSeasonAvg > 0
                 ? Math.min(capLf, Math.max(1, appearancesRaw))
-                : 0
+                : 0,
+          probableStarter: true
         } satisfies SportPerformanceInput;
 
         params.savesDiagnosticsCollector?.({
@@ -4214,26 +4604,127 @@ export async function fetchSportPerformanceForTeams(params: {
         return row;
       });
 
-      /** Titolari + resto rosa da storico partite (es. titolari assenti in formazione API ma top tiratori). */
+      /** XI prevista + tutti i compagni con media falli commessi o subiti > 1,2. */
       const supplementRows = await rowsFromTeamMatchAggregates(false);
-      const starterKeys = new Set(
-        startersFromSelectedMatch.map(
-          (s) =>
-            `${team.teamId}::${s.player?.id ?? 0}::${(s.player?.name ?? s.player?.shortName ?? "")
-              .toUpperCase()
-              .trim()}`
-        )
+      let merged = dedupeSquadPlayers(
+        [
+          ...starterRows,
+          ...supplementRows.filter((row) => {
+            const id = typeof row.athleteId === "number" && row.athleteId > 0 ? row.athleteId : 0;
+            if (id > 0 && unavailablePlayerIds.has(id)) return false;
+            const nameKey = normalizePlayerNameKey(row.athleteName);
+            if (nameKey && unavailablePlayers.names.has(nameKey)) return false;
+            return (
+              sportRowMeetsFoulsProfile(row) ||
+              starterRows.some((starter) =>
+                isSameSquadPlayer(sportPerformanceIdentity(starter), sportPerformanceIdentity(row))
+              )
+            );
+          })
+        ],
+        sportPerformanceIdentity,
+        pickRicherSportPerformance
       );
-      const merged: SportPerformanceInput[] = [...starterRows];
-      for (const row of supplementRows) {
-        const key = `${team.teamId}::${row.athleteId ?? 0}::${normalizePlayerNameKey(row.athleteName)}`;
-        const isCurrentRoster =
-          currentRosterNameSet.size === 0 || currentRosterNameSet.has(normalizePlayerNameKey(row.athleteName));
-        if (!starterKeys.has(key) && isCurrentRoster) {
-          merged.push(row);
+      const leftoverPredicted = selectedMatchPlayers.filter((player) => {
+        const id = lineupPlayerId(player);
+        if (id <= 0) return false;
+        if (unavailablePlayerIds.has(id)) return false;
+        const playerName = player.player?.name ?? player.player?.shortName ?? "";
+        const nameKey = normalizePlayerNameKey(playerName);
+        if (nameKey && unavailablePlayers.names.has(nameKey)) return false;
+        return !merged.some((row) =>
+          isSameSquadPlayer(sportPerformanceIdentity(row), {
+            playerId: id,
+            teamId: team.teamId,
+            playerName
+          })
+        );
+      });
+      if (leftoverPredicted.length) {
+        const leftoverOverall = await fetchCurrentSeasonOverallMap(
+          leftoverPredicted.map((player) => lineupPlayerId(player))
+        );
+        const leftoverRows: SportPerformanceInput[] = [];
+        for (const player of leftoverPredicted) {
+          const id = lineupPlayerId(player);
+          const overall = leftoverOverall.get(id) ?? null;
+          const apps = appearanceCountFromOverall(overall);
+          const committed = seasonFoulPerMatchFromOverall(overall, "committed") ?? 0;
+          const suffered = seasonFoulPerMatchFromOverall(overall, "suffered") ?? 0;
+          if (apps < 1) continue;
+          if (committed <= FOULS_PROFILE_MIN_AVG && suffered <= FOULS_PROFILE_MIN_AVG) continue;
+          const p90Fields = foulRateContextFields({
+            committedSeries: [],
+            sufferedSeries: [],
+            minutesSeries: [],
+            overall
+          });
+          leftoverRows.push({
+            athleteId: id,
+            athleteName: player.player?.name ?? player.player?.shortName ?? `PLAYER_${id}`,
+            team: team.teamName,
+            teamId: team.teamId,
+            jerseyNumber: player.jerseyNumber ?? player.shirtNumber ?? 0,
+            role: mapPositionToRole(player.position),
+            positionCode: player.position?.trim() || undefined,
+            clubColor: team.clubColor,
+            shotsTotal: 0,
+            shotsLastTwoAvg: 0,
+            shotsLastFiveAvg: 0,
+            shotsSeasonAvg: 0,
+            opponentShotsConcededTotal: 0,
+            leagueAvgShotsConceded: Math.max(leagueBaseline, 0.1),
+            foulsCommitted: committed,
+            foulsSuffered: suffered,
+            foulsCommittedSeasonAvg: committed,
+            foulsCommittedLastTwoAvg: committed,
+            foulsCommittedLastFiveAvg: committed,
+            foulsSufferedSeasonAvg: suffered,
+            foulsSufferedLastTwoAvg: suffered,
+            foulsSufferedLastFiveAvg: suffered,
+            seasonMinutesPlayed: p90Fields.seasonMinutesPlayed,
+            seasonAppearances: p90Fields.seasonAppearances,
+            foulsCommittedSeasonP90: p90Fields.foulsCommittedSeasonP90,
+            foulsSufferedSeasonP90: p90Fields.foulsSufferedSeasonP90,
+            currentSeasonSampleCount: apps,
+            dribblesSeasonAvg: 0,
+            opponentExpectedGoalsCreated: 0,
+            savePercentage: 65,
+            savesSeasonAvg: 0,
+            savesLastTwoAvg: 0,
+            savesLastFiveAvg: 0,
+            opponentShotsOnTargetSeasonAvg: 0,
+            opponentShotsOnTargetLeagueAvg: Math.max(leagueBaseline, 0.1),
+            opponentShotsOnTargetLastTwoAvg: 0,
+            opponentShotsOnTargetLastTwoLeagueAvg: Math.max(leagueBaseline, 0.1),
+            heatmapPoints: [],
+            shotsLastTwoSampleCount: Math.min(2, apps),
+            savesLastTwoSampleCount: 0,
+            foulsCommittedLastTwoSampleCount: Math.min(2, apps),
+            foulsSufferedLastTwoSampleCount: Math.min(2, apps),
+            shotsLastFiveSampleCount: apps,
+            savesLastFiveSampleCount: 0,
+            foulsCommittedLastFiveSampleCount: apps,
+            foulsSufferedLastFiveSampleCount: apps,
+            probableStarter: false
+          });
+        }
+        if (leftoverRows.length) {
+          merged = dedupeSquadPlayers(
+            [...merged, ...leftoverRows],
+            sportPerformanceIdentity,
+            pickRicherSportPerformance
+          );
         }
       }
-      return finalizeTeamRows(merged);
+      return finalizeTeamRows(
+        merged.map((row) => ({
+          ...row,
+          probableStarter: starterRows.some((starter) =>
+            isSameSquadPlayer(sportPerformanceIdentity(starter), sportPerformanceIdentity(row))
+          )
+        }))
+      );
     }
 
     return finalizeTeamRows(await rowsFromTeamMatchAggregates(false));
@@ -4276,7 +4767,16 @@ export async function fetchSportPerformanceForTeams(params: {
   }
 
   /** Solo righe con campioni reali: niente baseline lineup né roster a zeri. */
-  const combined = [...homeRows, ...awayRows].filter((row) => performanceRowHasRealSample(row));
+  const combined = [...homeRows, ...awayRows]
+    .filter((row) => performanceRowHasRealSample(row))
+    .map((row) => {
+      const id = typeof row.athleteId === "number" && row.athleteId > 0 ? row.athleteId : 0;
+      const nameKey = normalizePlayerNameKey(row.athleteName);
+      const unavailableForMatch =
+        (id > 0 && unavailablePlayers.ids.has(id)) ||
+        (nameKey.length > 0 && unavailablePlayers.names.has(nameKey));
+      return { ...row, unavailableForMatch };
+    });
 
   const rosterTeamIds = new Set(combined.map((row) => row.teamId));
   if (!rosterTeamIds.has(params.homeTeamId) || !rosterTeamIds.has(params.awayTeamId)) {
@@ -4482,6 +4982,8 @@ function aggregateBlueprintFromStats(params: {
   scope: CompetitionScope;
   statsRows: Array<Record<string, number>>;
   competitions: string[];
+  tournamentId?: number;
+  seasonId?: number;
 }): TeamPerformanceBlueprint {
   const base = defaultBlueprint(params.teamId, params.teamName, params.scope);
   const seasonOverallRow = pickSeasonOverallStatsRow(params.statsRows);
@@ -4507,6 +5009,8 @@ function aggregateBlueprintFromStats(params: {
     // Normalize season totals by matches played to expose per-game values in kiosk.
     return {
       ...base,
+      tournamentId: params.tournamentId,
+      seasonId: params.seasonId,
       competitions: params.competitions.length ? params.competitions : base.competitions,
       offensive: {
         ...base.offensive,
@@ -4567,6 +5071,8 @@ function aggregateBlueprintFromStats(params: {
 
   return {
     ...base,
+    tournamentId: params.tournamentId,
+    seasonId: params.seasonId,
     competitions: params.competitions.length ? params.competitions : base.competitions,
     offensive: {
       ...base.offensive,
@@ -4620,6 +5126,8 @@ async function listFinishedEventsForTeam(params: {
   allowedCompetitionSlugs: Set<string>;
   maxPages: number;
   maxMatches: number;
+  tournamentId?: number;
+  seasonId?: number;
 }): Promise<SportApiEvent[]> {
   const result: SportApiEvent[] = [];
   for (let page = 0; page < params.maxPages; page += 1) {
@@ -4635,6 +5143,12 @@ async function listFinishedEventsForTeam(params: {
       if (!isAllowedCompetitionSlug(slug, params.allowedCompetitionSlugs)) continue;
       if (eventStatusType(event) !== "finished") continue;
       if (!event.id) continue;
+      if (params.tournamentId && params.tournamentId > 0) {
+        if (Number(event.tournament?.uniqueTournament?.id) !== Number(params.tournamentId)) continue;
+      }
+      if (params.seasonId && params.seasonId > 0) {
+        if (Number(event.season?.id) !== Number(params.seasonId)) continue;
+      }
       result.push(event);
       if (result.length >= params.maxMatches) {
         return result;
@@ -5020,6 +5534,19 @@ export async function fetchUpcomingInternationalTournamentMatches(): Promise<Upc
   return mapEventsToUpcomingMatchItems(events);
 }
 
+function stampBlueprintSeason(
+  blueprint: TeamPerformanceBlueprint,
+  tournamentId: number,
+  seasonId: number
+): TeamPerformanceBlueprint {
+  if (tournamentId <= 0 || seasonId <= 0) return blueprint;
+  return {
+    ...blueprint,
+    tournamentId,
+    seasonId
+  };
+}
+
 export async function fetchTeamPerformanceBlueprint(params: {
   teamId: number;
   teamName: string;
@@ -5028,6 +5555,8 @@ export async function fetchTeamPerformanceBlueprint(params: {
   tournamentId?: number;
   seasonId?: number;
   forceRefresh?: boolean;
+  /** Non usare stagione precedente / campionato minore: solo il torneo+stagione passati (es. 2026-27). */
+  preferCurrentSeason?: boolean;
   debugCollector?: (meta: TeamBlueprintDebugMeta) => void;
 }): Promise<TeamPerformanceBlueprint> {
   const scopeCompetitions = COMPETITION_SCOPE_MAP[params.scope].map(normalizeCompetitionSlug);
@@ -5053,7 +5582,7 @@ export async function fetchTeamPerformanceBlueprint(params: {
     params.tournamentId && params.tournamentId > 0 ? params.tournamentId : 0;
   let effectiveSeasonId = params.seasonId && params.seasonId > 0 ? params.seasonId : 0;
 
-  if (effectiveTournamentId > 0 && effectiveSeasonId > 0) {
+  if (effectiveTournamentId > 0 && effectiveSeasonId > 0 && !params.preferCurrentSeason) {
     const seasonFallback = await resolveTeamSeasonFallback({
       teamId: params.teamId,
       current: { tournamentId: effectiveTournamentId, seasonId: effectiveSeasonId },
@@ -5067,6 +5596,7 @@ export async function fetchTeamPerformanceBlueprint(params: {
      * `blueprintContext`: per le squadre neopromosse punta al campionato minore
      * (torneo diverso) realmente giocato la stagione precedente, invece che a una
      * stagione precedente vuota nella competizione corrente.
+     * Il Report Pre-Partita passa `preferCurrentSeason` e resta sul torneo/stagione della partita.
      */
     effectiveTournamentId = seasonFallback.blueprintContext.tournamentId;
     effectiveSeasonId = seasonFallback.blueprintContext.seasonId;
@@ -5104,7 +5634,7 @@ export async function fetchTeamPerformanceBlueprint(params: {
         source: "cache_recent",
         cacheLastUpdated: cached.last_updated
       });
-      return cached.blueprint;
+      return stampBlueprintSeason(cached.blueprint, cacheTournamentId, cacheSeasonId);
     }
 
     const hasNearMatch = await hasNextMatchWithinDays({
@@ -5117,7 +5647,7 @@ export async function fetchTeamPerformanceBlueprint(params: {
         source: "cache_no_upcoming_match",
         cacheLastUpdated: cached.last_updated
       });
-      return cached.blueprint;
+      return stampBlueprintSeason(cached.blueprint, cacheTournamentId, cacheSeasonId);
     }
   }
 
@@ -5148,7 +5678,7 @@ export async function fetchTeamPerformanceBlueprint(params: {
         source: "cache_budget_block",
         cacheLastUpdated: cached.last_updated
       });
-      return cached.blueprint;
+      return stampBlueprintSeason(cached.blueprint, cacheTournamentId, cacheSeasonId);
     }
     throw new Error("SportAPI error: daily_budget_exceeded");
   }
@@ -5178,20 +5708,22 @@ export async function fetchTeamPerformanceBlueprint(params: {
     const primaryEvents = await listFinishedEventsForTeam({
       teamId: params.teamId,
       allowedCompetitionSlugs: allowedSlugs,
-      maxPages: 1,
-      maxMatches: 1
+      maxPages: params.preferCurrentSeason ? 3 : 1,
+      maxMatches: 1,
+      tournamentId: params.preferCurrentSeason ? effectiveTournamentId : undefined,
+      seasonId: params.preferCurrentSeason ? effectiveSeasonId : undefined
     });
 
     if (primaryEvents.length === 0) {
       if (cached) {
-        return cached.blueprint;
+        return stampBlueprintSeason(cached.blueprint, cacheTournamentId, cacheSeasonId);
       }
       throw new Error("SportAPI error: no_recent_matches_for_scope");
     }
 
     events = primaryEvents;
     const contextEvent = primaryEvents.find((event) => Boolean(event.id)) ?? null;
-    if (contextEvent) {
+    if (contextEvent && !params.preferCurrentSeason) {
       const contextResult = await resolveSeasonContextFromEvent(contextEvent);
       if (contextResult.context) {
         const seasonOverall = await fetchTeamSeasonOverallStatistics({
@@ -5219,7 +5751,9 @@ export async function fetchTeamPerformanceBlueprint(params: {
       teamId: params.teamId,
       allowedCompetitionSlugs: allowedSlugs,
       maxPages: parsePositiveInt(process.env.TACTICAL_BLUEPRINT_SEASON_PAGES, 2),
-      maxMatches: parsePositiveInt(process.env.TACTICAL_BLUEPRINT_SEASON_MATCHES, 8)
+      maxMatches: parsePositiveInt(process.env.TACTICAL_BLUEPRINT_SEASON_MATCHES, 8),
+      tournamentId: params.preferCurrentSeason ? effectiveTournamentId : undefined,
+      seasonId: params.preferCurrentSeason ? effectiveSeasonId : undefined
     });
 
     for (const event of events) {
@@ -5237,7 +5771,7 @@ export async function fetchTeamPerformanceBlueprint(params: {
 
   if (statsRows.length === 0) {
     if (cached) {
-      return cached.blueprint;
+      return stampBlueprintSeason(cached.blueprint, cacheTournamentId, cacheSeasonId);
     }
     throw new Error("SportAPI error: missing_event_statistics");
   }
@@ -5256,7 +5790,9 @@ export async function fetchTeamPerformanceBlueprint(params: {
     teamName: params.teamName,
     scope: params.scope,
     statsRows,
-    competitions: actualCompetitions.length ? actualCompetitions : scopeCompetitions
+    competitions: actualCompetitions.length ? actualCompetitions : scopeCompetitions,
+    tournamentId: cacheTournamentId > 0 ? cacheTournamentId : undefined,
+    seasonId: cacheSeasonId > 0 ? cacheSeasonId : undefined
   });
 
   const lastMatchTs = events.length

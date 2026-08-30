@@ -1,25 +1,12 @@
 import { env } from "@/lib/env";
-import { getOrCreateDeviceId } from "@/lib/device-id";
+import { buildMobileHeaders, fetchWithTimeout } from "@/lib/mobile-http";
 import { buildMatchPlayerPerformanceQuery } from "@/lib/player-performance/hints";
 import { isPlayerPerformanceAnchorStillUpcoming } from "@/lib/player-performance/fixture-eligibility";
 import { PLAYER_PERFORMANCE_TEXT } from "@/lib/player-performance/text";
-import { supabase } from "@/lib/supabase";
 import type { MatchPlayerPerformance } from "@/lib/player-performance/types";
 
 async function buildHeaders(): Promise<HeadersInit> {
-  const [{ data: sessionData }, deviceId] = await Promise.all([
-    supabase.auth.getSession(),
-    getOrCreateDeviceId()
-  ]);
-  const headers: HeadersInit = {
-    "Content-Type": "application/json",
-    "X-Device-Id": deviceId,
-    "X-PitchBrain-Client": "mobile"
-  };
-  if (sessionData.session?.access_token) {
-    headers.Authorization = `Bearer ${sessionData.session.access_token}`;
-  }
-  return headers;
+  return buildMobileHeaders();
 }
 
 export async function fetchMatchPlayerPerformance(
@@ -43,7 +30,7 @@ export async function fetchMatchPlayerPerformance(
         })}&_=${Date.now()}`
       : `?_${Date.now()}`;
 
-  const res = await fetch(`${env.apiUrl}/api/mobile/match-player-performance/${eventId}${query}`, {
+  const res = await fetchWithTimeout(`${env.apiUrl}/api/mobile/match-player-performance/${eventId}${query}`, {
     headers: await buildHeaders(),
     cache: "no-store"
   });

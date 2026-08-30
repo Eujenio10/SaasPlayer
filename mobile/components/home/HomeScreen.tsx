@@ -1,24 +1,37 @@
 import { useEffect } from "react";
 import { RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
-import { useRouter, type Href } from "expo-router";
+import { useRouter } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { HomeHeader } from "@/components/home/HomeHeader";
 import { ErrorState } from "@/components/home/ErrorState";
-import { BetaNoticeBanner } from "@/components/home/BetaNoticeBanner";
 import { FeaturedMatchCard } from "@/components/home/FeaturedMatchCard";
 import { HomeLoadingSkeleton } from "@/components/home/LoadingSkeleton";
-import { QuickActionsRow } from "@/components/home/QuickActionButton";
-import { AnalyticsModuleCard } from "@/components/home/AnalyticsModuleCard";
+import { PitchBrainLoading } from "@/components/PitchBrainLoading";
+import { UpcomingMatchesSection } from "@/components/home/UpcomingMatchesSection";
 import { MatchRadarHomeCta } from "@/components/match-radar/MatchRadarHomeCta";
-import { DataRefreshScheduleBanner } from "@/components/home/DataRefreshScheduleBanner";
 import { EarlySeasonNoticeBanner } from "@/components/home/EarlySeasonNoticeBanner";
+import { homeColors } from "@/components/home/home-theme";
 import { useAuth } from "@/contexts/AuthContext";
 import { useGuestPreview } from "@/contexts/GuestPreviewContext";
 import { shouldObscureGuestStats } from "@/lib/access/guest-preview-mode";
 import { subscribeAdminCatalogRefresh } from "@/lib/admin-catalog-refresh";
+import type { HomeUpcomingMatch } from "@/lib/home-dashboard/types";
 import { useHomeDashboard } from "@/lib/home-dashboard/useHomeDashboard";
 import { useAdminMatchesRefresh } from "@/lib/matches/useAdminMatchesRefresh";
-import { colors, radii, spacing } from "@/lib/theme";
+import { useDeferredLoading } from "@/lib/use-deferred-loading";
+import { spacing } from "@/lib/theme";
+
+function formatLastRefreshClock(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return null;
+  return new Intl.DateTimeFormat("it-IT", {
+    timeZone: "Europe/Rome",
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(date);
+}
 
 export function HomeScreen() {
   const router = useRouter();
@@ -26,19 +39,24 @@ export function HomeScreen() {
   const { previewActive } = useGuestPreview();
   const { data, loading, error, refetch } = useHomeDashboard();
   const adminRefresh = useAdminMatchesRefresh(() => void refetch());
+  const firstLoad = loading && !data;
+  const showOverlay = useDeferredLoading(firstLoad);
 
   useEffect(() => subscribeAdminCatalogRefresh(() => void refetch()), [refetch]);
 
   const isGuest = userStatus === "guest";
   const obscureStats = shouldObscureGuestStats(userStatus, previewActive);
+  const lastRefreshClock = formatLastRefreshClock(data?.dataRefresh.lastRefreshAt);
+  const upcomingMatches = data?.upcomingMatches ?? [];
 
-  const openFeatured = (
+  const openMatch = (
     eventId: number,
     home: string,
     away: string,
     competition: string,
     homeTeamId: number,
-    awayTeamId: number
+    awayTeamId: number,
+    startTimestamp?: number
   ) => {
     router.push({
       pathname: "/match/[eventId]",
@@ -48,9 +66,22 @@ export function HomeScreen() {
         away,
         competition,
         homeTeamId: String(homeTeamId),
-        awayTeamId: String(awayTeamId)
+        awayTeamId: String(awayTeamId),
+        ...(startTimestamp ? { startTimestamp: String(startTimestamp) } : {})
       }
     });
+  };
+
+  const openUpcoming = (match: HomeUpcomingMatch) => {
+    openMatch(
+      match.id,
+      match.homeTeamName,
+      match.awayTeamName,
+      match.competitionName,
+      match.homeTeamId,
+      match.awayTeamId,
+      match.startTimestamp
+    );
   };
 
   return (
@@ -60,24 +91,25 @@ export function HomeScreen() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         refreshControl={
-          <RefreshControl refreshing={loading && !!data} onRefresh={() => void refetch()} tintColor={colors.cyan} />
+          <RefreshControl
+            refreshing={loading && !!data}
+            onRefresh={() => void refetch()}
+            tintColor={homeColors.green}
+          />
         }
       >
         <HomeHeader
           role={data?.user.role ?? access?.role}
-          isPro={userStatus === "authenticated_pro"}
           isGuest={isGuest}
           onAdminRefresh={access?.canRefreshData ? () => void adminRefresh.refresh() : undefined}
           adminRefreshing={adminRefresh.refreshing}
+          onBadgePress={() => router.push("/profile")}
         />
 
-        {loading && !data ? <HomeLoadingSkeleton /> : null}
+        {firstLoad && !showOverlay ? <HomeLoadingSkeleton /> : null}
 
         <View style={styles.content}>
-          <BetaNoticeBanner />
           <EarlySeasonNoticeBanner message={data?.earlySeasonNotice} />
-          <DataRefreshScheduleBanner status={data?.dataRefresh} />
-          <MatchRadarHomeCta />
 
           {error && !data && !isGuest ? (
             <ErrorState message={error} onRetry={() => void refetch()} />
@@ -89,12 +121,19 @@ export function HomeScreen() {
             </View>
           ) : null}
 
+          {data && !data.featuredMatch && !loading ? (
+            <View style={styles.emptyBox}>
+              <Text style={styles.emptyText}>Nessuna partita disponibile.</Text>
+            </View>
+          ) : null}
+
           {data?.featuredMatch ? (
             <FeaturedMatchCard
               match={data.featuredMatch}
               obscureStats={obscureStats}
+              onOpenCalendar={() => router.push("/matches")}
               onPress={() =>
-                openFeatured(
+                openMatch(
                   data.featuredMatch!.id,
                   data.featuredMatch!.homeTeamName,
                   data.featuredMatch!.awayTeamName,
@@ -106,30 +145,23 @@ export function HomeScreen() {
             />
           ) : null}
 
-          {data?.quickActions?.length ? (
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Accesso rapido</Text>
-              <QuickActionsRow
-                actions={data.quickActions}
-                onActionPress={(route) => router.push(route as Href)}
-              />
-            </View>
-          ) : null}
+          <MatchRadarHomeCta />
 
-          {data?.modules?.length ? (
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Moduli analitici</Text>
-              {data.modules.map((module) => (
-                <AnalyticsModuleCard
-                  key={module.id}
-                  module={module}
-                  onPress={() => router.push(module.route as Href)}
-                />
-              ))}
+          <UpcomingMatchesSection
+            matches={upcomingMatches}
+            onSeeAll={() => router.push("/matches")}
+            onMatchPress={openUpcoming}
+          />
+
+          {lastRefreshClock ? (
+            <View style={styles.lastRefresh}>
+              <Ionicons name="refresh-outline" size={12} color={homeColors.green} />
+              <Text style={styles.lastRefreshText}>DATI AGGIORNATI ALLE {lastRefreshClock}</Text>
             </View>
           ) : null}
         </View>
       </ScrollView>
+      <PitchBrainLoading visible={firstLoad} message="Analisi in corso…" />
     </SafeAreaView>
   );
 }
@@ -137,36 +169,56 @@ export function HomeScreen() {
 const styles = StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: colors.background
+    backgroundColor: homeColors.bg
   },
   scroll: {
     paddingHorizontal: spacing.md,
-    paddingBottom: spacing.xl
+    paddingBottom: spacing.xl,
+    width: "100%",
+    maxWidth: 720,
+    alignSelf: "center"
   },
   content: {
-    gap: spacing.lg
-  },
-  section: {
-    gap: spacing.sm
-  },
-  sectionTitle: {
-    color: colors.textDim,
-    fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 1.2,
-    textTransform: "uppercase"
+    gap: spacing.md
   },
   guestNotice: {
     padding: spacing.md,
-    borderRadius: radii.lg,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: "rgba(103,232,249,0.18)",
-    backgroundColor: "rgba(56,189,248,0.06)"
+    borderColor: homeColors.border,
+    backgroundColor: homeColors.card
   },
   guestNoticeText: {
-    color: colors.textMuted,
+    color: homeColors.textMuted,
     fontSize: 12,
     lineHeight: 17,
     textAlign: "center"
+  },
+  emptyBox: {
+    padding: spacing.lg,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: homeColors.border,
+    backgroundColor: homeColors.card
+  },
+  emptyText: {
+    color: homeColors.textMuted,
+    fontSize: 14,
+    fontWeight: "600",
+    textAlign: "center"
+  },
+  lastRefresh: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingTop: 4,
+    paddingBottom: 8
+  },
+  lastRefreshText: {
+    color: homeColors.textMuted,
+    fontSize: 11,
+    fontWeight: "600",
+    letterSpacing: 0.6
   }
 });

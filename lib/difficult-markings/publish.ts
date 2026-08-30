@@ -1,88 +1,70 @@
 import type { DifficultMarkingMatchup } from "@/lib/difficult-markings/types";
+import { MARKINGS_TOP_N } from "@/lib/difficult-markings/threat-config";
 
-function matchupRankKey(item: DifficultMarkingMatchup): [number, number, number, number] {
-  const dualLoad = (item.markingLoadCount ?? 1) >= 2 || (item.extraAttackers?.length ?? 0) > 0 ? 1 : 0;
-  return [dualLoad, item.attackerChallengeScore, item.difficultMarkingScore, item.matchupScore];
-}
-
-function compareMatchupRank(a: DifficultMarkingMatchup, b: DifficultMarkingMatchup): number {
-  const [aLoad, aThreat, aScore, aFit] = matchupRankKey(a);
-  const [bLoad, bThreat, bScore, bFit] = matchupRankKey(b);
-  if (aLoad !== bLoad) return bLoad - aLoad;
-  if (Math.abs(aThreat - bThreat) > 0.02) return bThreat - aThreat;
-  if (aScore !== bScore) return bScore - aScore;
-  return bFit - aFit;
-}
+/** Soglia minima opzionale; il taglio principale è il top N. */
+export const MARKINGS_MIN_PUBLISH_SCORE = 0;
+export const MARKINGS_MAX_MULTI = MARKINGS_TOP_N;
+export const MARKINGS_MAX_SINGLES = 0;
+export const MARKINGS_MAX_PER_ROUND = MARKINGS_TOP_N;
+export const MARKINGS_MAX_PER_MATCH = MARKINGS_TOP_N;
 
 /**
- * Selezione: prima i marcatori con carico 2+ attaccanti difficili, poi le coppie 1v1
- * degli attaccanti con più falli subiti e dribbling. Un attaccante compare una sola volta.
+ * Solo i 5 difensori più sotto pressione del campionato.
+ * Un card per marcatore; gli attaccanti di zona possono comparire su più card.
  */
 export function selectCanonicalMatchupsForMatch(
   matchups: DifficultMarkingMatchup[],
-  options?: { maxPerMatch?: number; minAttackerThreat?: number }
+  options?: {
+    maxPerMatch?: number;
+    limit?: number;
+    minScore?: number;
+    minAttackerThreat?: number;
+    multiLimit?: number;
+    singleLimit?: number;
+  }
 ): DifficultMarkingMatchup[] {
-  const maxPerMatch = options?.maxPerMatch ?? 4;
-  const minAttackerThreat = options?.minAttackerThreat ?? 0.3;
-  if (!matchups.length) return [];
+  const limit = options?.limit ?? options?.maxPerMatch ?? options?.multiLimit ?? MARKINGS_TOP_N;
+  const minScore = options?.minScore ?? MARKINGS_MIN_PUBLISH_SCORE;
+  if (!matchups.length || limit <= 0) return [];
 
-  const ranked = [...matchups].sort(compareMatchupRank);
+  const ranked = [...matchups]
+    .filter((item) => item.leadKind !== "forward" && (item.difficultMarkingScore ?? 0) >= minScore)
+    .sort((a, b) => (b.difficultMarkingScore ?? 0) - (a.difficultMarkingScore ?? 0));
+
   const selected: DifficultMarkingMatchup[] = [];
   const usedDefenders = new Set<string>();
-  const usedAttackers = new Set<string>();
-
-  const attackerCoveredBy = (item: DifficultMarkingMatchup): string[] => {
-    const extra = (item.extraAttackers ?? []).map((a) => a.playerId);
-    return [item.attackerPlayerId, ...extra];
-  };
 
   for (const item of ranked) {
-    if (selected.length >= maxPerMatch) break;
-    if (item.attackerChallengeScore < minAttackerThreat && (item.markingLoadCount ?? 1) < 2) {
-      continue;
-    }
+    if (selected.length >= limit) break;
     if (usedDefenders.has(item.defenderPlayerId)) continue;
-    if (attackerCoveredBy(item).some((id) => usedAttackers.has(id))) continue;
     selected.push(item);
     usedDefenders.add(item.defenderPlayerId);
-    for (const id of attackerCoveredBy(item)) usedAttackers.add(id);
   }
 
-  return selected.sort((a, b) => b.difficultMarkingScore - a.difficultMarkingScore);
+  return selected;
 }
 
 export function dedupeAndSelectMatchups(
   matchups: DifficultMarkingMatchup[],
-  options?: { maxPerMatch?: number; onePerDefender?: boolean }
+  options?: {
+    maxPerMatch?: number;
+    limit?: number;
+    minScore?: number;
+    onePerDefender?: boolean;
+    multiLimit?: number;
+    singleLimit?: number;
+  }
 ): DifficultMarkingMatchup[] {
-  if (options?.onePerDefender !== false) {
-    return selectCanonicalMatchupsForMatch(matchups, { maxPerMatch: options?.maxPerMatch ?? 4 });
-  }
-
-  const maxPerMatch = options?.maxPerMatch ?? 2;
-  const sorted = [...matchups].sort(compareMatchupRank);
-  const selected: DifficultMarkingMatchup[] = [];
-  const perMatch = new Map<string, number>();
-
-  for (const item of sorted) {
-    const matchCount = perMatch.get(item.fixtureId) ?? 0;
-    if (matchCount >= maxPerMatch) continue;
-    selected.push(item);
-    perMatch.set(item.fixtureId, matchCount + 1);
-  }
-
-  return selected.sort((a, b) => b.difficultMarkingScore - a.difficultMarkingScore);
+  return selectCanonicalMatchupsForMatch(matchups, options);
 }
 
 export function filterRoundLeaderboard(
   matchups: DifficultMarkingMatchup[],
   options?: { minScore?: number; limit?: number }
 ): DifficultMarkingMatchup[] {
-  const minScore = options?.minScore ?? 65;
-  const limit = options?.limit ?? 10;
-  return dedupeAndSelectMatchups(matchups)
-    .filter((m) => m.difficultMarkingScore >= minScore)
-    .slice(0, limit);
+  const minScore = options?.minScore ?? MARKINGS_MIN_PUBLISH_SCORE;
+  const limit = options?.limit ?? MARKINGS_TOP_N;
+  return selectCanonicalMatchupsForMatch(matchups, { limit, minScore }).slice(0, limit);
 }
 
 export type DifficultMarkingSortKey =
@@ -101,7 +83,10 @@ export function sortDifficultMarkings(
       return (b.attackerMetrics.foulsDrawnPer90 ?? 0) - (a.attackerMetrics.foulsDrawnPer90 ?? 0);
     }
     if (sortBy === "dribbles") {
-      return (b.attackerMetrics.dribblesAttemptedPer90 ?? 0) - (a.attackerMetrics.dribblesAttemptedPer90 ?? 0);
+      return (
+        (b.attackerMetrics.dribblesSuccessfulPer90 ?? b.attackerMetrics.dribblesAttemptedPer90 ?? 0) -
+        (a.attackerMetrics.dribblesSuccessfulPer90 ?? a.attackerMetrics.dribblesAttemptedPer90 ?? 0)
+      );
     }
     if (sortBy === "reliability") {
       return b.reliabilityScore - a.reliabilityScore;

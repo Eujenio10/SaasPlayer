@@ -1,5 +1,5 @@
 const LEGAL_DISCLAIMER =
-  "Tactical Intelligence Hub: piattaforma di analisi sportiva, statistica ed editoriale.";
+  "PitchBrain fornisce analisi statistiche sportive a fini esclusivamente informativi. Non fornisce quote, consigli di scommessa, indicazioni di puntata o servizi relativi al gioco con vincite in denaro.";
 
 export function LegalFooter() {
   return (

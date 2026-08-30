@@ -47,7 +47,8 @@ export async function persistTeamBlueprintForMatch(params: {
       scope: params.scope,
       tournamentId,
       seasonId,
-      forceRefresh: params.forceRefresh ?? false
+      forceRefresh: params.forceRefresh ?? false,
+      preferCurrentSeason: true
     });
 
     if (!isBlueprintPerMatchPlausible(blueprint)) return false;

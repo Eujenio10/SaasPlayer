@@ -69,6 +69,7 @@ export function DifficultMarkingZoneField({
   attackerPlayerName,
   probableZone,
   overlapPct,
+  overlapCaption,
   estimatedZoneOnly,
   compact = false,
   visualization
@@ -82,6 +83,7 @@ export function DifficultMarkingZoneField({
   attackerPlayerName?: string;
   probableZone: ProbableZone;
   overlapPct: number;
+  overlapCaption?: string;
   estimatedZoneOnly: boolean;
   usedHeatmap?: boolean;
   mode?: "overlap" | "attacker" | "defender" | "clash";
@@ -103,7 +105,9 @@ export function DifficultMarkingZoneField({
   const metaRow = (
     <div className={`flex flex-wrap items-center justify-between gap-2 ${compact ? "text-[11px]" : "text-sm"}`}>
       <span className="font-medium text-white">{zoneLabelIt(probableZone)}</span>
-      <span className="text-slate-300">Sovrapposizione {overlapPct}%</span>
+      <span className="text-slate-300">
+        {overlapCaption ? `Sovrapposizione ${overlapCaption}` : `Sovrapposizione ${overlapPct}%`}
+      </span>
     </div>
   );
 

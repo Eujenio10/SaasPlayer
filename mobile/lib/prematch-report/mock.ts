@@ -10,7 +10,7 @@ export const MOCK_PREMATCH_REPORT: PreMatchReport = {
   dataQuality: "partial",
   dataQualityNote: "Analisi basata sui dati disponibili (mock dev).",
   homeTeamName: "Squadra Alpha",
-  awayTeamName: "Squadra Beta",
+  awayTeamName: "Squadra Ospite",
   competitionName: "Campionato Demo",
   kickoffLabel: "sab 05 lug, 20:45",
   summary: {
@@ -29,7 +29,7 @@ export const MOCK_PREMATCH_REPORT: PreMatchReport = {
     homeScore: 72,
     awayScore: 61,
     text:
-      "Squadra Alpha arriva da risultati positivi, ma la forma reale è meno solida: nelle ultime partite ha segnato più di quanto prodotto. Squadra Beta mantiene un andamento più coerente con le proprie medie stagionali.",
+      "Squadra Alpha arriva da risultati positivi, ma la forma reale è meno solida: nelle ultime partite ha segnato più di quanto prodotto. Squadra Ospite mantiene un andamento più coerente con le proprie medie stagionali.",
     keyStats: [
       { label: "Indice forma reale", homeValue: "72/100", awayValue: "61/100" },
       { label: "Tiri totali (stag.)", homeValue: "14.2", awayValue: "11.8" },
@@ -41,7 +41,7 @@ export const MOCK_PREMATCH_REPORT: PreMatchReport = {
     homeScore: 78,
     awayScore: 64,
     text:
-      "Squadra Alpha ha un profilo offensivo più continuo: produce più tiri, entra più spesso in area e crea occasioni con maggiore qualità. Squadra Beta è meno costante nel volume offensivo, ma più diretta in transizione.",
+      "Squadra Alpha ha un profilo offensivo più continuo: produce più tiri, entra più spesso in area e crea occasioni con maggiore qualità. Squadra Ospite è meno costante nel volume offensivo, ma più diretta in transizione.",
     keyStats: [
       { label: "Indice offensivo", homeValue: "78/100", awayValue: "64/100" },
       { label: "Tiri/partita", homeValue: "14.2", awayValue: "11.8" },
@@ -53,7 +53,7 @@ export const MOCK_PREMATCH_REPORT: PreMatchReport = {
     homeScore: 68,
     awayScore: 71,
     text:
-      "Squadra Beta concede pochi tiri complessivi, ma spesso da zone pericolose. Indica una difesa che limita il volume, ma non sempre protegge bene l'area.",
+      "Squadra Ospite concede pochi tiri complessivi, ma spesso da zone pericolose. Indica una difesa che limita il volume, ma non sempre protegge bene l'area.",
     keyStats: [
       { label: "Indice difensivo", homeValue: "68/100", awayValue: "71/100" },
       { label: "Tiri concessi", homeValue: "10.8", awayValue: "9.4" },
@@ -68,7 +68,7 @@ export const MOCK_PREMATCH_REPORT: PreMatchReport = {
     advantagedTeamName: "Squadra Alpha",
     score: 78,
     text:
-      "La zona più rilevante sembra essere la fascia sinistra della Squadra Alpha. Da quel lato sviluppa una quota alta delle proprie azioni offensive, mentre la Squadra Beta concede cross e ingressi in area dalla propria destra difensiva.",
+      "La zona più rilevante sembra essere la fascia sinistra della Squadra Alpha. Da quel lato sviluppa una quota alta delle proprie azioni offensive, mentre la Squadra Ospite concede cross e ingressi in area dalla propria destra difensiva.",
     keyStats: [
       { label: "Indice zona", homeValue: "78/100", awayValue: "42/100" },
       { label: "Attacchi fascia sx", homeValue: "38%", awayValue: "22%" },
@@ -82,7 +82,7 @@ export const MOCK_PREMATCH_REPORT: PreMatchReport = {
     controlHome: 62,
     controlAway: 48,
     text:
-      "Il ritmo previsto è medio-alto. Squadra Alpha dovrebbe avere più possesso, ma Squadra Beta può rendersi pericolosa quando recupera palla e trova campo aperto.",
+      "Il ritmo previsto è medio-alto. Squadra Alpha dovrebbe avere più possesso, ma Squadra Ospite può rendersi pericolosa quando recupera palla e trova campo aperto.",
     keyStats: [
       { label: "Controllo territoriale", homeValue: "62/100", awayValue: "48/100" },
       { label: "Possesso medio", homeValue: "54%", awayValue: "46%" },
@@ -96,9 +96,9 @@ export const MOCK_PREMATCH_REPORT: PreMatchReport = {
     advantagedTeam: "home",
     advantagedTeamName: "Squadra Alpha",
     vulnerableTeam: "away",
-    vulnerableTeamName: "Squadra Beta",
+    vulnerableTeamName: "Squadra Ospite",
     text:
-      "Le palle inattive possono avere un peso medio-alto. Squadra Alpha produce molti corner e ha buona presenza collettiva in area. Squadra Beta concede diverse situazioni da piazzato quando viene schiacciata.",
+      "Le palle inattive possono avere un peso medio-alto. Squadra Alpha produce molti corner e ha buona presenza collettiva in area. Squadra Ospite concede diverse situazioni da piazzato quando viene schiacciata.",
     keyStats: [
       { label: "Corner guadagnati", homeValue: "6.2", awayValue: "4.1" },
       { label: "Corner concessi", homeValue: "4.0", awayValue: "5.8" },

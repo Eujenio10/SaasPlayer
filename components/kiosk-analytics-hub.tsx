@@ -11,8 +11,7 @@ import { analyzeFoulRisk } from "@/lib/foul-risk-analysis";
 import {
   buildEachTeamNextInternationalMatchesMenu,
   filterMatchesKickoffInFuture,
-  dedupeMatchesByEventId,
-  MATCHES_WINDOW_DAYS
+  dedupeMatchesByEventId
 } from "@/lib/tactical-matches-filters";
 import type { FoulRiskAggressorBrief, FoulRiskEntry } from "@/lib/foul-risk-analysis";
 import type { UserAccessSummary } from "@/lib/auth/user-access";
@@ -1278,11 +1277,11 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
             );
           } else {
             hints.push(
-              `Trovate ${intlDiscovery} gare internazionali in discovery ma fuori dalla finestra menu (${MATCHES_WINDOW_DAYS} giorni).`
+              `Trovate ${intlDiscovery} gare internazionali in discovery ma fuori dalla finestra menu (fino a 7 giorni dopo domani).`
             );
           }
           hints.push(
-            "Per i Top 5: su Vercel imposta TACTICAL_LOOKAHEAD_DAYS≥35, ridistribuisci e rilancia Aggiorna dati admin."
+            "Per i Top 5: rilancia Aggiorna dati admin. Il menu copre da oggi fino a 7 giorni dopo domani."
           );
           setMatchInsightsError(hints.join(" "));
         } else if (total > 0 && done === 0) {
@@ -1673,7 +1672,7 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
                 Aggiorna dati admin per campionato
               </p>
               <div className="flex flex-wrap gap-2">
-                {ACTIVE_MENU_COMPETITIONS.filter((c) => c.group === "domestic").map((c) => (
+                {ACTIVE_MENU_COMPETITIONS.filter((c) => c.group === "domestic" || c.group === "uefa").map((c) => (
                   <button
                     key={c.id}
                     type="button"

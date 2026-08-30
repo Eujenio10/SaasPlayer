@@ -1,65 +1,77 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { MATCH_RADAR_UI_TEXT } from "@/lib/match-radar/text";
-import { colors, radii, spacing } from "@/lib/theme";
+import { homeColors } from "@/components/home/home-theme";
+import { spacing } from "@/lib/theme";
 
 export function MatchRadarHomeCta() {
   const router = useRouter();
-  const ui = MATCH_RADAR_UI_TEXT.it;
 
   return (
     <Pressable
-      style={({ pressed }) => [styles.hero, pressed && { opacity: 0.94 }]}
+      style={({ pressed }) => [styles.card, pressed && { opacity: 0.94 }]}
       onPress={() => router.push("/match-radar")}
+      accessibilityRole="button"
+      accessibilityLabel="Apri Match Radar"
     >
-      <View style={styles.heroTop}>
-        <View style={styles.iconWrap}>
-          <Ionicons name="radio-outline" size={22} color={colors.cyan} />
-        </View>
-        <View style={styles.heroCopy}>
-          <Text style={styles.heroTitle}>{ui.homeCtaTitle}</Text>
-          <Text style={styles.heroBody}>{ui.homeCtaBody}</Text>
-        </View>
-        <Ionicons name="chevron-forward" size={20} color={colors.cyanMuted} />
+      <View style={styles.iconWrap}>
+        <Ionicons name="radio-outline" size={22} color={homeColors.green} />
       </View>
-      <View style={styles.ctaBtn}>
-        <Text style={styles.ctaBtnText}>{ui.homeCtaButton}</Text>
-        <Ionicons name="arrow-forward" size={16} color="#041018" />
+      <View style={styles.copy}>
+        <Text style={styles.title}>MATCH RADAR</Text>
+        <Text style={styles.body}>
+          Scopri le partite con i segnali più interessanti da analizzare.
+        </Text>
       </View>
+      <Text style={styles.link}>APRI RADAR →</Text>
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
-  hero: {
-    borderRadius: radii.xl,
-    borderWidth: 1,
-    borderColor: "rgba(56,189,248,0.28)",
-    backgroundColor: "rgba(8,20,40,0.92)",
-    padding: spacing.md,
-    gap: spacing.md
-  },
-  heroTop: { flexDirection: "row", alignItems: "flex-start", gap: spacing.sm },
-  iconWrap: {
-    width: 42,
-    height: 42,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(56,189,248,0.1)"
-  },
-  heroCopy: { flex: 1, gap: 4 },
-  heroTitle: { color: colors.text, fontSize: 18, fontWeight: "900" },
-  heroBody: { color: colors.textMuted, fontSize: 12, lineHeight: 17 },
-  ctaBtn: {
+  card: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    borderRadius: radii.lg,
-    backgroundColor: colors.cyan,
-    paddingVertical: 12
+    gap: spacing.sm,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: homeColors.border,
+    backgroundColor: homeColors.card,
+    paddingHorizontal: 12,
+    paddingVertical: 14
   },
-  ctaBtnText: { color: "#041018", fontSize: 14, fontWeight: "900" }
+  iconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: homeColors.border,
+    backgroundColor: "rgba(23,53,26,0.45)"
+  },
+  copy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 3
+  },
+  title: {
+    color: homeColors.green,
+    fontSize: 13,
+    fontWeight: "800",
+    letterSpacing: 0.8
+  },
+  body: {
+    color: homeColors.textMuted,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "500"
+  },
+  link: {
+    color: homeColors.green,
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 0.3,
+    flexShrink: 0
+  }
 });

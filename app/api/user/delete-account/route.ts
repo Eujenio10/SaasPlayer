@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
  * Cancella l'utente Auth: le FK on delete cascade rimuovono i dati collegati.
  */
 export async function POST(request: Request) {
-  const user = await getApiUser(request);
+  const user = await getApiUser(request, 8_000);
   if (!user) {
     return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
   }

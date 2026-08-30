@@ -1,59 +1,76 @@
 import { View, Text, StyleSheet } from "react-native";
-import { colors, radii, spacing } from "@/lib/theme";
+import { pitchbrainColors } from "@/lib/pitchbrain-theme";
 
 export function TrendSparkline(props: {
-  values: number[];
-  baselinePer90: number;
-  minutes?: number[];
+  previous: number;
+  recent: number;
 }) {
-  const max = Math.max(...props.values, props.baselinePer90, 0.1);
+  const max = Math.max(props.previous, props.recent, 0.1);
+  const previousHeight = Math.max(8, (props.previous / max) * 72);
+  const recentHeight = Math.max(8, (props.recent / max) * 72);
+
   return (
-    <View style={styles.wrap}>
-      <View style={styles.row}>
-        {props.values.map((value, index) => {
-          const per90 =
-            props.minutes && props.minutes[index] > 0
-              ? (value / props.minutes[index]) * 90
-              : value;
-          const height = Math.max(8, (per90 / max) * 56);
-          return <View key={index} style={[styles.bar, { height }]} />;
-        })}
+    <View style={styles.wrap} accessibilityRole="image" accessibilityLabel={`Media precedente ${props.previous.toFixed(1)}, ultime 5 ${props.recent.toFixed(1)}`}>
+      <View style={styles.chart}>
+        <View style={styles.col}>
+          <Text style={styles.value}>{props.previous.toFixed(1)}</Text>
+          <View style={[styles.bar, styles.barPrevious, { height: previousHeight }]} />
+          <Text style={styles.label}>Prima</Text>
+        </View>
+        <View style={styles.col}>
+          <Text style={[styles.value, styles.valueRecent]}>{props.recent.toFixed(1)}</Text>
+          <View style={[styles.bar, styles.barRecent, { height: recentHeight }]} />
+          <Text style={styles.label}>Ultime 5</Text>
+        </View>
       </View>
-      <View style={styles.baselineLine} />
-      <Text style={styles.caption}>Baseline {props.baselinePer90.toFixed(1)}</Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  wrap: { marginTop: spacing.sm },
-  row: {
+  wrap: {
+    marginTop: 4
+  },
+  chart: {
     flexDirection: "row",
     alignItems: "flex-end",
-    gap: 6,
-    height: 64,
-    padding: spacing.sm,
-    borderRadius: radii.lg,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
-    backgroundColor: "rgba(0,0,0,0.25)"
+    justifyContent: "space-around",
+    gap: 24,
+    minHeight: 112,
+    paddingHorizontal: 12,
+    paddingTop: 8
+  },
+  col: {
+    flex: 1,
+    maxWidth: 120,
+    alignItems: "center",
+    gap: 6
+  },
+  value: {
+    color: pitchbrainColors.text,
+    fontSize: 15,
+    fontWeight: "800"
+  },
+  valueRecent: {
+    color: pitchbrainColors.green
   },
   bar: {
-    flex: 1,
-    borderTopLeftRadius: 6,
-    borderTopRightRadius: 6,
-    backgroundColor: "#FBBF24"
+    width: "64%",
+    maxWidth: 56,
+    borderTopLeftRadius: 8,
+    borderTopRightRadius: 8
   },
-  baselineLine: {
-    marginTop: 8,
-    height: 1,
-    backgroundColor: "rgba(103,232,249,0.45)"
+  barPrevious: {
+    backgroundColor: pitchbrainColors.greenMuted
   },
-  caption: {
-    marginTop: 4,
-    fontSize: 10,
-    letterSpacing: 1.2,
-    textTransform: "uppercase",
-    color: colors.textDim
+  barRecent: {
+    backgroundColor: pitchbrainColors.green
+  },
+  label: {
+    color: pitchbrainColors.textDim,
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 0.4,
+    textTransform: "uppercase"
   }
 });

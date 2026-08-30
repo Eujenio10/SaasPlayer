@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
-import { getApiUser } from "@/lib/auth/get-api-user";
-import { buildUserAccessSummary } from "@/lib/auth/user-access";
 import { resolveApiAccessContext } from "@/lib/auth/resolve-api-access";
+import { buildUserAccessSummary, stripProPlanForMobileApp } from "@/lib/auth/user-access";
 import { buildDataRefreshStatus } from "@/lib/data-refresh/status";
+import { isBetaFreeForAllRequest } from "@/lib/entitlements/config";
+import { localizeUpcomingMatches, localizeTacticalMetrics } from "@/lib/italian-sports-display";
 import {
   buildHomeDashboard,
   loadOrganizationMatches,
@@ -10,9 +11,6 @@ import {
   pickHomeFeaturedMatch,
   prunedYellowRows
 } from "@/lib/mobile/home-dashboard";
-import { localizeUpcomingMatches, localizeTacticalMetrics } from "@/lib/italian-sports-display";
-import { buildUnlimitedMatchUsage } from "@/lib/auth/user-access";
-import { isBetaFreeForAllRequest } from "@/lib/entitlements/config";
 import type { TacticalMetrics } from "@/lib/types";
 import type { UpcomingMatchItem } from "@/services/sportapi";
 
@@ -46,32 +44,26 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "public_access_unavailable" }, { status: 503 });
   }
 
-  const apiUser = await getApiUser(request);
-
-  const accessRaw =
+  const [accessRaw, matchesRaw, yellowRow, dataRefresh] = await Promise.all([
     ctx.mode === "authenticated" && ctx.userId
-      ? await buildUserAccessSummary(ctx.userId, ctx.role as "admin" | "pro" | "member")
-      : guestAccessSummary();
+      ? buildUserAccessSummary(ctx.userId, ctx.role as "admin" | "pro" | "member")
+      : Promise.resolve(guestAccessSummary()),
+    loadOrganizationMatches(ctx.supabase, ctx.organizationId),
+    ctx.supabase
+      .from("organization_yellow_card_snapshot")
+      .select("snapshot")
+      .eq("organization_id", ctx.organizationId)
+      .maybeSingle(),
+    buildDataRefreshStatus(ctx.organizationId)
+  ]);
 
-  /** Beta pubblica app mobile: dashboard senza limiti Pro per gli utenti Free autenticati. */
-  const access =
-    isBetaFreeForAllRequest(request) && !accessRaw.isPro
-      ? { ...accessRaw, isPro: true, matchUsage: buildUnlimitedMatchUsage(), yellowCardVisibleRows: null }
-      : accessRaw;
+  const access = isBetaFreeForAllRequest(request)
+    ? stripProPlanForMobileApp(accessRaw)
+    : accessRaw;
 
-  const matches = localizeUpcomingMatches(
-    await loadOrganizationMatches(ctx.supabase, ctx.organizationId)
-  );
-
-  const { data: yellowRow } = await ctx.supabase
-    .from("organization_yellow_card_snapshot")
-    .select("snapshot")
-    .eq("organization_id", ctx.organizationId)
-    .maybeSingle();
-
-  const rawYellowRows = parseYellowCardRows(yellowRow?.snapshot);
+  const matches = localizeUpcomingMatches(matchesRaw);
+  const rawYellowRows = parseYellowCardRows(yellowRow.data?.snapshot);
   const yellowRows = prunedYellowRows(matches, rawYellowRows);
-
   const featuredEventId = pickFeaturedEventId(matches);
 
   let featuredMetrics: TacticalMetrics[] = [];
@@ -88,11 +80,8 @@ export async function GET(request: Request) {
       : [];
   }
 
-  const email = apiUser?.email ?? "";
-  const dataRefresh = await buildDataRefreshStatus(ctx.organizationId);
-
   const payload = buildHomeDashboard({
-    email,
+    email: ctx.email ?? "",
     access,
     matches,
     yellowRows,

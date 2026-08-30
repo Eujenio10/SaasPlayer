@@ -13,7 +13,8 @@ import { useRouter } from "expo-router";
 import { useAuth } from "@/contexts/AuthContext";
 import { mapAuthError } from "@/lib/auth-errors";
 import { supabase } from "@/lib/supabase";
-import { colors, radii, spacing } from "@/lib/theme";
+import { pitchbrainColors } from "@/lib/pitchbrain-theme";
+import { radii, spacing } from "@/lib/theme";
 
 export default function ResetPasswordScreen() {
   const router = useRouter();
@@ -72,7 +73,7 @@ export default function ResetPasswordScreen() {
   if (loading) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator color={colors.cyan} size="large" />
+        <ActivityIndicator color={pitchbrainColors.green} size="large" />
         <Text style={styles.loadingText}>Preparazione reset password…</Text>
       </View>
     );
@@ -98,7 +99,7 @@ export default function ResetPasswordScreen() {
           value={password}
           onChangeText={setPassword}
           placeholder="Almeno 8 caratteri"
-          placeholderTextColor={colors.textDim}
+          placeholderTextColor={pitchbrainColors.textDim}
           style={styles.input}
         />
 
@@ -108,7 +109,7 @@ export default function ResetPasswordScreen() {
           value={confirm}
           onChangeText={setConfirm}
           placeholder="Ripeti la password"
-          placeholderTextColor={colors.textDim}
+          placeholderTextColor={pitchbrainColors.textDim}
           style={styles.input}
         />
 
@@ -122,7 +123,7 @@ export default function ResetPasswordScreen() {
           ]}
         >
           {submitting ? (
-            <ActivityIndicator color={colors.background} />
+            <ActivityIndicator color={pitchbrainColors.ctaText} />
           ) : (
             <Text style={styles.buttonText}>Salva password</Text>
           )}
@@ -136,7 +137,7 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
     justifyContent: "center",
-    backgroundColor: colors.background,
+    backgroundColor: pitchbrainColors.bg,
     padding: spacing.lg
   },
   center: {
@@ -144,21 +145,21 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: spacing.md,
-    backgroundColor: colors.background
+    backgroundColor: pitchbrainColors.bg
   },
   loadingText: {
-    color: colors.textMuted,
+    color: pitchbrainColors.textMuted,
     fontSize: 14
   },
   card: {
     borderRadius: radii.xl,
     borderWidth: 1,
-    borderColor: "rgba(56,189,248,0.25)",
-    backgroundColor: colors.surface,
+    borderColor: pitchbrainColors.border,
+    backgroundColor: pitchbrainColors.card,
     padding: spacing.lg
   },
   badge: {
-    color: colors.cyanMuted,
+    color: pitchbrainColors.green,
     fontSize: 11,
     fontWeight: "800",
     letterSpacing: 1.2,
@@ -166,13 +167,13 @@ const styles = StyleSheet.create({
   },
   title: {
     marginTop: spacing.sm,
-    color: colors.cyan,
+    color: pitchbrainColors.text,
     fontSize: 28,
-    fontWeight: "900"
+    fontWeight: "800"
   },
   subtitle: {
     marginTop: spacing.sm,
-    color: colors.textMuted,
+    color: pitchbrainColors.textMuted,
     fontSize: 14,
     lineHeight: 21
   },
@@ -182,22 +183,22 @@ const styles = StyleSheet.create({
     borderRadius: radii.md,
     borderWidth: 1,
     borderColor: "rgba(248,113,113,0.35)",
-    color: colors.danger,
+    color: pitchbrainColors.danger,
     fontSize: 13,
     lineHeight: 18
   },
   label: {
     marginTop: spacing.md,
     marginBottom: 6,
-    color: colors.textMuted,
+    color: pitchbrainColors.textMuted,
     fontSize: 13
   },
   input: {
     borderWidth: 1,
-    borderColor: "rgba(56,189,248,0.25)",
+    borderColor: pitchbrainColors.border,
     borderRadius: radii.lg,
-    backgroundColor: "#0A1628",
-    color: colors.text,
+    backgroundColor: pitchbrainColors.bgAlt,
+    color: pitchbrainColors.text,
     paddingHorizontal: spacing.md,
     paddingVertical: 12,
     fontSize: 15
@@ -205,7 +206,7 @@ const styles = StyleSheet.create({
   button: {
     marginTop: spacing.lg,
     borderRadius: radii.lg,
-    backgroundColor: colors.cyan,
+    backgroundColor: pitchbrainColors.green,
     alignItems: "center",
     justifyContent: "center",
     minHeight: 48
@@ -217,7 +218,7 @@ const styles = StyleSheet.create({
     opacity: 0.5
   },
   buttonText: {
-    color: colors.background,
+    color: pitchbrainColors.ctaText,
     fontSize: 16,
     fontWeight: "800"
   }

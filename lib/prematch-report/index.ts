@@ -1,5 +1,9 @@
 export type { PreMatchReport, PreMatchReportInput } from "./types";
-export { loadPersistedTeamBlueprint, resolveTeamBlueprint } from "./load-blueprint";
+export {
+  blueprintMatchesSeasonContext,
+  loadPersistedTeamBlueprint,
+  resolveTeamBlueprint
+} from "./load-blueprint";
 export {
   ensureTeamTournamentBlueprintsForMatch,
   teamBlueprintFromProviderOnly

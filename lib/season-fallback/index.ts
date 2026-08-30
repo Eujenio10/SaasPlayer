@@ -1,6 +1,8 @@
 export {
   SEASON_FALLBACK_SWITCH_MATCHES,
+  TRENDS_MIN_FINISHED_MATCHDAYS,
   shouldUsePreviousSeason,
+  canPublishCurrentSeasonTrends,
   pickPreviousSeasonId,
   buildTeamSeasonFallbackResolution,
   type SeasonFallbackMode,

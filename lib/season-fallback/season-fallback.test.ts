@@ -3,6 +3,7 @@ import {
   buildTeamSeasonFallbackResolution,
   pickPreviousSeasonId,
   shouldUsePreviousSeason,
+  canPublishCurrentSeasonTrends,
   eventEligibleForPlayerSeasonFallback
 } from "@/lib/season-fallback";
 
@@ -119,5 +120,10 @@ assert.equal(
   }),
   false
 );
+
+assert.equal(canPublishCurrentSeasonTrends(0), false);
+assert.equal(canPublishCurrentSeasonTrends(2), false);
+assert.equal(canPublishCurrentSeasonTrends(3), true);
+assert.equal(canPublishCurrentSeasonTrends(5), true);
 
 console.log("season-fallback tests passed");

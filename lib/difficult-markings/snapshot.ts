@@ -12,7 +12,8 @@ import {
 } from "@/lib/difficult-markings/compute";
 import type { DifficultMarkingsSnapshot } from "@/lib/difficult-markings/types";
 import type { TacticalMetrics } from "@/lib/types";
-import type { UpcomingMatchItem } from "@/services/sportapi";
+import { fetchMatchLineupUnavailablePlayers, type UpcomingMatchItem } from "@/services/sportapi";
+import { excludeUnavailableFromMarkingMetrics } from "@/lib/difficult-markings/profiles";
 import { filterUpcomingMenuMatches, isCatalogFixtureStillUpcoming, loadOrganizationFixtureKickoffMap } from "@/lib/trends/fixture-eligibility";
 import { matchKickoffIsStillFuture } from "@/lib/tactical-matches-filters";
 import { findOrganizationMatchByEventId } from "@/lib/organization-match-insights";
@@ -297,11 +298,20 @@ export async function regenerateDifficultMarkingsSnapshotForOrganization(params:
   }
 
   const bundles: MatchInsightsBundle[] = [];
-  for (const match of upcomingMatches) {
-    const metrics = metricsByEvent.get(match.eventId);
-    if (!metrics?.length) continue;
-    bundles.push({ match, metrics });
-  }
+  await Promise.all(
+    upcomingMatches.map(async (match) => {
+      const metrics = metricsByEvent.get(match.eventId);
+      if (!metrics?.length) return;
+      const refs = await fetchMatchLineupUnavailablePlayers(match.eventId).catch(() => ({
+        ids: new Set<number>(),
+        names: new Set<string>()
+      }));
+      bundles.push({
+        match,
+        metrics: excludeUnavailableFromMarkingMetrics(metrics, refs)
+      });
+    })
+  );
 
   const snapshotRaw = computeDifficultMarkingsSnapshot({
     bundles,
@@ -409,7 +419,14 @@ export async function rebuildMarkingsSnapshotFromStoredInsights(
     ) {
       continue;
     }
-    bundles.push({ match, metrics });
+    const refs = await fetchMatchLineupUnavailablePlayers(eventId).catch(() => ({
+      ids: new Set<number>(),
+      names: new Set<string>()
+    }));
+    bundles.push({
+      match,
+      metrics: excludeUnavailableFromMarkingMetrics(metrics, refs)
+    });
   }
 
   if (!bundles.length) {

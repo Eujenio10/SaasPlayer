@@ -11,6 +11,7 @@ import {
 import { Alert } from "react-native";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAccessFlow } from "@/contexts/AccessFlowContext";
+import { PITCHBRAIN_MOBILE_PRO_PLANS_ENABLED } from "@/lib/access/pro-plans";
 import { getRewardedAdsService } from "@/lib/ads/rewarded-ads";
 import { fetchUserEntitlements, postUnlockMatchWithRewardedAd } from "@/lib/entitlements/api";
 import type { EntitlementFeatureKey, UserEntitlements } from "@/lib/entitlements-types";
@@ -49,7 +50,6 @@ const MATCH_UNLOCKABLE = new Set<EntitlementFeatureKey>([
 ]);
 
 const PRO_ONLY = new Set<EntitlementFeatureKey>([
-  "difficult_markings_full",
   "trends_full",
   "trends_filters",
   "player_compare",
@@ -91,7 +91,9 @@ export function EntitlementsProvider({ children }: { children: ReactNode }) {
   }, [refreshEntitlements]);
 
   const isPro =
-    entitlements.subscriptionTier === "pro" || userStatus === "authenticated_pro";
+    !PITCHBRAIN_MOBILE_PRO_PLANS_ENABLED ||
+    entitlements.subscriptionTier === "pro" ||
+    userStatus === "authenticated_pro";
 
   const isMatchUnlockedFn = useCallback(
     (matchId: string | number) => {
@@ -130,6 +132,7 @@ export function EntitlementsProvider({ children }: { children: ReactNode }) {
       if (
         featureKey === "match_preview" ||
         featureKey === "difficult_markings_preview" ||
+        featureKey === "difficult_markings_full" ||
         featureKey === "simulation_preview" ||
         featureKey === "trends_preview"
       ) {

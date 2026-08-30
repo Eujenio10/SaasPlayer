@@ -1,17 +1,12 @@
 import { useCallback, useState } from "react";
-import { useFocusEffect } from "expo-router";
-import {
-  ActivityIndicator,
-  Pressable,
-  StyleSheet,
-  Text,
-  View
-} from "react-native";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
+import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { PitchBrainLoading } from "@/components/PitchBrainLoading";
 import { fetchMatchSimulatorFixtures } from "@/lib/match-simulator/api";
 import type { MatchSimulatorFixtureListItem } from "@/lib/match-simulator/types";
 import { translateTeamName } from "@/lib/italian-display";
-import { colors, spacing } from "@/lib/theme";
+import { pitchbrainColors } from "@/lib/pitchbrain-theme";
 
 function statusLabel(status: MatchSimulatorFixtureListItem["simulationStatus"]): string {
   switch (status) {
@@ -35,12 +30,17 @@ function statusLabel(status: MatchSimulatorFixtureListItem["simulationStatus"]):
 function formatKickoff(iso: string): string {
   const d = new Date(iso);
   if (!Number.isFinite(d.getTime())) return "—";
-  return new Intl.DateTimeFormat("it-IT", {
+  const dayMonth = new Intl.DateTimeFormat("it-IT", {
     day: "2-digit",
-    month: "short",
+    month: "short"
+  })
+    .format(d)
+    .replace(".", "");
+  const time = new Intl.DateTimeFormat("it-IT", {
     hour: "2-digit",
     minute: "2-digit"
   }).format(d);
+  return `${dayMonth} · ${time}`;
 }
 
 export function MatchSimulatorList({ competitionId }: { competitionId: string }) {
@@ -59,9 +59,7 @@ export function MatchSimulatorList({ competitionId }: { competitionId: string })
       setSimulatorDatabaseReady(response.simulatorDatabaseReady !== false);
       if (!response.fixtures?.length) {
         if (response.simulatorDatabaseReady === false) {
-          setError(
-            "Il database del simulatore non è ancora disponibile. Applica la migration Supabase e riavvia il server."
-          );
+          setError("Simulazioni non disponibili al momento per questo campionato.");
         } else {
           setError(null);
         }
@@ -85,65 +83,102 @@ export function MatchSimulatorList({ competitionId }: { competitionId: string })
     }, [load])
   );
 
-  if (loading) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator color={colors.cyan} />
-      </View>
-    );
-  }
-
-  if (error) {
-    return <Text style={styles.error}>{error}</Text>;
-  }
-
-  if (!fixtures.length) {
-    return (
-      <Text style={styles.empty}>
-        {simulatorDatabaseReady
-          ? "Nessuna partita disponibile per il campionato selezionato."
-          : "Simulatore non pronto: migration del database mancante."}
-      </Text>
-    );
-  }
-
   return (
+    <View style={styles.shell}>
+      {!loading && error ? <Text style={styles.error}>{error}</Text> : null}
+      {!loading && !error && !fixtures.length ? (
+        <Text style={styles.empty}>
+          {simulatorDatabaseReady
+            ? "Nessuna partita disponibile per il campionato selezionato."
+            : "Nessuna simulazione disponibile al momento."}
+        </Text>
+      ) : null}
+      {fixtures.length ? (
     <View style={styles.list}>
-      {fixtures.map((fixture) => (
-        <Pressable
-          key={fixture.fixtureId}
-          style={styles.card}
-          onPress={() => router.push(`/simulator/${fixture.fixtureId}`)}
-        >
-          <Text style={styles.meta}>{formatKickoff(fixture.kickoffIso)}</Text>
-          <Text style={styles.title}>
-            {translateTeamName(fixture.homeTeam.name)} — {translateTeamName(fixture.awayTeam.name)}
-          </Text>
-          <Text style={styles.status}>{statusLabel(fixture.simulationStatus)}</Text>
-          <Text style={styles.action}>
-            {fixture.simulationStatus === "ready" ? "Apri simulazione" : "Simula partita"}
-          </Text>
-        </Pressable>
-      ))}
+      {fixtures.map((fixture) => {
+        const home = translateTeamName(fixture.homeTeam.name);
+        const away = translateTeamName(fixture.awayTeam.name);
+        const ready = fixture.simulationStatus === "ready";
+        const action = ready ? "Apri simulazione" : "Simula partita";
+        return (
+          <Pressable
+            key={fixture.fixtureId}
+            style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
+            onPress={() => router.push(`/simulator/${fixture.fixtureId}`)}
+            accessibilityRole="button"
+            accessibilityLabel={`${home} contro ${away}. ${statusLabel(fixture.simulationStatus)}. ${action}`}
+          >
+            <View style={styles.cardBody}>
+              <Text style={styles.meta}>{formatKickoff(fixture.kickoffIso)}</Text>
+              <Text style={styles.title}>
+                {home} — {away}
+              </Text>
+              <Text style={[styles.status, ready && styles.statusReady]}>
+                {statusLabel(fixture.simulationStatus)}
+              </Text>
+              <Text style={styles.action}>{action}</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={pitchbrainColors.green} />
+          </Pressable>
+        );
+      })}
+    </View>
+      ) : null}
+      <PitchBrainLoading visible={loading} message="Analisi in corso…" />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  list: { gap: spacing.sm },
+  shell: {
+    minHeight: 320,
+    position: "relative"
+  },
+  list: { gap: 10, paddingTop: 8, paddingBottom: 40 },
   card: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: "rgba(103,232,249,0.12)",
-    backgroundColor: colors.surfaceAlt,
-    padding: spacing.md,
-    gap: spacing.xs
+    borderColor: pitchbrainColors.border,
+    backgroundColor: pitchbrainColors.card,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    minHeight: 88
   },
-  meta: { color: colors.textDim, fontSize: 12 },
-  title: { color: colors.text, fontSize: 16, fontWeight: "800" },
-  status: { color: colors.textMuted, fontSize: 12, fontWeight: "600" },
-  action: { color: colors.cyan, fontSize: 13, fontWeight: "700" },
-  center: { paddingVertical: spacing.lg, alignItems: "center" },
-  error: { color: colors.amber, fontSize: 14 },
-  empty: { color: colors.textMuted, fontSize: 14 }
+  cardPressed: {
+    opacity: 0.92
+  },
+  cardBody: {
+    flex: 1,
+    minWidth: 0,
+    gap: 4
+  },
+  meta: {
+    color: pitchbrainColors.textDim,
+    fontSize: 12,
+    fontWeight: "600"
+  },
+  title: {
+    color: pitchbrainColors.text,
+    fontSize: 16,
+    fontWeight: "800"
+  },
+  status: {
+    color: pitchbrainColors.textMuted,
+    fontSize: 12,
+    fontWeight: "600"
+  },
+  statusReady: {
+    color: pitchbrainColors.green
+  },
+  action: {
+    color: pitchbrainColors.green,
+    fontSize: 13,
+    fontWeight: "700",
+    marginTop: 2
+  },
+  error: { color: pitchbrainColors.textMuted, fontSize: 14, lineHeight: 20, paddingTop: 8 },
+  empty: { color: pitchbrainColors.textMuted, fontSize: 14, lineHeight: 20, paddingTop: 8 }
 });

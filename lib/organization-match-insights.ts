@@ -130,6 +130,20 @@ export async function findOrganizationMatchByEventId(
   return merged.find((match) => match.eventId === eventId) ?? null;
 }
 
+export async function loadOrganizationMatchInsightsMetrics(
+  organizationId: string,
+  eventId: number
+): Promise<TacticalMetrics[]> {
+  const sb = createSupabaseServiceClient();
+  const { data } = await sb
+    .from("kiosk_organization_match_insights")
+    .select("metrics")
+    .eq("organization_id", organizationId)
+    .eq("event_id", eventId)
+    .maybeSingle();
+  return Array.isArray(data?.metrics) ? (data.metrics as TacticalMetrics[]) : [];
+}
+
 /** Calcola e salva insight per una singola partita (admin / on-demand). */
 export async function computeAndPersistOrganizationMatchInsights(
   organizationId: string,

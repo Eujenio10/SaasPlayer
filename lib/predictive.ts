@@ -586,7 +586,9 @@ export function buildTacticalMetrics(
   allAthletes: SportPerformanceInput[],
   options?: { homeTeamId?: number }
 ): TacticalMetrics {
-  const nearbyAthletes = allAthletes.filter((opponent) => opponent.team !== athlete.team);
+  const nearbyAthletes = allAthletes.filter(
+    (opponent) => opponent.team !== athlete.team && opponent.probableStarter !== false
+  );
   const firepower = calculateFirepowerIndex(athlete);
   const spark = calculateSparkDetector(athlete, nearbyAthletes, options?.homeTeamId);
   const wallIndex = calculateWallIndex(athlete);
@@ -626,6 +628,11 @@ export function buildTacticalMetrics(
     foulsSufferedSeasonAvg: athlete.foulsSufferedSeasonAvg,
     foulsSufferedLastTwoAvg: athlete.foulsSufferedLastTwoAvg,
     foulsSufferedLastFiveAvg: athlete.foulsSufferedLastFiveAvg,
+    seasonMinutesPlayed: athlete.seasonMinutesPlayed,
+    seasonAppearances: athlete.seasonAppearances,
+    foulsCommittedSeasonP90: athlete.foulsCommittedSeasonP90,
+    foulsSufferedSeasonP90: athlete.foulsSufferedSeasonP90,
+    currentSeasonSampleCount: athlete.currentSeasonSampleCount,
     dribblesSeasonAvg: athlete.dribblesSeasonAvg ?? 0,
     shotsLastTwoSampleCount: athlete.shotsLastTwoSampleCount,
     savesLastTwoSampleCount: athlete.savesLastTwoSampleCount,
@@ -640,6 +647,8 @@ export function buildTacticalMetrics(
       athlete.heatmapPoints,
       athlete.teamId,
       options?.homeTeamId
-    )
+    ),
+    probableStarter: athlete.probableStarter,
+    unavailableForMatch: athlete.unavailableForMatch
   };
 }

@@ -1,5 +1,5 @@
 /**
- * In-App Purchase App Store / Play Store via RevenueCat (react-native-purchases).
+ * In-App Purchase via RevenueCat (react-native-purchases).
  * In Expo Go / senza pacchetto: mock controllato da EXPO_PUBLIC_IAP_FORCE_MOCK.
  */
 

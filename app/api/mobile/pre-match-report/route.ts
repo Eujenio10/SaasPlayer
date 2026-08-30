@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getApiCache, setApiCache } from "@/lib/api-cache";
@@ -64,7 +65,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "public_access_unavailable" }, { status: 503 });
   }
 
-  const cacheKey = `prematch_report:v7:${productOrganizationId}:${eventId}`;
+  const cacheKey = `prematch_report:v9:${productOrganizationId}:${eventId}`;
   const forceRefresh = url.searchParams.get("refresh") === "1";
 
   if (!forceRefresh) {
@@ -101,8 +102,7 @@ export async function GET(request: Request) {
     competitionSlug,
     scope,
     forceRefresh: isAdmin && forceRefresh,
-    /** Pro/admin: se manca lo snapshot blueprint, recupera dal provider (non solo admin+refresh). */
-    allowProviderFetch: isAdmin || access.isPro
+    allowProviderFetch: true
   });
 
   const homeBlueprint = teamBlueprintFromProviderOnly(tournamentBlueprints.home);
@@ -129,11 +129,9 @@ export async function GET(request: Request) {
     return NextResponse.json(
       {
         error: "insufficient_data",
-        message: !tournamentBlueprints.providerAvailable
-          ? "Contesto torneo/stagione non disponibile per questa partita."
-          : missingHome && missingAway
-            ? "Statistiche torneo non disponibili da FootApi per questa partita."
-            : `Statistiche torneo incomplete (${missingHome ? "casa" : "trasferta"} mancanti).`
+        message: missingHome && missingAway
+          ? "Statistiche pre-partita non ancora disponibili per questa partita."
+          : `Statistiche pre-partita incomplete (${missingHome ? "casa" : "trasferta"} mancanti).`
       },
       { status: 422 }
     );

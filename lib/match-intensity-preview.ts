@@ -23,7 +23,16 @@ export async function attachIntensityPreviewsToMatches(
   organizationId: string,
   matches: UpcomingMatchItem[]
 ): Promise<Array<UpcomingMatchItem & { intensityPreview: MatchIntensityPreview | null }>> {
-  const eventIds = matches.map((m) => m.eventId).filter((id) => id > 0);
+  const now = Math.floor(Date.now() / 1000);
+  const horizon = now + 72 * 3600;
+  const eventIds = matches
+    .filter((match) => {
+      if (!match.startTimestamp) return false;
+      return match.startTimestamp >= now - 3 * 3600 && match.startTimestamp <= horizon;
+    })
+    .map((m) => m.eventId)
+    .filter((id) => id > 0)
+    .slice(0, 40);
   if (!eventIds.length) {
     return matches.map((m) => ({ ...m, intensityPreview: null }));
   }

@@ -9,6 +9,8 @@ export const metadata: Metadata = {
   description: "Piattaforma editoriale B2B per analisi tattica calcistica in tempo reale."
 };
 
+export const dynamic = "force-dynamic";
+
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
@@ -20,8 +22,13 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const session = await getSessionContext();
-  const organizationId = session?.organization?.organizationId ?? null;
+  let organizationId: string | null = null;
+  try {
+    const session = await getSessionContext();
+    organizationId = session?.organization?.organizationId ?? null;
+  } catch {
+    organizationId = null;
+  }
 
   return (
     <html lang="it">

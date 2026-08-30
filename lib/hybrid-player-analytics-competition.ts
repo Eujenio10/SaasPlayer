@@ -2,7 +2,8 @@ import { isStatsEligibleCompetitionSlug } from "@/lib/tactical-stats-eligible-ma
 
 /**
  * Competizioni con statistiche giocatore complete (falli, heatmap, ecc.):
- * solo Top 5 domestici e Mondiali maschili FIFA.
+ * Top 5 domestici, nazionali monitorate, Champions e Europa League
+ * (per le coppe UEFA si usano i dati del campionato domestico 2026-27).
  */
 export function isHybridFullPlayerAnalyticsCompetitionSlug(slug?: string): boolean {
   return isStatsEligibleCompetitionSlug(slug ?? "");

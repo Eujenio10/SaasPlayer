@@ -98,7 +98,7 @@ export function IntensityAnalysisPanel({
                       <p className="font-mono text-lg font-black text-cyan-200">
                         {formatMetric(p.foulsCommittedP90)}
                       </p>
-                      <p className="text-[10px] uppercase text-slate-500">p90</p>
+                      <p className="text-[10px] uppercase text-slate-500">/ partita</p>
                       <p className="mt-1 text-[10px] text-slate-500">
                         Affidabilità {reliabilityLabel[p.reliability]}
                       </p>
@@ -133,7 +133,7 @@ export function IntensityAnalysisPanel({
                       <p className="font-mono text-lg font-black text-cyan-200">
                         {formatMetric(p.foulsSufferedP90)}
                       </p>
-                      <p className="text-[10px] uppercase text-slate-500">p90</p>
+                      <p className="text-[10px] uppercase text-slate-500">/ partita</p>
                       <p className="mt-1 text-[10px] text-slate-500">
                         Affidabilità {reliabilityLabel[p.reliability]}
                       </p>

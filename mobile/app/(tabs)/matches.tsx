@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, SectionList, StyleSheet, Text, View } from "react-native";
+import { SectionList, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { AdminCompetitionRefreshBar } from "@/components/AdminCompetitionRefreshBar";
 import { MatchRow } from "@/components/MatchRow";
 import { MatchFilterBar } from "@/components/matches/MatchFilterBar";
+import { PitchBrainLoading } from "@/components/PitchBrainLoading";
+import { analysisColors } from "@/components/analysis/analysis-theme";
 import { useAuth } from "@/contexts/AuthContext";
 import { useGuestPreview } from "@/contexts/GuestPreviewContext";
 import { formatGuestApiError, shouldObscureGuestStats } from "@/lib/access/guest-preview-mode";
@@ -21,7 +23,7 @@ import {
 } from "@/lib/matches/filters";
 import { isMatchTodayRome } from "@/lib/match-display";
 import type { UpcomingMatchItem } from "@/lib/types";
-import { colors, radii, spacing } from "@/lib/theme";
+import { spacing } from "@/lib/theme";
 
 export default function MatchesScreen() {
   const router = useRouter();
@@ -73,6 +75,7 @@ export default function MatchesScreen() {
   );
 
   useEffect(() => {
+    if (filter === "intensity") setFilter("all");
     if (filter === "world" && !hasWorldCupMatches) setFilter("all");
     if (filter === "today" && !hasTodayMatches) setFilter("all");
     if (!isMatchModeFilter(filter) && !availableCompetitionIds.includes(filter)) {
@@ -102,9 +105,7 @@ export default function MatchesScreen() {
         <Text style={styles.brandBrain}>Brain</Text>
       </Text>
       <Text style={styles.title}>Analisi Partita</Text>
-      <Text style={styles.subtitle}>
-        Seleziona una partita per aprire scontri & falli, forma squadre e pre-partita.
-      </Text>
+      <Text style={styles.subtitle}>Scegli la partita che vuoi analizzare.</Text>
 
       {access?.canRefreshData ? (
         <AdminCompetitionRefreshBar
@@ -133,20 +134,6 @@ export default function MatchesScreen() {
     </View>
   );
 
-  if (loading && !matches.length) {
-    return (
-      <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
-        <View style={styles.listContent}>
-          {listHeader}
-          <View style={styles.centerInline}>
-            <ActivityIndicator color={colors.cyan} size="large" />
-            <Text style={styles.loadingHint}>Caricamento calendario partite…</Text>
-          </View>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
   return (
     <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
       <SectionList
@@ -164,15 +151,12 @@ export default function MatchesScreen() {
         refreshing={refreshing}
         onRefresh={() => void load(true)}
         ListEmptyComponent={
-          loading ? (
-            <View style={styles.centerInline}>
-              <ActivityIndicator color={colors.cyan} />
-            </View>
-          ) : (
+          loading ? null : (
             <Text style={styles.empty}>Nessuna partita per il filtro selezionato.</Text>
           )
         }
       />
+      <PitchBrainLoading visible={loading && !matches.length} message="Analisi in corso…" />
     </SafeAreaView>
   );
 }
@@ -180,16 +164,7 @@ export default function MatchesScreen() {
 const styles = StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: colors.background
-  },
-  center: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center"
-  },
-  centerInline: {
-    paddingVertical: spacing.lg,
-    alignItems: "center"
+    backgroundColor: analysisColors.bg
   },
   listContent: {
     paddingHorizontal: spacing.md,
@@ -200,55 +175,50 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.sm
   },
   brand: {
-    fontSize: 18,
-    fontWeight: "900"
+    fontSize: 22,
+    fontWeight: "800"
   },
   brandPitch: {
-    color: colors.text
+    color: analysisColors.text
   },
   brandBrain: {
-    color: colors.cyan
+    color: analysisColors.green
   },
   title: {
-    color: colors.text,
-    fontSize: 24,
-    fontWeight: "900"
+    color: analysisColors.text,
+    fontSize: 28,
+    fontWeight: "800"
   },
   subtitle: {
-    color: colors.textMuted,
+    color: analysisColors.textMuted,
     fontSize: 14,
     lineHeight: 20
   },
   sectionLabel: {
     marginTop: spacing.sm,
-    marginBottom: spacing.sm,
-    color: colors.textDim,
-    fontSize: 11,
+    marginBottom: 6,
+    color: analysisColors.green,
+    fontSize: 12,
     fontWeight: "800",
-    letterSpacing: 1.2
+    letterSpacing: 0.6,
+    textTransform: "uppercase"
   },
   notice: {
     padding: spacing.sm,
-    borderRadius: radii.lg,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: "rgba(103,232,249,0.18)",
-    backgroundColor: "rgba(56,189,248,0.06)"
+    borderColor: analysisColors.border,
+    backgroundColor: analysisColors.card
   },
   noticeText: {
-    color: colors.textMuted,
+    color: analysisColors.textMuted,
     fontSize: 12,
     lineHeight: 17
   },
   empty: {
     marginTop: spacing.lg,
     textAlign: "center",
-    color: colors.textDim,
+    color: analysisColors.textMuted,
     fontSize: 14
-  },
-  loadingHint: {
-    marginTop: spacing.sm,
-    textAlign: "center",
-    color: colors.textMuted,
-    fontSize: 13
   }
 });

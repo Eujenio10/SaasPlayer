@@ -36,7 +36,7 @@ export interface MonitoredCompetition {
   order: number;
 }
 
-/** Le competizioni gestite (registro completo). UEFA club temporaneamente fuori dal menu/analisi. */
+/** Le competizioni gestite (registro completo). */
 export const MONITORED_COMPETITIONS: readonly MonitoredCompetition[] = [
   { id: "uefa-champions-league", label: "Champions League", group: "uefa", order: 1 },
   { id: "uefa-europa-league", label: "Europa League", group: "uefa", order: 2 },
@@ -52,11 +52,15 @@ export const MONITORED_COMPETITIONS: readonly MonitoredCompetition[] = [
 
 /**
  * Competizioni attive in menu/analisi.
- * UEFA club (Champions / Europa / Conference) disattivate per ridurre carico refresh API.
+ * Conference League esclusa. Champions ed Europa League compaiono quando hanno
+ * partite nella finestra menu (fase a gironi). Nations League / Mondiali restano
+ * nel registro ma spariscono dal menu se non giocano nella finestra.
  */
 export const ACTIVE_MENU_COMPETITIONS: readonly MonitoredCompetition[] = MONITORED_COMPETITIONS.filter(
-  (c) => c.group !== "uefa"
+  (c) => c.id !== "uefa-europa-conference-league"
 );
+
+const ACTIVE_MENU_IDS = new Set<MonitoredCompetitionId>(ACTIVE_MENU_COMPETITIONS.map((c) => c.id));
 
 const COMPETITION_BY_ID = new Map<MonitoredCompetitionId, MonitoredCompetition>(
   MONITORED_COMPETITIONS.map((c) => [c.id, c])
@@ -177,11 +181,11 @@ export function resolveMatchCompetitionId(match: {
   return resolveCompetitionId(match.competitionName);
 }
 
-/** True se lo slug appartiene a una competizione attiva in menu/analisi (senza UEFA club). */
+/** True se lo slug appartiene a una competizione attiva in menu/analisi. */
 export function isMonitoredCompetitionSlug(raw?: string): boolean {
   const id = resolveCompetitionId(raw);
   if (!id) return false;
-  return COMPETITION_BY_ID.get(id)?.group !== "uefa";
+  return ACTIVE_MENU_IDS.has(id);
 }
 
 /** True se è uno dei 5 campionati domestici top (Serie A, Premier, LaLiga, Bundesliga, Ligue 1). */
@@ -193,6 +197,22 @@ export function isTop5DomesticCompetitionSlug(raw?: string): boolean {
 /** True se è competizione UEFA per club (Champions, Europa, Conference). */
 export function isUefaClubCompetitionId(id: MonitoredCompetitionId): boolean {
   return COMPETITION_BY_ID.get(id)?.group === "uefa";
+}
+
+/** True se è Champions League o Europa League (non Conference). */
+export function isActiveUefaClubCompetitionId(id: MonitoredCompetitionId): boolean {
+  return id === "uefa-champions-league" || id === "uefa-europa-league";
+}
+
+/** True se lo slug è Champions League o Europa League (non Conference). */
+export function isActiveUefaClubCompetitionSlug(raw?: string): boolean {
+  const id = resolveCompetitionId(raw);
+  return id !== null && isActiveUefaClubCompetitionId(id);
+}
+
+/** True se lo slug è un campionato del menu club: Top 5 oppure Champions / Europa League. */
+export function isClubMenuCompetitionSlug(raw?: string): boolean {
+  return isTop5DomesticCompetitionSlug(raw) || isActiveUefaClubCompetitionSlug(raw);
 }
 
 /** True se è competizione tra nazionali monitorata (Coppa del Mondo o Nations League). */

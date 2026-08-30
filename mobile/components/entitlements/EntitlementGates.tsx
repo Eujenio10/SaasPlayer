@@ -6,6 +6,7 @@ import { colors, radii, spacing } from "@/lib/theme";
 import type { FeatureId } from "@/lib/access/types";
 import type { EntitlementFeatureKey } from "@/lib/entitlements-types";
 import { trackMobileEntitlementEvent } from "@/lib/entitlements/analytics";
+import { PITCHBRAIN_MOBILE_PRO_PLANS_ENABLED } from "@/lib/access/pro-plans";
 import { useEffect } from "react";
 
 export function ProBadge({ label = "Pro" }: { label?: string }) {
@@ -18,8 +19,8 @@ export function ProBadge({ label = "Pro" }: { label?: string }) {
 
 export function RemainingUnlocksIndicator() {
   const { isPro, remainingUnlocks, entitlements } = useEntitlements();
-  if (isPro) {
-    return <Text style={styles.remainingText}>Pro · analisi illimitate</Text>;
+  if (!PITCHBRAIN_MOBILE_PRO_PLANS_ENABLED || isPro) {
+    return null;
   }
   return (
     <Text style={styles.remainingText}>
@@ -87,11 +88,14 @@ export function ProUpgradeCard({
 }) {
   const { openPaywall } = useAccessFlow();
   useEffect(() => {
+    if (!PITCHBRAIN_MOBILE_PRO_PLANS_ENABLED) return;
     void trackMobileEntitlementEvent("pro_paywall_viewed", {
       featureKey: feature,
       sourceScreen: "pro_upgrade_card"
     });
   }, [feature]);
+
+  if (!PITCHBRAIN_MOBILE_PRO_PLANS_ENABLED) return null;
 
   return (
     <View style={styles.upgradeCard}>

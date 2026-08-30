@@ -7,8 +7,14 @@ import { markingOverlapFieldProps } from "@/lib/difficult-markings/visualization
 import { reliabilityLabelIt } from "@/lib/difficult-markings/reasons";
 import {
   difficultMarkingAttackerThreatLineIt,
+  difficultMarkingFoulsBreakdownIt,
+  difficultMarkingMotiveLineIt,
+  difficultMarkingOthersLineIt,
+  difficultMarkingOverlapBreakdownIt,
   difficultMarkingSubjectHintIt,
-  difficultMarkingSubjectLineIt
+  difficultMarkingKindLabelIt,
+  difficultMarkingSubjectLineIt,
+  difficultMarkingZonePressureLineIt
 } from "@/lib/difficult-markings/text";
 import type { DifficultMarkingMatchup } from "@/lib/difficult-markings/types";
 import type { DifficultMarkingFilterKey, DifficultMarkingSortKey } from "@/lib/difficult-markings/publish";
@@ -125,8 +131,8 @@ export function DifficultMarkingsPage() {
         </p>
         <h1 className="text-3xl font-bold tracking-tight text-white sm:text-4xl">Marcature difficili</h1>
         <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-300 sm:text-base">
-          Per ogni duello indichiamo il marcatore che dovrà arginare un attaccante difficile, con indice 0–100
-          basato su falli subiti, dribbling e compatibilità tattica.
+          I 5 difensori più sotto pressione: matchup principale, heatmap di zona
+          e altri offensivi che attaccano la stessa fascia.
         </p>
 
         <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -220,12 +226,22 @@ export function DifficultMarkingsPage() {
             <section className="overflow-hidden rounded-[1.75rem] border border-orange-400/20 bg-gradient-to-br from-slate-950 via-slate-900 to-orange-950/30 p-6 sm:p-8">
               <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
                 <div className="space-y-3">
-                  <p className="text-xs uppercase tracking-[0.2em] text-orange-200/80">Marcatura più difficile</p>
+                  <p className="text-xs uppercase tracking-[0.2em] text-orange-200/80">
+                    {difficultMarkingKindLabelIt(hero)}
+                  </p>
                   <h2 className="text-2xl font-bold text-white">{difficultMarkingSubjectLineIt(hero)}</h2>
                   <p className="text-sm text-slate-400">{difficultMarkingSubjectHintIt()}</p>
                   <p className="text-sm font-medium text-orange-200/90">
+                    Matchup principale: {hero.attackerPlayerName}
+                  </p>
+                  <p className="text-sm font-medium text-orange-200/90">
                     {difficultMarkingAttackerThreatLineIt(hero)}
                   </p>
+                  <p className="text-sm text-slate-200">{difficultMarkingZonePressureLineIt(hero)}</p>
+                  {difficultMarkingOthersLineIt(hero) ? (
+                    <p className="text-sm text-slate-200">{difficultMarkingOthersLineIt(hero)}</p>
+                  ) : null}
+                  <p className="text-sm text-slate-300">{difficultMarkingMotiveLineIt(hero)}</p>
                   <p className="text-sm text-slate-300">
                     {translateTeamName(hero.homeTeamName)} vs {translateTeamName(hero.awayTeamName)} ·{" "}
                     {zoneLabelIt(hero.probableZone)}
@@ -271,9 +287,15 @@ export function DifficultMarkingsPage() {
               >
                 <div className="mb-3 flex items-start justify-between gap-3">
                   <div>
-                    <p className="text-xs text-slate-400">#{index + 2}</p>
+                    <p className="text-xs text-slate-400">
+                      #{index + 2} · {difficultMarkingKindLabelIt(item)}
+                    </p>
                     <h3 className="font-semibold text-white">{difficultMarkingSubjectLineIt(item)}</h3>
                     <p className="text-xs text-orange-200/80">{difficultMarkingAttackerThreatLineIt(item)}</p>
+                    <p className="text-xs text-slate-300">{difficultMarkingZonePressureLineIt(item)}</p>
+                    {difficultMarkingOthersLineIt(item) ? (
+                      <p className="text-xs text-slate-300">{difficultMarkingOthersLineIt(item)}</p>
+                    ) : null}
                     <p className="text-xs text-slate-400">
                       {translateTeamName(item.homeTeamName)} vs {translateTeamName(item.awayTeamName)}
                     </p>
@@ -281,15 +303,15 @@ export function DifficultMarkingsPage() {
                   <div className="text-right">
                     <p className={`text-2xl font-bold ${levelColor(item.difficultMarkingScore)}`}>
                       {item.difficultMarkingScore}
+                      <span className="text-sm font-semibold text-slate-400">/100</span>
                     </p>
                     <p className="text-xs text-slate-400">{difficultMarkingLevelLabelIt(item.difficultMarkingLevel)}</p>
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-2 text-xs text-slate-300 sm:grid-cols-4">
-                  <span>Falli subiti: {(item.attackerMetrics.foulsDrawnPer90 ?? 0).toFixed(1)}</span>
-                  <span>Dribbling riusciti: {(item.attackerMetrics.dribblesSuccessfulPer90 ?? 0).toFixed(1)}</span>
-                  <span>Falli marcatore: {(item.defenderMetrics.foulsCommittedPer90 ?? 0).toFixed(1)}</span>
-                  <span>Overlap: {item.heatmapOverlapPct}%</span>
+                <div className="space-y-2 text-xs text-slate-300">
+                  <p>{difficultMarkingFoulsBreakdownIt(item)}</p>
+                  <p>Falli marcatore: {(item.defenderMetrics.foulsCommittedPer90 ?? 0).toFixed(1)}/90&apos;</p>
+                  <p>Overlap: {difficultMarkingOverlapBreakdownIt(item)}</p>
                 </div>
                 <div className="mt-3 max-w-[220px]">
                   <DifficultMarkingZoneField compact {...markingOverlapFieldProps(item)} />

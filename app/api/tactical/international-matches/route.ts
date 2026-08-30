@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { getOrganizationContextForUser } from "@/lib/auth/organization";
 import { createSupabaseServerClient } from "@/lib/supabase/server";

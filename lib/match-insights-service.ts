@@ -9,6 +9,7 @@ import {
 import { getApiCache, setApiCache } from "@/lib/api-cache";
 import { isHybridFullPlayerAnalyticsCompetitionSlug } from "@/lib/hybrid-player-analytics-competition";
 import { buildTacticalMetrics } from "@/lib/predictive";
+import { dedupeSquadPlayers, preferLongerPlayerName } from "@/lib/player-identity";
 import type {
   CompetitionScope,
   SportPerformanceInput,
@@ -670,6 +671,26 @@ export async function computeMatchInsightsPayload(
         `[match-insights] no_performance_rows eventId=${eventId} — nessun dato giocatore reale`
       );
     }
+
+    performance = dedupeSquadPlayers(
+      performance,
+      (row) => ({ playerId: row.athleteId, teamId: row.teamId, playerName: row.athleteName }),
+      (current, incoming) => {
+        const score = (row: SportPerformanceInput) =>
+          (row.athleteId && row.athleteId > 0 ? 10000 : 0) +
+          (row.seasonMinutesPlayed ?? 0) +
+          (row.foulsCommittedLastFiveSampleCount ?? 0) * 20 +
+          (row.foulsSufferedLastFiveSampleCount ?? 0) * 20 +
+          (row.heatmapPoints?.length ?? 0);
+        const winner = score(current) >= score(incoming) ? current : incoming;
+        const loser = winner === current ? incoming : current;
+        return {
+          ...winner,
+          athleteId: winner.athleteId && winner.athleteId > 0 ? winner.athleteId : loser.athleteId,
+          athleteName: preferLongerPlayerName(winner.athleteName, loser.athleteName)
+        };
+      }
+    );
 
     const homeTeamIdForHeatmap =
       typeof homeTeamId === "number" && homeTeamId > 0 ? homeTeamId : undefined;

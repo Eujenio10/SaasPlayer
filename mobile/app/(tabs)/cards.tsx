@@ -8,7 +8,6 @@ import {
   View
 } from "react-native";
 import { Screen } from "@/components/Screen";
-import { ScrollMoreHint } from "@/components/ScrollMoreHint";
 import { useAuth } from "@/contexts/AuthContext";
 import { fetchYellowCardSnapshot } from "@/lib/api";
 import type { YellowCardRiskPlayer } from "@/lib/types";
@@ -32,7 +31,7 @@ function YellowCardRow({
       <View style={[styles.row, styles.rowObscured]}>
         <Text style={styles.rank}>#{row.rank}</Text>
         <View style={styles.rowBody}>
-          <Text style={styles.obscuredText}>Posizione riservata al piano Pro</Text>
+          <Text style={styles.obscuredText}>Posizione non disponibile</Text>
         </View>
       </View>
     );
@@ -105,7 +104,6 @@ export default function CardsScreen() {
       <Text style={styles.subtitle}>
         Top 10 giocatori a rischio cartellino giallo, ordinati per segnale tattico.
       </Text>
-      <ScrollMoreHint style={{ marginTop: spacing.sm, marginBottom: spacing.xs }} />
       {visibleLimit != null ? (
         <Text style={styles.quota}>
           Piano Member: visibili {visibleLimit} posizioni su 10.
@@ -114,7 +112,6 @@ export default function CardsScreen() {
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
       <FlatList
-        style={{ flex: 1 }}
         data={displayRows}
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => (

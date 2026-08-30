@@ -394,6 +394,8 @@ export function FieldAnalysisView({
 
               metrics={metrics}
 
+              heatmapInitiallyOpen
+
             />
 
           ))

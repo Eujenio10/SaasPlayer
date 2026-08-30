@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import type { MatchRadarDetailResponse } from "@/lib/match-radar/types";
-import { MATCH_RADAR_UI_TEXT, translateMatchRadarReason } from "@/lib/match-radar/text";
+import { MATCH_RADAR_UI_TEXT, translateMatchRadarReason, matchRadarDisciplinaryPotentialLabel } from "@/lib/match-radar/text";
 import { formatKickoffInRome } from "@/lib/match-radar/date";
 import { translateCompetitionName, translateTeamName } from "@/lib/italian-sports-display";
 
@@ -81,6 +81,7 @@ export function MatchRadarDetailPage({
   ].filter((d) => d.value != null);
 
   const maxReasons = isPro ? detail.reasons.length : 2;
+  const disciplinaryLabel = matchRadarDisciplinaryPotentialLabel(detail.reasons, locale);
 
   return (
     <main className="mx-auto max-w-3xl px-4 py-6">
@@ -95,7 +96,7 @@ export function MatchRadarDetailPage({
       </h1>
       <p className="mt-2 text-sm text-slate-300">
         {ui.radarScore}: <span className="font-bold text-cyan-200">{detail.radarScore}/100</span> ·{" "}
-        {ui.confidence[detail.confidenceLevel]}
+        <span title={ui.confidenceNote}>{ui.confidence[detail.confidenceLevel]}</span>
       </p>
 
       <div className="mt-6 space-y-3">
@@ -115,7 +116,8 @@ export function MatchRadarDetailPage({
             {detail.referee.redCardsPerMatch != null ? ` · ${detail.referee.redCardsPerMatch} rossi/partita` : ""}
           </p>
           <p className="mt-1 text-xs text-slate-400">
-            Campione: {detail.referee.matchesSample} gare · Severità {detail.referee.strictnessScore}/100
+            Campione: {detail.referee.matchesSample} gare · {ui.dimensions.refereeStrictness}{" "}
+            {detail.referee.strictnessScore}/100
           </p>
           {detail.referee.foulsVsCompetitionPct != null &&
           detail.referee.yellowCardsVsCompetitionPct != null ? (
@@ -133,6 +135,9 @@ export function MatchRadarDetailPage({
       ) : null}
 
       <h2 className="mt-6 text-xs font-bold uppercase tracking-wide text-amber-200/90">{ui.whyTitle}</h2>
+      {disciplinaryLabel ? (
+        <p className="mt-2 text-sm font-semibold text-cyan-200">{disciplinaryLabel}</p>
+      ) : null}
       <ul className="mt-2 space-y-2 text-sm text-slate-200">
         {detail.reasons.slice(0, maxReasons).map((reason) => (
           <li key={reason.key}>• {translateMatchRadarReason(reason, locale)}</li>

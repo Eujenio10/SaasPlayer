@@ -14,20 +14,35 @@ export async function loadPersistedTeamBlueprint(
   competitionSlug: string
 ): Promise<TeamPerformanceBlueprint | null> {
   const slugKey = competitionSlugKey(competitionSlug);
-  const { data } = await supabase
+  const { data: rows } = await supabase
     .from("organization_team_performance_snapshot")
     .select("blueprint")
     .eq("organization_id", organizationId)
     .eq("team_id", teamId)
     .eq("scope", scope)
     .eq("competition_slug_key", slugKey)
-    .maybeSingle();
+    .limit(1);
+
+  const data = Array.isArray(rows) ? rows[0] : rows;
 
   if (data?.blueprint && typeof data.blueprint === "object") {
     const blueprint = data.blueprint as TeamPerformanceBlueprint;
     if (isBlueprintPerMatchPlausible(blueprint)) return blueprint;
   }
   return null;
+}
+
+/** True solo se lo snapshot è stato costruito sul torneo/stagione della partita (non l'annata scorsa). */
+export function blueprintMatchesSeasonContext(
+  blueprint: TeamPerformanceBlueprint | null | undefined,
+  tournamentId?: number,
+  seasonId?: number
+): boolean {
+  if (!blueprint || !tournamentId || tournamentId <= 0 || !seasonId || seasonId <= 0) return false;
+  return (
+    Number(blueprint.tournamentId) === Number(tournamentId) &&
+    Number(blueprint.seasonId) === Number(seasonId)
+  );
 }
 
 /** Solo statistiche torneo da provider (FootApi). Nessun fallback da metriche giocatore. */

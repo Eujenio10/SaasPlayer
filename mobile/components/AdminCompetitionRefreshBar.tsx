@@ -18,7 +18,7 @@ export function AdminCompetitionRefreshBar({
   onRefresh: (competitionSlug?: string) => void;
 }) {
   const competitions = ACTIVE_MENU_COMPETITIONS.filter(
-    (c) => c.group === "domestic" || c.group === "international"
+    (c) => c.group === "domestic" || c.group === "uefa"
   );
 
   const progressLabel =

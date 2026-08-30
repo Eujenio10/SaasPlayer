@@ -40,7 +40,10 @@ export type MatchupReasonType =
   | "ROLE_MATCH"
   | "LIMITED_SAMPLE"
   | "NO_HEATMAP"
-  | "MULTI_ATTACKER_LOAD";
+  | "MULTI_ATTACKER_LOAD"
+  | "SINGLE_ROLE_DUEL"
+  | "OFFENSIVE_THREAT"
+  | "ZONE_PRESSURE";
 
 export interface MatchupReason {
   type: MatchupReasonType;
@@ -100,6 +103,10 @@ export interface PlayerRecentProfile {
   offensiveHeatmap?: number[];
   defensiveHeatmap?: number[];
   heatmapPointCount: number;
+  /** Quota intensità heatmap in trequarti avversaria (0–1). */
+  heatmapAttackShare?: number;
+  /** Quota intensità heatmap in metà difensiva (0–1). */
+  heatmapDefenseShare?: number;
   /** Punti heatmap nel frame casa (stesso payload degli scontri in Intensità). */
   heatmapPointsMatchFrame?: HeatmapPoint[];
   roleStability: number;
@@ -149,9 +156,20 @@ export interface DifficultMarkingMatchup {
   heatmapOverlapPct: number;
   officialLineupsUsed: boolean;
   generatedAt: string;
-  /** Quanti attaccanti difficili (falli subiti + dribbling) questo marcatore deve coprire. */
+  /** Quanti avversari coperti (2+ sul carico, 1 sul duello di ruolo). */
   markingLoadCount?: number;
-  /** Altri attaccanti difficili nello stesso cluster di ruolo/heatmap. */
+  /** `multi` = 2–3 avversari; `single` = 1 vs 1 di ruolo. */
+  markingKind?: "multi" | "single";
+  /** Sempre `marker`: il soggetto è chi marca, mai la punta/ala. */
+  leadKind?: "marker" | "forward";
+  /** Individual Threat Score 0–100 del matchup principale. */
+  primaryThreatScore?: number;
+  /** Zone Pressure normalizzato 0–100 (somma threat × presenza heatmap). */
+  zonePressureScore?: number;
+  /** Threat 0–100 del secondo offensivo nella stessa zona. */
+  secondaryThreatScore?: number;
+  zonePressureLabel?: "Alta" | "Media" | "Bassa";
+  /** Altri attaccanti nella stessa zona heatmap (pressione di zona). */
   extraAttackers?: Array<{
     playerId: string;
     playerName: string;

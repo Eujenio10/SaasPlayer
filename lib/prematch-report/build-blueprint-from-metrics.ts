@@ -8,12 +8,10 @@ function teamRows(metrics: TacticalMetrics[], teamId: number): TacticalMetrics[]
   return metrics.filter((row) => row.teamId === teamId);
 }
 
-function sumTeam(
-  metrics: TacticalMetrics[],
-  teamId: number,
-  pick: (row: TacticalMetrics) => number
-): number {
-  return teamRows(metrics, teamId).reduce((acc, row) => acc + pick(row), 0);
+function rowsForTeamBlueprint(metrics: TacticalMetrics[], teamId: number): TacticalMetrics[] {
+  const all = teamRows(metrics, teamId);
+  const starters = all.filter((row) => row.probableStarter !== false);
+  return starters.length >= 7 ? starters : all;
 }
 
 /**
@@ -28,11 +26,15 @@ export function buildBlueprintFromTacticalMetrics(
   opponentTeamId: number
 ): TeamPerformanceBlueprint | null {
   void opponentTeamId;
-  const rows = teamRows(metrics, teamId);
+  const rows = rowsForTeamBlueprint(metrics, teamId);
   if (!rows.length) return null;
 
-  const shotsTotal = sumTeam(metrics, teamId, (row) => row.shotsSeasonAvg);
-  if (shotsTotal <= 0) return null;
+  const shotsRaw = rows.reduce((acc, row) => acc + (row.shotsSeasonAvg ?? 0), 0);
+  if (shotsRaw <= 0) return null;
+  const shotsTotal =
+    shotsRaw > 35
+      ? Math.min(22, (shotsRaw / Math.max(1, rows.length)) * Math.min(11, rows.length))
+      : shotsRaw;
 
   const concededSotSeason = teamLevelMetric(rows, (row) => row.opponentShotsOnTargetSeasonAvg);
   const shotsOnTarget = Math.round(shotsTotal * 0.38);
@@ -42,7 +44,7 @@ export function buildBlueprintFromTacticalMetrics(
           scaleConcededShotsOnTargetToTotal(concededSotSeason, shotsTotal, shotsOnTarget) * 10
         ) / 10
       : 0;
-  const dribbles = sumTeam(metrics, teamId, (row) => row.dribblesSeasonAvg ?? 0);
+  const dribbles = rows.reduce((acc, row) => acc + (row.dribblesSeasonAvg ?? 0), 0);
 
   return {
     teamId,

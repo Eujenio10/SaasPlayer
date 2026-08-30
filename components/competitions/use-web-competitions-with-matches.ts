@@ -14,9 +14,7 @@ export function useWebCompetitionsWithMatches(): {
   preferredId: MonitoredCompetitionId | null;
   loading: boolean;
 } {
-  const [competitions, setCompetitions] = useState<MonitoredCompetition[]>(() =>
-    filterCompetitionsByAvailableIds(null)
-  );
+  const [competitions, setCompetitions] = useState<MonitoredCompetition[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {

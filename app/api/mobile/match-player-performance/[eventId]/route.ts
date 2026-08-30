@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { resolveApiAccessContext } from "@/lib/auth/resolve-api-access";
+import { allowOnDemandProviderCompute } from "@/lib/entitlements/config";
 import { requestHasMatchUnlock, resolveRequestEntitlements } from "@/lib/entitlements/request";
 import { getOrComputeMatchPlayerPerformance } from "@/lib/player-performance/api-handlers";
 
@@ -25,9 +26,10 @@ export async function GET(
   const url = new URL(request.url);
   const entitlements = await resolveRequestEntitlements(ctx, request);
   const allowCompute =
-    ctx.role === "admin" ||
-    entitlements.subscriptionTier === "pro" ||
-    requestHasMatchUnlock(entitlements, eventId);
+    allowOnDemandProviderCompute(request) &&
+    (ctx.role === "admin" ||
+      entitlements.subscriptionTier === "pro" ||
+      requestHasMatchUnlock(entitlements, eventId));
 
   const homeTeamId = Number(url.searchParams.get("homeTeamId") ?? "");
   const awayTeamId = Number(url.searchParams.get("awayTeamId") ?? "");

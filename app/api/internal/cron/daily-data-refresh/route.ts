@@ -27,9 +27,9 @@ function enqueueContinuation(request: Request, shouldContinue: boolean) {
 
 /**
  * Giro mattutino (Europe/Rome):
- * 1) Dalle 05:00 un campionato all'ora (Serie A, Premier, LaLiga, Bundesliga, Ligue 1, Nations, Mondiali)
+ * 1) Dalle 08:00 un campionato all'ora (Serie A, Premier, LaLiga, Bundesliga, Ligue 1)
  * 2) Ogni invocazione fa una fetta del campionato corrente (menu, insight o finalize)
- * 3) Finito un campionato, il successivo aspetta l'ora seguente finché tutti non sono stati eseguiti almeno una volta
+ * 3) Finito un campionato, il successivo aspetta l'ora seguente finché i Top 5 non sono stati eseguiti almeno una volta
  *
  * Sito e app leggono gli stessi snapshot: non serve uno scheduler sul client.
  */

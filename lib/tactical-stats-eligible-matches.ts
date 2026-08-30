@@ -1,5 +1,7 @@
 import { isInternationalTournamentSlug } from "@/lib/international-tournaments";
 import {
+  isActiveUefaClubCompetitionSlug,
+  isClubMenuCompetitionSlug,
   isMonitoredInternationalCompetitionSlug,
   isTop5DomesticCompetitionSlug,
   normalizeCompetitionId,
@@ -26,9 +28,13 @@ export function isNationalTeamCompetitionSlug(slug: string): boolean {
   return isMonitoredInternationalCompetitionSlug(slug);
 }
 
-/** Statistiche giocatore consentite per i 5 campionati top e per le nazionali monitorate (WC / Nations League). */
+/** Statistiche giocatore: Top 5, nazionali monitorate, Champions e Europa League (dati domestici 2026-27). */
 export function isStatsEligibleCompetitionSlug(slug: string): boolean {
-  return isTopFiveLeagueSlug(slug) || isNationalTeamCompetitionSlug(slug);
+  return (
+    isTopFiveLeagueSlug(slug) ||
+    isNationalTeamCompetitionSlug(slug) ||
+    isActiveUefaClubCompetitionSlug(slug)
+  );
 }
 
 export function isStatsEligibleMatch(match: Pick<UpcomingMatchItem, "competitionSlug">): boolean {
@@ -51,18 +57,18 @@ export function scopeFromCompetitionSlugForInsights(slug: string): CompetitionSc
 }
 
 /**
- * Target prefetch admin: sola prossima giornata di ogni campionato (Top 5 + nazionali).
+ * Target prefetch admin: sola prossima giornata di ogni campionato
+ * (Top 5 + Champions/Europa League + nazionali).
  */
 export function buildAdminInsightsPrefetchTargets(
   domestic: UpcomingMatchItem[],
   international: UpcomingMatchItem[]
 ): UpcomingMatchItem[] {
-  const topFive = domestic.filter((m) => isTopFiveLeagueSlug(m.competitionSlug));
-
+  const clubMenu = domestic.filter((m) => isClubMenuCompetitionSlug(m.competitionSlug));
   const nationalTeams = international.filter((m) => isNationalTeamCompetitionSlug(m.competitionSlug));
 
   const byId = new Map<number, UpcomingMatchItem>();
-  for (const match of [...topFive, ...nationalTeams]) {
+  for (const match of [...clubMenu, ...nationalTeams]) {
     byId.set(match.eventId, match);
   }
   return selectNextMatchdayPerCompetition(Array.from(byId.values()));

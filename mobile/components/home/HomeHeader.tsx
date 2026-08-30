@@ -1,38 +1,40 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import { PitchBrainLogo } from "@/components/home/PitchBrainLogo";
+import { Ionicons } from "@expo/vector-icons";
 import type { UserAccessRole } from "@/lib/types";
-import { colors, radii, spacing } from "@/lib/theme";
+import { homeColors } from "@/components/home/home-theme";
+import { spacing } from "@/lib/theme";
 
-function accessBadgeLabel(role: UserAccessRole, isPro: boolean, isGuest?: boolean): string {
-  if (isGuest) return "Modalità Guest";
-  if (role === "admin") return "Accesso Admin attivo";
-  if (isPro) return "Accesso Pro attivo";
-  return "Accesso Membro attivo";
+function accessBadgeLabel(role: UserAccessRole, isGuest?: boolean): string {
+  if (isGuest) return "GUEST";
+  if (role === "admin") return "ADMIN";
+  if (role === "pro") return "PRO";
+  return "FREE";
 }
 
 export function HomeHeader({
   role,
-  isPro,
   isGuest,
   onAdminRefresh,
-  adminRefreshing
+  adminRefreshing,
+  onBadgePress
 }: {
   role?: UserAccessRole;
   isPro?: boolean;
   isGuest?: boolean;
   onAdminRefresh?: () => void;
   adminRefreshing?: boolean;
+  onBadgePress?: () => void;
 }) {
-  const badgeLabel = accessBadgeLabel(role ?? "member", Boolean(isPro), isGuest);
+  const badgeLabel = accessBadgeLabel(role ?? "member", isGuest);
 
   return (
     <View style={styles.wrap}>
-      <View style={styles.brandRow}>
-        <PitchBrainLogo />
-        <View style={styles.brandText}>
-          <Text style={styles.brandName}>PitchBrain</Text>
-          <Text style={styles.brandTagline}>Intelligenza tattica calcistica</Text>
-        </View>
+      <View style={styles.brandCol}>
+        <Text style={styles.brand} accessibilityRole="header">
+          <Text style={styles.pitch}>Pitch</Text>
+          <Text style={styles.brain}>Brain</Text>
+        </Text>
+        <Text style={styles.tagline}>Intelligenza tattica calcistica</Text>
       </View>
 
       <View style={styles.rightCol}>
@@ -40,15 +42,23 @@ export function HomeHeader({
           <Pressable
             onPress={onAdminRefresh}
             disabled={adminRefreshing}
+            accessibilityRole="button"
+            accessibilityLabel="Aggiorna dati"
             style={({ pressed }) => [styles.refreshBtn, pressed && { opacity: 0.85 }]}
           >
             <Text style={styles.refreshText}>{adminRefreshing ? "…" : "↻"}</Text>
           </Pressable>
         ) : null}
-        <View style={styles.badge}>
-          <View style={styles.badgeDot} />
+        <Pressable
+          onPress={onBadgePress}
+          disabled={!onBadgePress}
+          accessibilityRole={onBadgePress ? "button" : "text"}
+          accessibilityLabel={badgeLabel}
+          style={({ pressed }) => [styles.badge, pressed && onBadgePress ? { opacity: 0.85 } : null]}
+        >
+          <Ionicons name="person-outline" size={13} color={homeColors.green} />
           <Text style={styles.badgeText}>{badgeLabel}</Text>
-        </View>
+        </Pressable>
       </View>
     </View>
   );
@@ -63,30 +73,33 @@ const styles = StyleSheet.create({
     paddingTop: spacing.xs,
     paddingBottom: spacing.md
   },
-  brandRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
-    flex: 1
-  },
-  brandText: {
+  brandCol: {
     flex: 1,
-    gap: 2
+    minWidth: 0,
+    gap: 4
   },
-  brandName: {
-    color: colors.text,
-    fontSize: 22,
-    fontWeight: "900",
-    letterSpacing: -0.3
+  brand: {
+    fontSize: 32,
+    fontWeight: "800",
+    letterSpacing: -0.6,
+    lineHeight: 36
   },
-  brandTagline: {
-    color: colors.textMuted,
-    fontSize: 11,
-    fontWeight: "600"
+  pitch: {
+    color: homeColors.textPitch
+  },
+  brain: {
+    color: homeColors.green
+  },
+  tagline: {
+    color: homeColors.textMuted,
+    fontSize: 13,
+    fontWeight: "500",
+    letterSpacing: 0.1
   },
   rightCol: {
     alignItems: "flex-end",
-    gap: spacing.xs
+    gap: spacing.xs,
+    paddingTop: 4
   },
   badge: {
     flexDirection: "row",
@@ -94,34 +107,29 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingHorizontal: 10,
     paddingVertical: 6,
-    borderRadius: radii.pill,
+    borderRadius: 999,
     borderWidth: 1,
-    borderColor: "rgba(110,231,183,0.28)",
-    backgroundColor: "rgba(16,185,129,0.08)"
-  },
-  badgeDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-    backgroundColor: colors.emerald
+    borderColor: homeColors.borderStrong,
+    backgroundColor: "rgba(23,53,26,0.35)"
   },
   badgeText: {
-    color: colors.emerald,
-    fontSize: 9,
-    fontWeight: "800"
+    color: homeColors.green,
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 0.8
   },
   refreshBtn: {
     width: 28,
     height: 28,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: homeColors.border,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: colors.surface
+    backgroundColor: homeColors.card
   },
   refreshText: {
-    color: colors.cyan,
+    color: homeColors.green,
     fontSize: 16,
     fontWeight: "800"
   }

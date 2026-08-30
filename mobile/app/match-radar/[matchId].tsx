@@ -1,16 +1,21 @@
 import { useEffect } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
-import { Screen } from "@/components/Screen";
-import { ScrollMoreHint } from "@/components/ScrollMoreHint";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { AnalysisNavHeader } from "@/components/analysis/AnalysisNavHeader";
+import { PitchBrainLoading } from "@/components/PitchBrainLoading";
 import { useAccessFlow } from "@/contexts/AccessFlowContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { canAccessFeatureId } from "@/lib/access/features";
 import { useMatchRadarDetail } from "@/lib/match-radar/useMatchRadarDetail";
-import { MATCH_RADAR_UI_TEXT, translateMatchRadarReason } from "@/lib/match-radar/text";
+import {
+  MATCH_RADAR_UI_TEXT,
+  translateMatchRadarReason,
+  matchRadarDisciplinaryPotentialLabel
+} from "@/lib/match-radar/text";
 import { formatKickoffInRome } from "@/lib/match-radar/date";
 import { translateCompetitionName } from "@/lib/italian-display";
-import { colors, radii, spacing } from "@/lib/theme";
+import { pitchbrainColors } from "@/lib/pitchbrain-theme";
 
 function DimRow({ label, value }: { label: string; value: number | null | undefined }) {
   if (value == null) return null;
@@ -36,6 +41,9 @@ export default function MatchRadarDetailScreen() {
   const { detail, loading, error } = useMatchRadarDetail(isPro ? matchId : undefined);
   const locale: "it" | "en" = "it";
   const ui = MATCH_RADAR_UI_TEXT[locale];
+  const disciplinaryLabel = detail
+    ? matchRadarDisciplinaryPotentialLabel(detail.reasons, locale)
+    : null;
 
   useEffect(() => {
     if (isPro) return;
@@ -43,38 +51,49 @@ export default function MatchRadarDetailScreen() {
     router.replace("/match-radar");
   }, [isPro, openAuthFromPaywall, router]);
 
+  const matchTitle = detail ? `${detail.homeTeam.name} — ${detail.awayTeam.name}` : ui.title;
+
   if (!isPro) {
     return (
       <>
-        <Stack.Screen options={{ title: ui.title }} />
-        <Screen>
+        <Stack.Screen options={{ headerShown: false }} />
+        <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
+          <View style={styles.headerWrap}>
+            <AnalysisNavHeader backLabel="Match Radar" />
+          </View>
           <Text style={styles.muted}>Crea un account gratuito per il dettaglio Match Radar.</Text>
-        </Screen>
+        </SafeAreaView>
       </>
     );
   }
 
   return (
     <>
-      <Stack.Screen options={{ title: ui.title }} />
-      <Screen>
-        {loading ? <Text style={styles.muted}>{ui.loading}</Text> : null}
-        {error ? <Text style={styles.error}>{ui.error}</Text> : null}
-        {!loading && !detail ? <Text style={styles.muted}>{ui.empty}</Text> : null}
-        {detail ? (
-          <ScrollView contentContainerStyle={styles.content}>
-            <ScrollMoreHint />
+      <Stack.Screen options={{ headerShown: false }} />
+      <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
+        <View style={styles.headerWrap}>
+          <AnalysisNavHeader backLabel="Match Radar" title={loading ? ui.title : matchTitle} />
+        </View>
+        <View style={styles.body}>
+        {error && !loading ? (
+          <Text style={styles.error}>{ui.error}</Text>
+        ) : !detail && !loading ? (
+          <Text style={styles.muted}>{ui.empty}</Text>
+        ) : detail ? (
+          <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
             <Text style={styles.meta}>
               {translateCompetitionName(detail.competitionId)} · {formatKickoffInRome(detail.kickoff, locale)}
             </Text>
-            <Text style={styles.title}>
-              {detail.homeTeam.name} vs {detail.awayTeam.name}
-            </Text>
-            <Text style={styles.score}>
+            <Text
+              style={styles.score}
+              accessibilityLabel={`${ui.radarScore} ${detail.radarScore} su 100. ${ui.confidence[detail.confidenceLevel]}`}
+              accessibilityHint={ui.confidenceNote}
+            >
               {ui.radarScore}: {detail.radarScore}/100 · {ui.confidence[detail.confidenceLevel]}
             </Text>
 
             <Text style={styles.sectionTitle}>{ui.whyTitle}</Text>
+            {disciplinaryLabel ? <Text style={styles.highlight}>{disciplinaryLabel}</Text> : null}
             {detail.reasons.map((reason) => (
               <View key={reason.key} style={styles.reasonCard}>
                 <Text style={styles.reason}>{translateMatchRadarReason(reason, locale)}</Text>
@@ -101,7 +120,8 @@ export default function MatchRadarDetailScreen() {
                     : ""}
                 </Text>
                 <Text style={styles.refereeMeta}>
-                  Campione: {detail.referee.matchesSample} gare · Severità {detail.referee.strictnessScore}/100
+                  Campione: {detail.referee.matchesSample} gare · {ui.dimensions.refereeStrictness}{" "}
+                  {detail.referee.strictnessScore}/100
                 </Text>
                 {detail.referee.foulsVsCompetitionPct != null &&
                 detail.referee.yellowCardsVsCompetitionPct != null ? (
@@ -147,63 +167,74 @@ export default function MatchRadarDetailScreen() {
             ) : null}
           </ScrollView>
         ) : null}
-      </Screen>
+        <PitchBrainLoading visible={loading} message="Analisi in corso…" />
+        </View>
+      </SafeAreaView>
     </>
   );
 }
 
 const styles = StyleSheet.create({
-  content: { gap: spacing.md, paddingBottom: spacing.xl },
-  meta: { color: colors.textDim, fontSize: 12, fontWeight: "700" },
-  title: { color: colors.text, fontSize: 22, fontWeight: "900" },
-  score: { color: colors.cyanMuted, fontSize: 14, fontWeight: "700" },
-  section: { gap: spacing.sm },
+  safe: { flex: 1, backgroundColor: pitchbrainColors.bg },
+  headerWrap: { paddingHorizontal: 16 },
+  body: { flex: 1, minHeight: 0 },
+  content: { gap: 12, paddingHorizontal: 16, paddingBottom: 32 },
+  meta: { color: pitchbrainColors.textDim, fontSize: 12, fontWeight: "700" },
+  score: { color: pitchbrainColors.green, fontSize: 14, fontWeight: "700" },
+  section: { gap: 10 },
   sectionTitle: {
-    color: colors.amber,
-    fontSize: 12,
+    color: pitchbrainColors.green,
+    fontSize: 11,
     fontWeight: "800",
+    letterSpacing: 1.1,
     textTransform: "uppercase",
-    marginTop: spacing.xs
+    marginTop: 4
   },
   dimBlock: { gap: 4 },
   dimRow: { flexDirection: "row", justifyContent: "space-between" },
-  dimLabel: { color: colors.textMuted, fontSize: 13 },
-  dimValue: { color: colors.text, fontSize: 13, fontWeight: "800" },
-  barTrack: { height: 8, borderRadius: 999, backgroundColor: "rgba(255,255,255,0.08)", overflow: "hidden" },
-  barFill: { height: 8, borderRadius: 999, backgroundColor: colors.cyan },
-  reasonCard: {
-    borderRadius: radii.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surfaceAlt,
-    padding: spacing.sm
+  dimLabel: { color: pitchbrainColors.textMuted, fontSize: 13 },
+  dimValue: { color: pitchbrainColors.text, fontSize: 13, fontWeight: "800" },
+  barTrack: {
+    height: 8,
+    borderRadius: 999,
+    backgroundColor: pitchbrainColors.track,
+    overflow: "hidden"
   },
-  reason: { color: colors.textMuted, fontSize: 13, lineHeight: 20 },
-  refereeBox: {
-    borderRadius: radii.lg,
+  barFill: { height: 8, borderRadius: 999, backgroundColor: pitchbrainColors.green },
+  reasonCard: {
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surfaceAlt,
-    padding: spacing.md,
+    borderColor: pitchbrainColors.border,
+    backgroundColor: pitchbrainColors.card,
+    padding: 12
+  },
+  reason: { color: pitchbrainColors.textMuted, fontSize: 13, lineHeight: 20 },
+  highlight: { color: pitchbrainColors.greenMid, fontSize: 12, fontWeight: "700" },
+  refereeBox: {
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: pitchbrainColors.border,
+    backgroundColor: pitchbrainColors.card,
+    padding: 14,
     gap: 6
   },
-  refereeLine: { color: colors.text, fontSize: 14, fontWeight: "700" },
-  refereeMeta: { color: colors.textMuted, fontSize: 12 },
-  refereeBoost: { color: colors.cyanMuted, fontSize: 12, lineHeight: 17, marginTop: 4 },
-  matchupBox: { gap: spacing.sm },
-  matchupNote: { color: colors.textDim, fontSize: 11, lineHeight: 16, marginBottom: spacing.xs },
+  refereeLine: { color: pitchbrainColors.text, fontSize: 14, fontWeight: "700" },
+  refereeMeta: { color: pitchbrainColors.textMuted, fontSize: 12 },
+  refereeBoost: { color: pitchbrainColors.greenMid, fontSize: 12, lineHeight: 17, marginTop: 4 },
+  matchupBox: { gap: 10 },
+  matchupNote: { color: pitchbrainColors.textDim, fontSize: 11, lineHeight: 16, marginBottom: 4 },
   matchupRow: {
-    borderRadius: radii.md,
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: "rgba(255,255,255,0.02)",
-    padding: spacing.sm,
+    borderColor: pitchbrainColors.border,
+    backgroundColor: pitchbrainColors.cardAlt,
+    padding: 12,
     gap: 4
   },
-  matchupLabel: { color: colors.text, fontSize: 12, fontWeight: "800" },
+  matchupLabel: { color: pitchbrainColors.text, fontSize: 12, fontWeight: "800" },
   matchupValues: { gap: 2 },
-  matchupValue: { color: colors.textMuted, fontSize: 12 },
-  matchupInsight: { color: colors.cyanMuted, fontSize: 11, lineHeight: 16, marginTop: 2 },
-  muted: { color: colors.textDim },
-  error: { color: colors.amber }
+  matchupValue: { color: pitchbrainColors.textMuted, fontSize: 12 },
+  matchupInsight: { color: pitchbrainColors.greenMid, fontSize: 11, lineHeight: 16, marginTop: 2 },
+  muted: { color: pitchbrainColors.textMuted, paddingHorizontal: 16, lineHeight: 20 },
+  error: { color: pitchbrainColors.danger, paddingHorizontal: 16 }
 });

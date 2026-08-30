@@ -117,4 +117,79 @@ assert.deepEqual(
   "il prefetch admin analizza solo la prossima giornata"
 );
 
+/** 30 agosto 2026 14:00 Europe/Rome (CEST = UTC+2). Fine inclusiva menu = 7 settembre. */
+const frozenNowMs = Date.parse("2026-08-30T12:00:00.000Z");
+const frozenNowSec = Math.floor(frozenNowMs / 1000);
+const sept7Evening = Math.floor(Date.parse("2026-09-07T18:45:00.000Z") / 1000);
+const sept8Morning = Math.floor(Date.parse("2026-09-08T07:00:00.000Z") / 1000);
+const nationsLeagueKickoff = Math.floor(Date.parse("2026-09-24T18:45:00.000Z") / 1000);
+
+const horizonMenu = buildMonitoredMatchesMenu(
+  [
+    row({
+      eventId: 201,
+      competitionSlug: "serie-a",
+      round: 1,
+      startTimestamp: sept7Evening
+    }),
+    row({
+      eventId: 202,
+      competitionSlug: "serie-a",
+      round: 2,
+      startTimestamp: sept8Morning
+    }),
+    row({
+      eventId: 203,
+      competitionSlug: "uefa-nations-league",
+      round: 1,
+      startTimestamp: nationsLeagueKickoff,
+      homeTeam: { id: 2031, name: "Italia" },
+      awayTeam: { id: 2032, name: "Francia" }
+    }),
+    row({
+      eventId: 204,
+      competitionSlug: "uefa-champions-league",
+      round: 1,
+      startTimestamp: frozenNowSec + 2 * day,
+      homeTeam: { id: 2041, name: "Inter" },
+      awayTeam: { id: 2042, name: "Barcelona" }
+    }),
+    row({
+      eventId: 205,
+      competitionSlug: "uefa-europa-conference-league",
+      round: 1,
+      startTimestamp: frozenNowSec + 2 * day,
+      homeTeam: { id: 2051, name: "Fiorentina" },
+      awayTeam: { id: 2052, name: "PAOK" }
+    })
+  ],
+  { nowSec: frozenNowSec }
+);
+assert.deepEqual(
+  horizonMenu.map((m) => m.eventId).sort((a, b) => a - b),
+  [201, 204],
+  "orizzonte calendario: 7 set sera e UCL dentro; 8 set, Nations League e Conference fuori"
+);
+
+const uclPrefetch = buildAdminInsightsPrefetchTargets(
+  [
+    upcoming(
+      row({
+        eventId: 301,
+        competitionSlug: "uefa-champions-league",
+        round: 1,
+        startTimestamp: now + 2 * day,
+        homeTeam: { id: 3011, name: "Inter" },
+        awayTeam: { id: 3012, name: "Barcelona" }
+      })
+    )
+  ],
+  []
+);
+assert.deepEqual(
+  uclPrefetch.map((m) => m.eventId),
+  [301],
+  "il prefetch admin include Champions League"
+);
+
 console.log("tactical-matches-filters tests passed");

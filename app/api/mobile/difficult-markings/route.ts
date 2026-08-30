@@ -4,6 +4,7 @@ import {
   buildDifficultMarkingsListResponse,
   parseDifficultMarkingsListQuery
 } from "@/lib/difficult-markings/api-handlers";
+import { canViewDifficultMarkings } from "@/lib/difficult-markings/visibility";
 import { redactDifficultMarkingsList } from "@/lib/entitlements";
 import { isBetaFreeForAllRequest } from "@/lib/entitlements/config";
 import { resolveRequestEntitlements } from "@/lib/entitlements/request";
@@ -22,6 +23,10 @@ export async function GET(request: Request) {
   /** Beta app mobile: i guest hanno lo stesso accesso dei Free, niente auth obbligatoria. */
   if ((ctx.mode === "guest" || ctx.role === "guest") && !isBetaFreeForAllRequest(request)) {
     return NextResponse.json({ error: "auth_required" }, { status: 401 });
+  }
+
+  if (!canViewDifficultMarkings(ctx)) {
+    return NextResponse.json({ error: "not_found" }, { status: 404 });
   }
 
   const url = new URL(request.url);

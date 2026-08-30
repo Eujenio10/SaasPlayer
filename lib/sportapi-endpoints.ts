@@ -67,6 +67,16 @@ export function sportApiEventLineupsPath(
     : `/api/v1/event/${eventId}/lineups`;
 }
 
+/** Infortunati / indisponibili della partita (SofaScore/FootAPI missing-players). */
+export function sportApiEventMissingPlayersPath(
+  eventId: number | string,
+  host = env.SPORTAPI_RAPIDAPI_HOST
+): string {
+  return isFootApi(host)
+    ? `/api/match/${eventId}/missing-players`
+    : `/api/v1/event/${eventId}/missing-players`;
+}
+
 export function sportApiEventStatisticsPath(
   eventId: number | string,
   host = env.SPORTAPI_RAPIDAPI_HOST

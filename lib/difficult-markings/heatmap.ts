@@ -5,7 +5,7 @@ import {
   GRID_COLUMNS,
   GRID_ROWS
 } from "@/lib/difficult-markings/roles";
-import type { HeatmapPoint, ProbableZone } from "@/lib/difficult-markings/types";
+import type { HeatmapPoint, NormalizedRole, ProbableZone } from "@/lib/difficult-markings/types";
 
 export type { HeatmapPoint };
 
@@ -57,9 +57,90 @@ export function averagePositionFromHeatmap(points: HeatmapPoint[]): { x: number;
   return heatmapCentroid(points);
 }
 
+/** Nel frame clash: y alto = trequarti, y basso = metà difensiva. */
+const HEATMAP_ATTACK_Y = 58;
+const HEATMAP_DEFENSE_Y = 36;
+
+export type HeatmapOccupation = {
+  centroid: { x: number; y: number };
+  attackShare: number;
+  middleShare: number;
+  defenseShare: number;
+};
+
+export function heatmapOccupation(points: HeatmapPoint[]): HeatmapOccupation | null {
+  if (points.length < 3) return null;
+  let sx = 0;
+  let sy = 0;
+  let sw = 0;
+  let attack = 0;
+  let middle = 0;
+  let defense = 0;
+  for (const p of points) {
+    const w = p.intensity ?? 1;
+    const x = clamp(p.x, 0, 100);
+    const y = clamp(p.y, 0, 100);
+    sx += x * w;
+    sy += y * w;
+    sw += w;
+    if (y >= HEATMAP_ATTACK_Y) attack += w;
+    else if (y < HEATMAP_DEFENSE_Y) defense += w;
+    else middle += w;
+  }
+  if (sw <= 0) return null;
+  return {
+    centroid: { x: sx / sw, y: sy / sw },
+    attackShare: attack / sw,
+    middleShare: middle / sw,
+    defenseShare: defense / sw
+  };
+}
+
+/**
+ * Ruolo vero del centrocampista dalla heatmap, non dalle medie falli.
+ * Trequarti → trequartista; metà propria → mediano; fascia centrale → mezzala/CM.
+ */
+export function refineMidfieldRoleFromHeatmap(
+  providerRole: NormalizedRole,
+  points: HeatmapPoint[] | undefined
+): NormalizedRole {
+  const genericMid =
+    providerRole === "DM" ||
+    providerRole === "CM_LEFT" ||
+    providerRole === "CM_CENTER" ||
+    providerRole === "CM_RIGHT" ||
+    providerRole === "AM" ||
+    providerRole === "UNKNOWN";
+  if (!genericMid) return providerRole;
+
+  const occ = heatmapOccupation(points ?? []);
+  if (!occ) return providerRole;
+
+  const sideRole: NormalizedRole =
+    occ.centroid.x < 34 ? "CM_LEFT" : occ.centroid.x > 66 ? "CM_RIGHT" : "CM_CENTER";
+
+  if (occ.attackShare >= 0.45 && occ.attackShare >= occ.defenseShare + 0.12) return "AM";
+  if (occ.centroid.y >= 62 && occ.attackShare >= occ.defenseShare) return "AM";
+  if (occ.defenseShare >= 0.5 && occ.defenseShare >= occ.attackShare + 0.15) return "DM";
+  if (occ.centroid.y <= 34 && occ.defenseShare >= occ.attackShare) return "DM";
+
+  if (providerRole === "AM") {
+    if (occ.attackShare < 0.28 && occ.defenseShare + occ.middleShare >= 0.72) return sideRole;
+    return "AM";
+  }
+  if (providerRole === "DM") return "DM";
+  if (providerRole === "CM_LEFT" || providerRole === "CM_RIGHT") return providerRole;
+  return sideRole;
+}
+
+/** Griglia nel frame partita (casa attacca in alto). Niente ribaltamento extra Y. */
+export function toClashFrameGrid(points: HeatmapPoint[]): number[] {
+  return pointsToGrid(points, "offensive");
+}
+
 /** Prospettiva offensiva: attaccante verso porta avversaria (y alto). */
 export function toOffensiveHeatmapGrid(points: HeatmapPoint[]): number[] {
-  return pointsToGrid(points, "offensive");
+  return toClashFrameGrid(points);
 }
 
 /** Prospettiva difensiva: marcatore orientato verso la propria metà difensiva. */
@@ -103,7 +184,7 @@ export function averagePositionCompatibilityScore(
   defenderPos?: { x: number; y: number }
 ): number {
   if (!attackerPos || !defenderPos) return 0.45;
-  const dx = Math.abs(attackerPos.x - (100 - defenderPos.x));
+  const dx = Math.abs(attackerPos.x - defenderPos.x);
   const dy = Math.abs(attackerPos.y - defenderPos.y);
   const dist = Math.sqrt(dx * dx + dy * dy);
   return clamp(1 - dist / 120, 0, 1);

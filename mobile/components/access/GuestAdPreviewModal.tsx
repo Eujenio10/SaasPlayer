@@ -1,10 +1,13 @@
 import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useGuestPreview } from "@/contexts/GuestPreviewContext";
+import { PITCHBRAIN_MOBILE_PRO_PLANS_ENABLED } from "@/lib/access/pro-plans";
 import { colors, radii, spacing } from "@/lib/theme";
 
 export function GuestAdPreviewModal() {
   const { adModalVisible, adWatching, closeAdModal, completeAdWatch } = useGuestPreview();
+
+  if (!PITCHBRAIN_MOBILE_PRO_PLANS_ENABLED) return null;
 
   return (
     <Modal visible={adModalVisible} animationType="fade" transparent onRequestClose={closeAdModal}>

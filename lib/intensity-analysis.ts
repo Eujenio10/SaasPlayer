@@ -1,7 +1,16 @@
 /**
  * Analisi tecnico-sportiva intensità partita — funzioni pure, nessuna I/O.
- * Usa medie falli già presenti in TacticalMetrics (proxy p90 ≈ media a partita).
+ * I falli p90 usano i minuti reali quando disponibili (falli ÷ minuti × 90).
  */
+
+import {
+  MIN_APPEARANCES_FOR_INTEGER_FOUL_TOTAL,
+  perMatchRateToP90
+} from "@/lib/player-season-foul-average";
+import {
+  dedupeSquadPlayers,
+  preferLongerPlayerName
+} from "@/lib/player-identity";
 
 export type IntensityLevel = "low" | "medium" | "high" | "very_high";
 export type DataReliabilityLevel = "low" | "medium" | "good" | "high";
@@ -23,6 +32,12 @@ export interface IntensityPlayerInput {
   foulsSufferedLastTwoSampleCount?: number;
   foulsCommittedLastFiveSampleCount?: number;
   foulsSufferedLastFiveSampleCount?: number;
+  seasonMinutesPlayed?: number;
+  seasonAppearances?: number;
+  foulsCommittedSeasonP90?: number;
+  foulsSufferedSeasonP90?: number;
+  /** Presenze con falli nella stagione in corso (serie eventi del torneo corrente). */
+  currentSeasonSampleCount?: number;
   sparkIndex?: number;
   sparkNarrative?: string;
   sparkDuel?: {
@@ -33,6 +48,10 @@ export interface IntensityPlayerInput {
     foulsCommittedA: number;
     foulsSufferedB: number;
   } | null;
+  /** Se false, il giocatore è panchina e non entra nei matchup. */
+  probableStarter?: boolean;
+  /** true se è in missingPlayers della formazione (infortunato/squalificato). */
+  unavailableForMatch?: boolean;
 }
 
 export interface PlayerIntensityMetrics {
@@ -112,13 +131,41 @@ export interface MatchIntensityAnalysis {
   trendAvailable: boolean;
 }
 
-const MIN_WEIGHT_MINUTES = 180;
+const MIN_WEIGHT_MINUTES = 70;
 
-/** Soglia minima media falli per profili in evidenza (commessi / subiti). */
+/** Soglia minima media falli a partita (stagione) per i profili Scontri & Falli. */
 export const FOULS_PROFILE_MIN_AVG = 1.2;
+
+/** True se c’è almeno una presenza nella stagione in corso del torneo. */
+export function hasCurrentSeasonFoulData(m: IntensityPlayerInput): boolean {
+  const explicit = safeNum(m.currentSeasonSampleCount);
+  if (explicit == null) return true;
+  return explicit >= 1;
+}
+
+export function isUnavailableForFoulsAnalysis(m: IntensityPlayerInput): boolean {
+  return m.unavailableForMatch === true;
+}
+
+export function includeInFoulsAnalysis(m: IntensityPlayerInput): boolean {
+  return !isUnavailableForFoulsAnalysis(m) && hasCurrentSeasonFoulData(m);
+}
+
+/** True se il giocatore supera 1,2 falli commessi o subiti di media a partita, con dati della stagione in corso. */
+export function playerMeetsFoulsProfileThreshold(m: IntensityPlayerInput): boolean {
+  if (!includeInFoulsAnalysis(m)) return false;
+  const committed = committedPerMatch(m);
+  const suffered = sufferedPerMatch(m);
+  return (
+    (committed != null && committed > FOULS_PROFILE_MIN_AVG) ||
+    (suffered != null && suffered > FOULS_PROFILE_MIN_AVG)
+  );
+}
 
 /** Duelli da monitorare mostrati per partita. */
 export const MATCH_MONITOR_DUELS_COUNT = 4;
+/** Fallback cartesiano solo se ruoli/fasce si sovrappongono in modo credibile. */
+const CARTESIAN_MIN_ROLE_AFFINITY = 35;
 
 function safeNum(v: unknown): number | null {
   return typeof v === "number" && Number.isFinite(v) ? v : null;
@@ -134,13 +181,17 @@ export function formatMetric(n: number | null, decimals = 2): string {
   return roundMetric(n, decimals).toFixed(decimals);
 }
 
-/** Minuti stimati dal campione partite disponibile (≈ 90 min a uscita). */
+/** Minuti reali se presenti, altrimenti stima dal campione partite (≈ 90 min a uscita). */
 export function estimatePlayerMinutes(m: IntensityPlayerInput): number {
+  const realMinutes = safeNum(m.seasonMinutesPlayed);
+  if (realMinutes != null && realMinutes > 0) return realMinutes;
+
   const samples = [
     safeNum(m.foulsCommittedLastFiveSampleCount),
     safeNum(m.foulsSufferedLastFiveSampleCount),
     safeNum(m.foulsCommittedLastTwoSampleCount),
-    safeNum(m.foulsSufferedLastTwoSampleCount)
+    safeNum(m.foulsSufferedLastTwoSampleCount),
+    safeNum(m.seasonAppearances)
   ].filter((n): n is number => n != null && n > 0);
   if (!samples.length) {
     if (committedPerMatch(m) != null || sufferedPerMatch(m) != null) {
@@ -175,15 +226,32 @@ function pickFoulAverage(
   lastTwo: number | null,
   lastFive: number | null,
   lastTwoSamples: number | null,
-  lastFiveSamples: number | null
+  lastFiveSamples: number | null,
+  seasonApps: number | null,
+  currentSeasonSampleCount: number | null
 ): number | null {
-  if (season != null && season >= 0) return season;
-  if (lastFiveSamples != null && lastFiveSamples >= 2 && lastFive != null && lastFive >= 0) {
+  const hasExplicitCurrentSample = currentSeasonSampleCount != null;
+  const currentN = currentSeasonSampleCount ?? lastFiveSamples ?? lastTwoSamples ?? 0;
+  const apps = seasonApps ?? 0;
+  // Con campione esplicito della stagione in corso, fouls*SeasonAvg è già quella serie:
+  // non scartarla solo perché seasonAppearances contiene ancora l'overall dell'anno scorso.
+  if (hasExplicitCurrentSample && currentN >= 1) {
+    if (season != null && season > 0) return season;
+    if (season === 0) return 0;
+  }
+  const seasonLooksPreviousYear =
+    !hasExplicitCurrentSample && currentN >= 1 && apps >= 8 && apps >= currentN * 3;
+  if (!seasonLooksPreviousYear && season != null && season > 0) return season;
+  if (season === 0 && apps >= MIN_APPEARANCES_FOR_INTEGER_FOUL_TOTAL && !seasonLooksPreviousYear) {
+    return 0;
+  }
+  if (lastFiveSamples != null && lastFiveSamples >= 1 && lastFive != null && lastFive > 0) {
     return lastFive;
   }
-  if (lastTwoSamples != null && lastTwoSamples >= 2 && lastTwo != null && lastTwo >= 0) {
+  if (lastTwoSamples != null && lastTwoSamples >= 1 && lastTwo != null && lastTwo > 0) {
     return lastTwo;
   }
+  if (season != null && season > 0) return season;
   return null;
 }
 
@@ -194,7 +262,9 @@ function committedPerMatch(m: IntensityPlayerInput): number | null {
     safeNum(m.foulsCommittedLastTwoAvg),
     safeNum(m.foulsCommittedLastFiveAvg),
     safeNum(m.foulsCommittedLastTwoSampleCount),
-    safeNum(m.foulsCommittedLastFiveSampleCount)
+    safeNum(m.foulsCommittedLastFiveSampleCount),
+    safeNum(m.seasonAppearances),
+    safeNum(m.currentSeasonSampleCount)
   );
 }
 
@@ -204,21 +274,45 @@ function sufferedPerMatch(m: IntensityPlayerInput): number | null {
     safeNum(m.foulsSufferedLastTwoAvg),
     safeNum(m.foulsSufferedLastFiveAvg),
     safeNum(m.foulsSufferedLastTwoSampleCount),
-    safeNum(m.foulsSufferedLastFiveSampleCount)
+    safeNum(m.foulsSufferedLastFiveSampleCount),
+    safeNum(m.seasonAppearances),
+    safeNum(m.currentSeasonSampleCount)
   );
 }
 
-/** Proxy p90: medie a partita ≈ falli ogni 90 min quando il giocatore gioca l'intera gara. */
-export function foulsCommittedP90(m: IntensityPlayerInput): number | null {
-  const perMatch = committedPerMatch(m);
+function toFoulsP90(
+  precomputed: number | null,
+  perMatch: number | null,
+  seasonAvg: number | null,
+  m: IntensityPlayerInput
+): number | null {
+  if (precomputed != null && precomputed >= 0) return roundMetric(precomputed);
   if (perMatch == null) return null;
+  const usedSeason = seasonAvg != null && perMatch === seasonAvg;
+  if (usedSeason) {
+    const p90 = perMatchRateToP90(perMatch, m.seasonMinutesPlayed, m.seasonAppearances);
+    return p90 == null ? null : roundMetric(p90);
+  }
   return roundMetric(perMatch);
 }
 
+/** Falli commessi ogni 90 minuti (minuti reali se disponibili). */
+export function foulsCommittedP90(m: IntensityPlayerInput): number | null {
+  return toFoulsP90(
+    safeNum(m.foulsCommittedSeasonP90),
+    committedPerMatch(m),
+    safeNum(m.foulsCommittedSeasonAvg),
+    m
+  );
+}
+
 export function foulsSufferedP90(m: IntensityPlayerInput): number | null {
-  const perMatch = sufferedPerMatch(m);
-  if (perMatch == null) return null;
-  return roundMetric(perMatch);
+  return toFoulsP90(
+    safeNum(m.foulsSufferedSeasonP90),
+    sufferedPerMatch(m),
+    safeNum(m.foulsSufferedSeasonAvg),
+    m
+  );
 }
 
 export function aggressionProfileLabel(p90: number | null): string {
@@ -542,6 +636,10 @@ function buildHighIntensityDuels(
     });
   }
 
+  if (pairs.length >= MATCH_MONITOR_DUELS_COUNT) {
+    return pairs.sort((a, b) => b.duelScore - a.duelScore).slice(0, MATCH_MONITOR_DUELS_COUNT);
+  }
+
   const home = homeTeamId != null ? metrics.filter((m) => m.teamId === homeTeamId) : [];
   const away = homeTeamId != null ? metrics.filter((m) => m.teamId !== homeTeamId) : metrics;
 
@@ -555,6 +653,8 @@ function buildHighIntensityDuels(
         : [];
 
   for (const [a, b] of sides) {
+    if (duelPairScore(a, b) < CARTESIAN_MIN_ROLE_AFFINITY) continue;
+
     const cA = foulsCommittedP90(a);
     const sB = foulsSufferedP90(b);
     const cB = foulsCommittedP90(b);
@@ -579,6 +679,7 @@ function buildHighIntensityDuels(
       duelScore,
       reading: duelReading(useAB ? a : b, useAB ? b : a)
     });
+    if (pairs.length >= MATCH_MONITOR_DUELS_COUNT) break;
   }
 
   return pairs.sort((a, b) => b.duelScore - a.duelScore).slice(0, MATCH_MONITOR_DUELS_COUNT);
@@ -741,26 +842,64 @@ function buildTechnicalSummary(params: {
   return parts.join(" ") || "Analisi tecnica non disponibile con i dati correnti.";
 }
 
+function pickRicherIntensityInput(
+  current: IntensityPlayerInput,
+  incoming: IntensityPlayerInput
+): IntensityPlayerInput {
+  const score = (p: IntensityPlayerInput) =>
+    (p.playerId && p.playerId > 0 ? 10000 : 0) +
+    (typeof p.seasonMinutesPlayed === "number" ? p.seasonMinutesPlayed : 0) +
+    Math.max(
+      p.foulsCommittedLastFiveSampleCount ?? 0,
+      p.foulsSufferedLastFiveSampleCount ?? 0,
+      p.seasonAppearances ?? 0
+    ) *
+      20 +
+    (p.foulsCommittedSeasonP90 != null ? 50 : 0) +
+    (p.foulsSufferedSeasonP90 != null ? 50 : 0);
+  const winner = score(current) >= score(incoming) ? current : incoming;
+  const loser = winner === current ? incoming : current;
+  return {
+    ...winner,
+    playerId: winner.playerId && winner.playerId > 0 ? winner.playerId : loser.playerId,
+    playerName: preferLongerPlayerName(winner.playerName, loser.playerName),
+    unavailableForMatch: current.unavailableForMatch === true || incoming.unavailableForMatch === true
+  };
+}
+
+function dedupeIntensityInputs(metrics: IntensityPlayerInput[]): IntensityPlayerInput[] {
+  return dedupeSquadPlayers(
+    metrics,
+    (row) => ({ playerId: row.playerId, teamId: row.teamId, playerName: row.playerName }),
+    pickRicherIntensityInput
+  );
+}
+
 export function buildMatchIntensityAnalysis(
   metrics: IntensityPlayerInput[],
   options?: { homeTeamId?: number }
 ): MatchIntensityAnalysis {
-  const playerMetrics = metrics.map(buildPlayerIntensityMetrics);
+  const uniqueMetrics = dedupeIntensityInputs(metrics).filter(includeInFoulsAnalysis);
+  const playerMetrics = uniqueMetrics.map(buildPlayerIntensityMetrics);
 
-  const aggressivePlayers = [...playerMetrics]
-    .filter(
-      (p) => p.foulsCommittedP90 != null && p.foulsCommittedP90 > FOULS_PROFILE_MIN_AVG
-    )
-    .sort((a, b) => (b.foulsCommittedP90 ?? 0) - (a.foulsCommittedP90 ?? 0))
-    .slice(0, 12);
+  const aggressivePlayers = uniqueMetrics
+    .filter((m) => {
+      const committed = committedPerMatch(m);
+      return committed != null && committed > FOULS_PROFILE_MIN_AVG;
+    })
+    .map(buildPlayerIntensityMetrics)
+    .sort((a, b) => (b.foulsCommittedP90 ?? 0) - (a.foulsCommittedP90 ?? 0));
 
-  const exposedPlayers = [...playerMetrics]
-    .filter((p) => p.foulsSufferedP90 != null && p.foulsSufferedP90 > FOULS_PROFILE_MIN_AVG)
-    .sort((a, b) => (b.foulsSufferedP90 ?? 0) - (a.foulsSufferedP90 ?? 0))
-    .slice(0, 12);
+  const exposedPlayers = uniqueMetrics
+    .filter((m) => {
+      const suffered = sufferedPerMatch(m);
+      return suffered != null && suffered > FOULS_PROFILE_MIN_AVG;
+    })
+    .map(buildPlayerIntensityMetrics)
+    .sort((a, b) => (b.foulsSufferedP90 ?? 0) - (a.foulsSufferedP90 ?? 0));
 
   const matchIntensity = computeMatchIntensityIndex(playerMetrics);
-  const highIntensityDuels = buildHighIntensityDuels(metrics, options?.homeTeamId);
+  const highIntensityDuels = buildHighIntensityDuels(uniqueMetrics, options?.homeTeamId);
   const pressureZones = buildPressureZones(playerMetrics);
   const roleGroups = buildRoleGroups(playerMetrics);
 
@@ -818,7 +957,9 @@ export function computeMatchIntensityPreview(metrics: IntensityPlayerInput[]): {
   level: IntensityLevel;
   uiLevel: "low" | "medium" | "high";
 } {
-  const idx = computeMatchIntensityIndex(metrics.map(buildPlayerIntensityMetrics));
+  const idx = computeMatchIntensityIndex(
+    dedupeIntensityInputs(metrics).filter(includeInFoulsAnalysis).map(buildPlayerIntensityMetrics)
+  );
   return {
     value: idx.value,
     label: idx.label,

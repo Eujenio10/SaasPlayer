@@ -171,6 +171,9 @@ export interface TrendsSnapshot {
   rounds: TrendsRoundBucket[];
   trendIndex: Record<string, PlayerTrend>;
   updatedAt: string;
+  /** Se impostato, i trend di queste competizioni aspettano N giornate della stagione in corso. */
+  deferredUntilMatchdays?: number;
+  deferredCompetitionIds?: string[];
 }
 
 export interface TrendsResponse {

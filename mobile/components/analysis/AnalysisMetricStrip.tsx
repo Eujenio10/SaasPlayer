@@ -1,14 +1,10 @@
 import { StyleSheet, Text, View } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
-import { colors, radii, spacing } from "@/lib/theme";
+import { analysisColors } from "@/components/analysis/analysis-theme";
 
 export type AnalysisMetricItem = {
-  icon: keyof typeof Ionicons.glyphMap;
-  iconColor?: string;
   label: string;
   value: string;
   sublabel?: string;
-  valueColor?: string;
 };
 
 export function AnalysisMetricStrip({ items }: { items: AnalysisMetricItem[] }) {
@@ -16,11 +12,8 @@ export function AnalysisMetricStrip({ items }: { items: AnalysisMetricItem[] }) 
     <View style={styles.wrap}>
       {items.map((item) => (
         <View key={item.label} style={styles.item}>
-          <Ionicons name={item.icon} size={18} color={item.iconColor ?? colors.cyan} />
-          <Text style={[styles.value, item.valueColor ? { color: item.valueColor } : null]}>
-            {item.value}
-          </Text>
           <Text style={styles.label}>{item.label}</Text>
+          <Text style={styles.value}>{item.value}</Text>
           {item.sublabel ? <Text style={styles.sublabel}>{item.sublabel}</Text> : null}
         </View>
       ))}
@@ -31,36 +24,33 @@ export function AnalysisMetricStrip({ items }: { items: AnalysisMetricItem[] }) 
 const styles = StyleSheet.create({
   wrap: {
     flexDirection: "row",
-    gap: spacing.xs,
-    padding: spacing.sm,
-    borderRadius: radii.xl,
+    gap: 8,
+    padding: 12,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: "rgba(255,255,255,0.02)"
+    borderColor: analysisColors.border,
+    backgroundColor: analysisColors.card
   },
   item: {
     flex: 1,
-    alignItems: "center",
     gap: 4,
-    paddingVertical: spacing.xs
-  },
-  value: {
-    color: colors.text,
-    fontSize: 16,
-    fontWeight: "900",
-    textAlign: "center"
+    minWidth: 0
   },
   label: {
-    color: colors.textDim,
-    fontSize: 9,
+    color: analysisColors.textMuted,
+    fontSize: 10,
     fontWeight: "800",
-    textTransform: "uppercase",
-    textAlign: "center"
+    letterSpacing: 0.7,
+    textTransform: "uppercase"
+  },
+  value: {
+    color: analysisColors.text,
+    fontSize: 16,
+    fontWeight: "800"
   },
   sublabel: {
-    color: colors.cyan,
-    fontSize: 9,
-    fontWeight: "700",
-    textAlign: "center"
+    color: analysisColors.green,
+    fontSize: 11,
+    fontWeight: "700"
   }
 });

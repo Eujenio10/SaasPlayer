@@ -1,22 +1,26 @@
-import { useEffect, useMemo } from "react";
 import { Pressable, ScrollView, StyleSheet, Text } from "react-native";
+import { useEffect, useMemo } from "react";
 import { filterCompetitionsByAvailableIds } from "@/lib/competitions-with-matches";
+import { markingsColors } from "@/components/difficult-markings/markings-theme";
 import { colors, radii, spacing } from "@/lib/theme";
 
 export function MarkingsCompetitionPicker({
   active,
   onChange,
-  availableIds
+  availableIds,
+  variant = "default"
 }: {
   active: string;
   onChange: (competitionId: string) => void;
   /** Se valorizzato, mostra solo questi campionati (con almeno 1 partita). */
   availableIds?: string[] | null;
+  variant?: "default" | "matrix";
 }) {
   const options = useMemo(
     () => filterCompetitionsByAvailableIds(availableIds),
     [availableIds]
   );
+  const matrix = variant === "matrix";
 
   useEffect(() => {
     if (options.length === 0) return;
@@ -27,7 +31,7 @@ export function MarkingsCompetitionPicker({
 
   if (options.length === 0) {
     return (
-      <Text style={styles.empty}>
+      <Text style={[styles.empty, matrix && styles.emptyMatrix]}>
         Nessun campionato con partite da analizzare al momento.
       </Text>
     );
@@ -41,9 +45,21 @@ export function MarkingsCompetitionPicker({
           <Pressable
             key={competition.id}
             onPress={() => onChange(competition.id)}
-            style={[styles.chip, selected && styles.chipActive]}
+            accessibilityRole="button"
+            accessibilityState={{ selected }}
+            style={[
+              styles.chip,
+              matrix && styles.chipMatrix,
+              selected && (matrix ? styles.chipActiveMatrix : styles.chipActive)
+            ]}
           >
-            <Text style={[styles.chipText, selected && styles.chipTextActive]} numberOfLines={1}>
+            <Text
+              style={[
+                styles.chipText,
+                matrix && styles.chipTextMatrix,
+                selected && (matrix ? styles.chipTextActiveMatrix : styles.chipTextActive)
+              ]}
+            >
               {competition.label}
             </Text>
           </Pressable>
@@ -59,29 +75,48 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.xs
   },
   chip: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    minHeight: 44,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
     borderRadius: radii.pill,
     borderWidth: 1,
     borderColor: colors.border,
-    backgroundColor: colors.surface
+    backgroundColor: colors.surface,
+    justifyContent: "center"
+  },
+  chipMatrix: {
+    borderColor: "rgba(255,255,255,0.12)",
+    backgroundColor: markingsColors.bgAlt
   },
   chipActive: {
     borderColor: "rgba(251,146,60,0.45)",
     backgroundColor: "rgba(251,146,60,0.12)"
+  },
+  chipActiveMatrix: {
+    borderColor: markingsColors.borderStrong,
+    backgroundColor: markingsColors.bgAlt
   },
   chipText: {
     color: colors.textMuted,
     fontSize: 12,
     fontWeight: "700"
   },
+  chipTextMatrix: {
+    color: markingsColors.textMuted
+  },
   chipTextActive: {
     color: "#fb923c"
+  },
+  chipTextActiveMatrix: {
+    color: markingsColors.green
   },
   empty: {
     color: colors.textDim,
     fontSize: 13,
     lineHeight: 18,
     marginBottom: spacing.sm
+  },
+  emptyMatrix: {
+    color: markingsColors.textDim
   }
 });

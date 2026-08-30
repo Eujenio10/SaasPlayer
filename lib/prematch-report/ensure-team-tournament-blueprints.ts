@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { CompetitionScope, TeamPerformanceBlueprint } from "@/lib/types";
 import { fetchEventSeasonContextForInsights, fetchTeamPerformanceBlueprint } from "@/services/sportapi";
 import { isBlueprintPerMatchPlausible } from "./blueprint-validation";
-import { loadPersistedTeamBlueprint } from "./load-blueprint";
+import { blueprintMatchesSeasonContext, loadPersistedTeamBlueprint } from "./load-blueprint";
 
 function competitionSlugKey(raw: string | undefined): string {
   return raw?.trim().toLowerCase().slice(0, 120) ?? "";
@@ -47,7 +47,8 @@ async function fetchBlueprintFromProvider(params: {
       scope: params.scope,
       tournamentId: params.tournamentId,
       seasonId: params.seasonId,
-      forceRefresh: params.forceRefresh
+      forceRefresh: params.forceRefresh,
+      preferCurrentSeason: true
     });
     return isBlueprintPerMatchPlausible(blueprint) ? blueprint : null;
   } catch (error) {
@@ -87,9 +88,7 @@ export async function ensureTeamTournamentBlueprintsForMatch(params: {
   allowProviderFetch?: boolean;
 }): Promise<TeamTournamentBlueprintsResult> {
   const allowProviderFetch = params.allowProviderFetch === true;
-  const seasonCtx = allowProviderFetch
-    ? await fetchEventSeasonContextForInsights(params.eventId).catch(() => null)
-    : null;
+  const seasonCtx = await fetchEventSeasonContextForInsights(params.eventId).catch(() => null);
   const tournamentId = seasonCtx?.tournamentId;
   const seasonId = seasonCtx?.seasonId;
   const hasSeasonContext = Boolean(tournamentId && tournamentId > 0 && seasonId && seasonId > 0);
@@ -105,13 +104,18 @@ export async function ensureTeamTournamentBlueprintsForMatch(params: {
       params.scope,
       params.competitionSlug
     );
+    const persistedIsCurrentSeason = blueprintMatchesSeasonContext(
+      persisted,
+      tournamentId,
+      seasonId
+    );
 
-    if (persisted && !params.forceRefresh) {
+    if (persistedIsCurrentSeason && !params.forceRefresh) {
       return persisted;
     }
 
     if (!allowProviderFetch || !hasSeasonContext) {
-      return persisted;
+      return persistedIsCurrentSeason ? persisted : null;
     }
 
     const fromProvider = await fetchBlueprintFromProvider({
@@ -137,7 +141,7 @@ export async function ensureTeamTournamentBlueprintsForMatch(params: {
       return fromProvider;
     }
 
-    return persisted;
+    return persistedIsCurrentSeason ? persisted : null;
   }
 
   const [home, away] = await Promise.all([

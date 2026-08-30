@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { Session, User } from "@supabase/supabase-js";
 import { deriveUserAccessStatus } from "@/lib/access/user-status";
 import type { SubscriptionEntitlement, UserAccessStatus } from "@/lib/access/types";
@@ -9,6 +9,8 @@ import {
   restorePurchases as restorePurchasesFromStore,
   startProPurchase
 } from "@/lib/subscription/entitlements";
+import { getSessionSafely } from "@/lib/mobile-http";
+import { withTimeout } from "@/lib/with-timeout";
 import { supabase } from "@/lib/supabase";
 import type { UserAccessSummary } from "@/lib/types";
 
@@ -47,6 +49,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [access, setAccess] = useState<UserAccessSummary | null>(null);
   const [subscription, setSubscription] = useState<SubscriptionEntitlement>(defaultSubscription);
   const [loading, setLoading] = useState(true);
+  const signingOutRef = useRef(false);
 
   const refreshAccess = useCallback(async () => {
     if (!session?.user) {
@@ -59,37 +62,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       fetchUserAccess().catch(() => null),
       refreshUserEntitlements(userId)
     ]);
-    // Allinea access locale se Pro risulta attivo da entitlements/IAP ma /access
-    // risponde ancora come member (es. attivazione manuale DB appena fatta).
-    const reconciled =
-      summary && entitlement.state === "active" && !summary.isAdmin && !summary.isPro
-        ? {
-            ...summary,
-            role: "pro" as const,
-            isPro: true,
-            isMember: false,
-            matchUsage: {
-              ...summary.matchUsage,
-              limit: null,
-              remaining: null
-            },
-            yellowCardVisibleRows: null
-          }
-        : summary;
-    setAccess(reconciled);
+    setAccess(summary);
     setSubscription(entitlement);
   }, [session?.user]);
 
   useEffect(() => {
     let mounted = true;
 
-    supabase.auth.getSession().then(({ data }) => {
-      if (!mounted) return;
-      setSession(data.session);
-      setLoading(false);
-    });
+    void getSessionSafely()
+      .then(({ data }) => {
+        if (!mounted) return;
+        setSession(data.session);
+        setLoading(false);
+      })
+      .catch(() => {
+        if (!mounted) return;
+        setSession(null);
+        setLoading(false);
+      });
 
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+    const { data: listener } = supabase.auth.onAuthStateChange((event, nextSession) => {
+      if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED" || event === "USER_UPDATED") {
+        signingOutRef.current = false;
+        setSession(nextSession);
+        return;
+      }
+      if (signingOutRef.current && event !== "SIGNED_OUT") {
+        return;
+      }
+      if (event === "SIGNED_OUT") {
+        signingOutRef.current = false;
+      }
       setSession(nextSession);
     });
 
@@ -109,22 +112,48 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [session, refreshAccess]);
 
   const signIn = useCallback(async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({
-      email: email.trim(),
-      password
-    });
+    signingOutRef.current = false;
+    const { data, error } = await withTimeout(
+      supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password
+      }),
+      20_000,
+      "auth_timeout"
+    );
     if (error) throw error;
+    if (data.session) setSession(data.session);
   }, []);
 
   const signUp = useCallback(async (email: string, password: string): Promise<SignUpResult> => {
+    signingOutRef.current = false;
     const normalizedEmail = email.trim();
     const emailRedirectTo = ensureWebAuthRedirect(signupEmailRedirectUrl(), "/account/welcome");
     console.warn("[auth] signUp redirect", emailRedirectTo);
-    const { data, error } = await supabase.auth.signUp({
-      email: normalizedEmail,
-      password,
-      options: { emailRedirectTo }
-    });
+    let { data, error } = await withTimeout(
+      supabase.auth.signUp({
+        email: normalizedEmail,
+        password,
+        options: { emailRedirectTo }
+      }),
+      20_000,
+      "auth_timeout"
+    );
+    if (
+      error &&
+      (error.message.toLowerCase().includes("redirect") || error.code === "validation_failed")
+    ) {
+      const retry = await withTimeout(
+        supabase.auth.signUp({
+          email: normalizedEmail,
+          password
+        }),
+        20_000,
+        "auth_timeout"
+      );
+      data = retry.data;
+      error = retry.error;
+    }
     if (error) {
       console.warn("[auth] signUp failed", error.code, error.message);
       throw error;
@@ -172,22 +201,44 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (error) throw error;
   }, []);
 
-  const signOut = useCallback(async () => {
-    await supabase.auth.signOut();
+  const clearLocalAuth = useCallback(() => {
+    setSession(null);
     setAccess(null);
     setSubscription(defaultSubscription);
   }, []);
+
+  const signOut = useCallback(async () => {
+    signingOutRef.current = true;
+    clearLocalAuth();
+    try {
+      await withTimeout(supabase.auth.signOut({ scope: "local" }), 3_000, "signout_timeout");
+    } catch {
+      // ignore
+    } finally {
+      signingOutRef.current = false;
+    }
+  }, [clearLocalAuth]);
 
   const deleteAccount = useCallback(async () => {
     if (!session?.user) {
       throw new Error("not_authenticated");
     }
-    await deleteUserAccount();
-    await supabase.auth.signOut();
-    setAccess(null);
-    setSubscription(defaultSubscription);
-    setSession(null);
-  }, [session?.user]);
+    signingOutRef.current = true;
+    try {
+      await deleteUserAccount();
+    } catch (error) {
+      signingOutRef.current = false;
+      throw error;
+    }
+    clearLocalAuth();
+    try {
+      await withTimeout(supabase.auth.signOut({ scope: "local" }), 3_000, "signout_timeout");
+    } catch {
+      // ignore
+    } finally {
+      signingOutRef.current = false;
+    }
+  }, [clearLocalAuth, session?.user]);
 
   const restorePurchases = useCallback(async () => {
     if (!session?.user) return { restored: false };

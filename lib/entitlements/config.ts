@@ -30,13 +30,16 @@ export const ENTITLEMENT_FLAGS = {
 } as const;
 
 /**
- * Beta pubblica "PitchBrain Beta": tutte le funzionalità sono gratuite per gli utenti
- * autenticati dell'app mobile, senza toccare il modello di accesso admin/pro/member del
- * kiosk web (Tactical Intelligence Hub). Attivo di default, disattivabile via env per il
- * lancio a pagamento senza rimuovere codice. Si applica SOLO alle richieste che arrivano
- * dall'app mobile (vedi header `MOBILE_CLIENT_HEADER`), mai al kiosk web.
+ * Piani Pro / IAP sull'app mobile. `false` (default): guest e Free ricevono i contenuti
+ * completi, senza paywall. Non si applica al kiosk web.
  */
-export const PITCHBRAIN_BETA_FREE_FOR_ALL = envBool("PITCHBRAIN_BETA_FREE_FOR_ALL", true);
+export const PITCHBRAIN_MOBILE_PRO_PLANS_ENABLED = envBool(
+  "PITCHBRAIN_MOBILE_PRO_PLANS_ENABLED",
+  false
+);
+
+/** Compat: sblocca i contenuti mobile se i piani Pro sono spenti, oppure via env legacy. */
+export const PITCHBRAIN_BETA_FREE_FOR_ALL = envBool("PITCHBRAIN_BETA_FREE_FOR_ALL", false);
 
 /** Header inviato da tutte le richieste dell'app mobile (mobile/lib/api.ts) per distinguerle
  * dalle richieste del kiosk web quando condividono lo stesso endpoint backend. */
@@ -49,12 +52,41 @@ export function isMobileClientRequest(request?: Request | null): boolean {
 }
 
 /**
- * true per QUALSIASI richiesta dell'app mobile durante la beta free-for-all, autenticata o
- * guest: guest e Free vengono trattati alla pari. Si applica solo se la richiesta arriva
- * dall'app mobile (header client), mai al kiosk web.
+ * Riconosce l'app anche senza header (build App Store vecchie): path /api/mobile/*
+ * oppure JWT Bearer (Expo). Il kiosk web usa cookie, non Bearer.
+ */
+export function isConsumerMobileRequest(request?: Request | null): boolean {
+  if (!request) return false;
+  if (isMobileClientRequest(request)) return true;
+  try {
+    const pathname = new URL(request.url).pathname;
+    if (pathname.startsWith("/api/mobile/")) return true;
+  } catch {
+    // ignore
+  }
+  const authorization = request.headers.get("authorization");
+  if (authorization && /^Bearer\s+\S+/i.test(authorization)) return true;
+  const deviceId = request.headers.get("x-device-id")?.trim();
+  return Boolean(deviceId);
+}
+
+/**
+ * GET dell'app mobile non devono calcolare/generare dal provider (FootAPI/SportAPI)
+ * senza limite: App Review vede spinner infiniti. Il ricalcolo admin resta sul refresh.
+ * Le GET possono comunque leggere gli snapshot e, se mancano, tentare un compute a tempo.
+ */
+export function allowOnDemandProviderCompute(request?: Request | null): boolean {
+  return !isConsumerMobileRequest(request);
+}
+
+/**
+ * true sulle richieste dell'app (anche build vecchie senza header) quando i piani Pro
+ * sono disattivati. Mai sul kiosk web (cookie, path /api/tactical senza Bearer).
  */
 export function isBetaFreeForAllRequest(request: Request | null | undefined): boolean {
-  return PITCHBRAIN_BETA_FREE_FOR_ALL && isMobileClientRequest(request);
+  if (!isConsumerMobileRequest(request)) return false;
+  if (!PITCHBRAIN_MOBILE_PRO_PLANS_ENABLED) return true;
+  return PITCHBRAIN_BETA_FREE_FOR_ALL;
 }
 
 export type EntitlementFeatureKey =
@@ -78,7 +110,6 @@ export type EntitlementFeatureKey =
 
 /** Feature Pro-only (non sbloccabili con ad). */
 export const PRO_ONLY_FEATURES: ReadonlySet<EntitlementFeatureKey> = new Set([
-  "difficult_markings_full",
   "trends_full",
   "trends_filters",
   "player_compare",

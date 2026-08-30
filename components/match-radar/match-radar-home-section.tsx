@@ -6,7 +6,7 @@ import { Radar } from "lucide-react";
 import type { MatchRadarApiResponse } from "@/lib/match-radar/api-handlers";
 import type { MatchRadarMode } from "@/lib/match-radar/config";
 import { translateCompetitionName } from "@/lib/italian-sports-display";
-import { translateMatchRadarReason, MATCH_RADAR_UI_TEXT, matchRadarEmptyMessage } from "@/lib/match-radar/text";
+import { translateMatchRadarReason, MATCH_RADAR_UI_TEXT, matchRadarEmptyMessage, matchRadarDisciplinaryPotentialLabel } from "@/lib/match-radar/text";
 import { formatKickoffInRome } from "@/lib/match-radar/date";
 
 function ScoreBar({ label, value }: { label: string; value: number | null | undefined }) {
@@ -110,7 +110,9 @@ export function MatchRadarHomeSection({
       ) : null}
 
       <div className="space-y-3">
-        {matches.map((match) => (
+        {matches.map((match) => {
+          const disciplinaryLabel = matchRadarDisciplinaryPotentialLabel(match.reasons, locale);
+          return (
           <Link
             key={match.matchId}
             href={`/kiosk/match-radar/${match.matchId}`}
@@ -120,7 +122,7 @@ export function MatchRadarHomeSection({
               <span>
                 {translateCompetitionName(match.competitionId)} · {formatKickoffInRome(match.kickoff, locale)}
               </span>
-              <span>{ui.confidence[match.confidenceLevel]}</span>
+              <span title={ui.confidenceNote}>{ui.confidence[match.confidenceLevel]}</span>
             </div>
             <div className="mb-2 flex items-center justify-between gap-3">
               <div>
@@ -148,19 +150,26 @@ export function MatchRadarHomeSection({
                 <li key={reason.key}>• {translateMatchRadarReason(reason, locale)}</li>
               ))}
             </ul>
+            {disciplinaryLabel ? (
+              <p className="mt-2 text-[11px] font-semibold text-cyan-200/90">{disciplinaryLabel}</p>
+            ) : null}
             {match.highlights?.combinedFoulsPerMatch != null ? (
               <p className="mt-2 text-[11px] text-slate-500">
-                Falli combinati {match.highlights.combinedFoulsPerMatch}/partita
+                Media falli combinati: {String(match.highlights.combinedFoulsPerMatch).replace(".", ",")}/partita
                 {match.highlights.combinedCardsPerMatch != null
-                  ? ` · Cartellini ${match.highlights.combinedCardsPerMatch}`
+                  ? ` · Cartellini: ${String(match.highlights.combinedCardsPerMatch).replace(".", ",")}`
+                  : ""}
+                {match.highlights.combinedGoalsPerMatch != null
+                  ? ` · ${ui.highlightCombinedGoals}: ${String(match.highlights.combinedGoalsPerMatch).replace(".", ",")}`
                   : ""}
                 {match.highlights.combinedOffsidesPerMatch != null
-                  ? ` · Fuorigioco ${match.highlights.combinedOffsidesPerMatch}`
+                  ? ` · Fuorigioco: ${String(match.highlights.combinedOffsidesPerMatch).replace(".", ",")}`
                   : ""}
               </p>
             ) : null}
           </Link>
-        ))}
+          );
+        })}
       </div>
 
       {data?.isLimitedPreview ? (

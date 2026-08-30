@@ -5,13 +5,15 @@ import { useAccessFlow } from "@/contexts/AccessFlowContext";
 import { userStatusLabel } from "@/lib/access/features";
 import type { UserAccessStatus } from "@/lib/access/types";
 import { formatProPrice, PRO_PLAN_PRICING } from "@/lib/pricing";
+import { STORE_IAP_BENEFIT } from "@/lib/store-links";
+import { PITCHBRAIN_MOBILE_PRO_PLANS_ENABLED } from "@/lib/access/pro-plans";
 import { colors, radii, spacing } from "@/lib/theme";
 
 const benefits = [
   "Analisi illimitate senza video",
   "Marcature difficili complete",
   "Nessuna pubblicità",
-  "Abbonamento mensile via App Store / Play Store",
+  STORE_IAP_BENEFIT,
   "Accesso su più dispositivi con lo stesso account"
 ];
 
@@ -35,7 +37,7 @@ export function ProPaywallModal() {
     clearMessages
   } = useAccessFlow();
 
-  if (!paywallVisible) return null;
+  if (!PITCHBRAIN_MOBILE_PRO_PLANS_ENABLED || !paywallVisible) return null;
 
   return (
     <Modal visible animationType="slide" transparent onRequestClose={closePaywall}>

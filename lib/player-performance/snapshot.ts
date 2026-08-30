@@ -39,12 +39,15 @@ export async function loadPlayerPerformanceSnapshot(params: {
   eventId: number;
 }): Promise<MatchPlayerPerformance | null> {
   const sb = createSupabaseServiceClient();
-  const { data, error } = await sb
+  /** `.limit(1)` invece di `.maybeSingle()`: 0 righe non deve diventare 406/PGRST116. */
+  const { data: rows, error } = await sb
     .from("organization_player_performance_snapshot")
     .select("payload,updated_at")
     .eq("organization_id", params.organizationId.trim())
     .eq("event_id", params.eventId)
-    .maybeSingle();
+    .limit(1);
+
+  const data = Array.isArray(rows) ? rows[0] : rows;
 
   if (error || !data?.payload) {
     if (error) {

@@ -9,6 +9,7 @@ import {
 import { useRouter } from "expo-router";
 import type { FeatureId, PendingAction } from "@/lib/access/types";
 import { canAccessFeatureId } from "@/lib/access/features";
+import { PITCHBRAIN_MOBILE_PRO_PLANS_ENABLED } from "@/lib/access/pro-plans";
 import { useAuth } from "@/contexts/AuthContext";
 
 interface AccessFlowContextValue {
@@ -40,6 +41,7 @@ export function AccessFlowProvider({ children }: { children: ReactNode }) {
   const [purchaseMessage, setPurchaseMessage] = useState<string | null>(null);
 
   const openPaywall = useCallback((feature: FeatureId, pending?: PendingAction) => {
+    if (!PITCHBRAIN_MOBILE_PRO_PLANS_ENABLED) return;
     setPaywallFeature(feature);
     setPendingAction(
       pending ?? { type: "open_feature", feature }
@@ -61,6 +63,7 @@ export function AccessFlowProvider({ children }: { children: ReactNode }) {
 
   const requestFeature = useCallback(
     (feature: FeatureId, pending?: PendingAction) => {
+      if (!PITCHBRAIN_MOBILE_PRO_PLANS_ENABLED) return true;
       if (canAccessFeatureId(userStatus, feature)) return true;
       openPaywall(feature, pending);
       return false;

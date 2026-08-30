@@ -19,6 +19,8 @@ export interface UserAccessSummary {
   canRefreshData: boolean;
   matchUsage: WeeklyMatchUsage;
   yellowCardVisibleRows: number | null;
+  /** Stato abbonamento persistito (`user_pro_subscriptions`). Serve al flusso Pro scaduto. */
+  subscriptionStatus?: string;
 }
 
 function weekStartUtc(date = new Date()): Date {
@@ -104,31 +106,60 @@ export async function ensureMemberCanAnalyzeMatch(userId: string, eventId: numbe
   return getMemberWeeklyMatchUsageInWindow(userId, window);
 }
 
+function mapAccessSubscriptionStatus(isPro: boolean, rawStatus: string): string {
+  if (isPro) return "active";
+  const status = rawStatus.trim().toLowerCase();
+  if (status === "expired" || status === "canceled" || status === "cancelled" || status === "past_due") {
+    return "expired";
+  }
+  return status === "none" || !status ? "none" : status;
+}
+
 export async function buildUserAccessSummary(
   userId: string,
   role: UserAccessRole
 ): Promise<UserAccessSummary> {
   const isAdmin = role === "admin";
   let isPro = role === "pro";
-  if (!isPro && !isAdmin) {
-    const { loadUserProSubscription } = await import("@/lib/entitlements/repository");
-    const proSub = await loadUserProSubscription(userId);
-    if (proSub.active) isPro = true;
-  }
+  const { loadUserProSubscription } = await import("@/lib/entitlements/repository");
+  const proSub = await loadUserProSubscription(userId);
+  if (!isPro && !isAdmin && proSub.active) isPro = true;
   const isMember = role === "member" && !isPro;
   const effectiveRole: UserAccessRole = isAdmin ? "admin" : isPro ? "pro" : "member";
   const matchUsage = appliesWeeklyMatchQuota(effectiveRole)
     ? await getMemberWeeklyMatchUsage(userId)
     : buildUnlimitedMatchUsage();
+  const effectiveIsPro = isPro || isAdmin;
 
   return {
     role: effectiveRole,
     isAdmin,
-    isPro: isPro || isAdmin,
+    isPro: effectiveIsPro,
     isMember,
     canRefreshData: isAdmin,
     matchUsage,
-    yellowCardVisibleRows: appliesWeeklyMatchQuota(effectiveRole) ? 3 : null
+    yellowCardVisibleRows: appliesWeeklyMatchQuota(effectiveRole) ? 3 : null,
+    subscriptionStatus: mapAccessSubscriptionStatus(effectiveIsPro, proSub.status)
+  };
+}
+
+/** Sull'app mobile, senza piani Pro: accesso completo ma etichetta Guest/Free/Admin. */
+export function stripProPlanForMobileApp(access: UserAccessSummary): UserAccessSummary {
+  if (access.isAdmin) {
+    return {
+      ...access,
+      matchUsage: buildUnlimitedMatchUsage(),
+      yellowCardVisibleRows: null
+    };
+  }
+  return {
+    ...access,
+    role: "member",
+    isPro: false,
+    isMember: true,
+    matchUsage: buildUnlimitedMatchUsage(),
+    yellowCardVisibleRows: null,
+    subscriptionStatus: "none"
   };
 }
 
@@ -136,3 +167,4 @@ export async function buildUserAccessSummary(
 export function appliesWeeklyMatchQuota(role: UserAccessRole): boolean {
   return role === "member";
 }
+

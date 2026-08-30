@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { createApiSupabaseClient, getApiUser } from "@/lib/auth/get-api-user";
 

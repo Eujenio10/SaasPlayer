@@ -21,16 +21,16 @@ export default function DeleteAccountPage() {
         <ul className="list-disc space-y-2 pl-5">
           <li>Account di autenticazione e indirizzo email collegato</li>
           <li>Identificativo utente e membership nell&apos;organizzazione prodotto</li>
-          <li>Stato abbonamento Pro lato backend e unlock / entitlement collegati all&apos;utente</li>
           <li>Preferenze e dati personali associati all&apos;account nell&apos;app</li>
         </ul>
 
         <h2 className="text-xl font-semibold text-cyan-200">Cosa può essere conservato</h2>
         <ul className="list-disc space-y-2 pl-5">
           <li>
-            Record di fatturazione / abbonamento gestiti da Google Play o Apple App
-            Store (restano sotto controllo dello store; la cancellazione
-            dell&apos;abbonamento va fatta anche da Impostazioni Play / Apple)
+            Record di fatturazione / abbonamento gestiti dallo store da cui hai
+            installato l&apos;app (restano sotto controllo dello store; la
+            cancellazione dell&apos;abbonamento va fatta anche dalle impostazioni
+            del tuo account store)
           </li>
           <li>
             Log tecnici aggregati o anonimizzati eventualmente necessari per

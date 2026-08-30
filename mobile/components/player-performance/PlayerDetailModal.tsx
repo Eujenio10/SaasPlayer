@@ -2,13 +2,13 @@ import type { ReactNode } from "react";
 import {
   Modal,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { HintedScrollView } from "@/components/HintedScrollView";
 import type { PlayerPerformanceItem } from "@/lib/player-performance/types";
 import {
   badgeLabelIt,
@@ -24,7 +24,8 @@ import {
 } from "@/lib/player-performance/text";
 import { roleGroupLabelIt } from "@/lib/player-performance/roles";
 import { translateTeamName } from "@/lib/italian-display";
-import { colors, radii, spacing } from "@/lib/theme";
+import { pitchbrainColors } from "@/lib/pitchbrain-theme";
+import { radii, spacing } from "@/lib/theme";
 
 function MetricRow({ label, value }: { label: string; value: string }) {
   return (
@@ -80,11 +81,11 @@ export function PlayerDetailModal({
             accessibilityLabel={PLAYER_PERFORMANCE_TEXT.closeDetail}
             style={styles.closeIconButton}
           >
-            <Ionicons name="close" size={24} color={colors.text} />
+            <Ionicons name="close" size={24} color={pitchbrainColors.text} />
           </Pressable>
         </View>
 
-        <HintedScrollView
+        <ScrollView
           style={styles.scroll}
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator
@@ -174,7 +175,7 @@ export function PlayerDetailModal({
           ) : null}
 
           <Text style={styles.methodology}>{PLAYER_PERFORMANCE_TEXT.detail.methodologyNote}</Text>
-        </HintedScrollView>
+        </ScrollView>
 
         <SafeAreaView edges={["bottom"]} style={styles.footerSafe}>
           <Pressable onPress={onClose} style={styles.closeCta} accessibilityRole="button">
@@ -187,7 +188,7 @@ export function PlayerDetailModal({
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.background },
+  safe: { flex: 1, backgroundColor: pitchbrainColors.bg },
   header: {
     flexDirection: "row",
     alignItems: "flex-start",
@@ -196,11 +197,11 @@ const styles = StyleSheet.create({
     paddingTop: spacing.sm,
     paddingBottom: spacing.md,
     borderBottomWidth: 1,
-    borderBottomColor: colors.border
+    borderBottomColor: pitchbrainColors.divider
   },
   headerText: { flex: 1, minWidth: 0, gap: 4 },
-  title: { color: colors.text, fontSize: 20, fontWeight: "900", lineHeight: 26 },
-  meta: { color: colors.textMuted, fontSize: 13 },
+  title: { color: pitchbrainColors.text, fontSize: 20, fontWeight: "800", lineHeight: 26 },
+  meta: { color: pitchbrainColors.textMuted, fontSize: 13 },
   closeIconButton: {
     width: 44,
     height: 44,
@@ -208,21 +209,21 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surfaceAlt
+    borderColor: pitchbrainColors.border,
+    backgroundColor: pitchbrainColors.card
   },
   scroll: { flex: 1 },
   scrollContent: { padding: spacing.lg, gap: spacing.md, paddingBottom: spacing.md },
   sectionCard: {
     borderRadius: radii.lg,
     borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surfaceAlt,
+    borderColor: pitchbrainColors.border,
+    backgroundColor: pitchbrainColors.card,
     padding: spacing.md,
     gap: spacing.xs
   },
   sectionTitle: {
-    color: colors.cyan,
+    color: pitchbrainColors.green,
     fontSize: 11,
     fontWeight: "800",
     letterSpacing: 1.2,
@@ -236,35 +237,43 @@ const styles = StyleSheet.create({
     gap: spacing.md,
     paddingVertical: 6
   },
-  metricLabel: { flex: 1, color: colors.textMuted, fontSize: 13, lineHeight: 18 },
-  metricValue: { color: colors.text, fontSize: 14, fontWeight: "700", textAlign: "right", maxWidth: "42%" },
-  insight: { color: colors.textMuted, fontSize: 13, lineHeight: 18, marginTop: spacing.xs },
-  sampleLine: { color: colors.textDim, fontSize: 11, marginTop: spacing.xs },
-  warning: { color: colors.amber, fontSize: 13, lineHeight: 18, marginTop: spacing.xs },
+  metricLabel: { flex: 1, color: pitchbrainColors.textMuted, fontSize: 13, lineHeight: 18 },
+  metricValue: {
+    color: pitchbrainColors.text,
+    fontSize: 14,
+    fontWeight: "700",
+    textAlign: "right",
+    maxWidth: "42%"
+  },
+  insight: { color: pitchbrainColors.textMuted, fontSize: 13, lineHeight: 18, marginTop: spacing.xs },
+  sampleLine: { color: pitchbrainColors.textDim, fontSize: 11, marginTop: spacing.xs },
+  warning: { color: pitchbrainColors.danger, fontSize: 13, lineHeight: 18, marginTop: spacing.xs },
   badgesWrap: { flexDirection: "row", flexWrap: "wrap", gap: spacing.xs },
   badge: {
-    color: colors.textMuted,
+    color: pitchbrainColors.textMuted,
     fontSize: 10,
     fontWeight: "700",
     borderRadius: radii.pill,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: pitchbrainColors.border,
     paddingHorizontal: spacing.sm,
     paddingVertical: 4
   },
-  methodology: { color: colors.textDim, fontSize: 11, lineHeight: 16 },
+  methodology: { color: pitchbrainColors.textDim, fontSize: 11, lineHeight: 16 },
   footerSafe: {
     borderTopWidth: 1,
-    borderTopColor: colors.border,
-    backgroundColor: colors.background,
+    borderTopColor: pitchbrainColors.divider,
+    backgroundColor: pitchbrainColors.bg,
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.sm
   },
   closeCta: {
     borderRadius: radii.lg,
-    backgroundColor: "rgba(56,189,248,0.15)",
+    backgroundColor: pitchbrainColors.green,
     paddingVertical: 14,
-    alignItems: "center"
+    minHeight: 48,
+    alignItems: "center",
+    justifyContent: "center"
   },
-  closeCtaText: { color: colors.cyan, fontSize: 15, fontWeight: "800" }
+  closeCtaText: { color: pitchbrainColors.ctaText, fontSize: 15, fontWeight: "800" }
 });

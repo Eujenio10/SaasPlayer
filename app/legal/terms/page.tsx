@@ -16,6 +16,11 @@ export default function TermsPage() {
           Tactical Intelligence Hub fornisce analisi statistiche indipendenti a
           carattere sportivo, informativo ed editoriale.
         </p>
+        <p>
+          PitchBrain fornisce analisi statistiche sportive a fini esclusivamente
+          informativi. Non fornisce quote, consigli di scommessa, indicazioni di
+          puntata o servizi relativi al gioco con vincite in denaro.
+        </p>
       </div>
     </section>
   );

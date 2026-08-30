@@ -10,6 +10,7 @@ import {
 import { reliabilityLabelIt } from "@/lib/difficult-markings/reasons";
 import { roleLabelIt } from "@/lib/difficult-markings/roles";
 import { markingOverlapFieldProps } from "@/lib/difficult-markings/visualization";
+import { difficultMarkingOverlapBreakdownIt, difficultMarkingFoulsBreakdownIt } from "@/lib/difficult-markings/text";
 import type { DifficultMarkingMatchup } from "@/lib/difficult-markings/types";
 import { translateTeamName } from "@/lib/italian-sports-display";
 
@@ -103,7 +104,9 @@ export function DifficultMarkingDetailPage({ matchupId }: { matchupId: string })
           </p>
         </div>
         <div className="text-right">
-          <p className="text-2xl font-bold text-white">{matchup.attackerPlayerName}</p>
+          <p className="text-2xl font-bold text-white">
+            {[matchup.attackerPlayerName, ...(matchup.extraAttackers ?? []).map((a) => a.playerName)].join(", ")}
+          </p>
           <p className="text-sm text-slate-400">{roleLabelIt(matchup.attackerRole)}</p>
           <p className="mt-1 text-xs text-slate-500">{translateTeamName(matchup.attackerTeamName)}</p>
         </div>
@@ -135,6 +138,12 @@ export function DifficultMarkingDetailPage({ matchupId }: { matchupId: string })
             {translateTeamName(matchup.homeTeamName)} vs {translateTeamName(matchup.awayTeamName)} ·{" "}
             {zoneLabelIt(matchup.probableZone)}
           </p>
+          <p className="text-sm text-slate-200">
+            Sovrapposizione heatmap: {difficultMarkingOverlapBreakdownIt(matchup)}
+          </p>
+          <p className="text-sm text-slate-200">
+            Falli subiti: {difficultMarkingFoulsBreakdownIt(matchup)}
+          </p>
         </div>
 
         <div className="space-y-4">
@@ -157,7 +166,7 @@ export function DifficultMarkingDetailPage({ matchupId }: { matchupId: string })
         <StatColumn
           title="Giocatore offensivo"
           rows={[
-            ["Falli subiti /90", matchup.attackerMetrics.foulsDrawnPer90],
+            ["Falli subiti /90", difficultMarkingFoulsBreakdownIt(matchup)],
             ["Dribbling tentati /90", matchup.attackerMetrics.dribblesAttemptedPer90],
             ["Dribbling riusciti /90", matchup.attackerMetrics.dribblesSuccessfulPer90],
             ["Partite analizzate", matchup.sample.attackerMatches],
@@ -171,7 +180,7 @@ export function DifficultMarkingDetailPage({ matchupId }: { matchupId: string })
             ["Partite con ammonizione", matchup.defenderMetrics.yellowCardMatchRate != null ? `${Math.round((matchup.defenderMetrics.yellowCardMatchRate ?? 0) * 100)}%` : null],
             ["Partite analizzate", matchup.sample.defenderMatches],
             ["Minuti analizzati", matchup.sample.defenderMinutes],
-            ["Sovrapposizione zone", `${matchup.heatmapOverlapPct}%`]
+            ["Sovrapposizione heatmap", difficultMarkingOverlapBreakdownIt(matchup)]
           ]}
         />
       </section>

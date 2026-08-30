@@ -15,7 +15,8 @@ export function ReportSectionCard({
   awayScore,
   keyStats,
   highlight,
-  children
+  children,
+  hideTitle = false
 }: {
   title: string;
   description?: string;
@@ -27,11 +28,12 @@ export function ReportSectionCard({
   keyStats?: PreMatchKeyStat[];
   highlight?: ReactNode;
   children?: ReactNode;
+  hideTitle?: boolean;
 }) {
   return (
     <View style={styles.wrap}>
-      <Text style={styles.title}>{title}</Text>
-      {description ? <Text style={styles.description}>{description}</Text> : null}
+      {hideTitle ? null : <Text style={styles.title}>{title}</Text>}
+      {hideTitle || !description ? null : <Text style={styles.description}>{description}</Text>}
       {highlight}
       {homeScore != null && awayScore != null ? (
         <View style={styles.scores}>

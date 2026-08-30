@@ -2,6 +2,8 @@
 const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
+  /** Evita SIGTERM del worker SSG se qualche pagina resta ancora in coda. */
+  staticPageGenerationTimeout: 180,
   experimental: {
     serverActions: {
       bodySizeLimit: "2mb"

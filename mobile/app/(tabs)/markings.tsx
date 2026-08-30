@@ -1,23 +1,21 @@
 import { useCallback, useEffect, useState } from "react";
+import { Redirect } from "expo-router";
 import { RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { AdminCompetitionRefreshBar } from "@/components/AdminCompetitionRefreshBar";
-import { GuestProFeatureLockPanel } from "@/components/access/GuestProFeatureLockPanel";
 import { DifficultMarkingsList } from "@/components/difficult-markings/DifficultMarkingsList";
 import { MarkingsCompetitionPicker } from "@/components/difficult-markings/MarkingsCompetitionPicker";
-import { ScrollMoreHint } from "@/components/ScrollMoreHint";
-import { useAccessFlow } from "@/contexts/AccessFlowContext";
+import { markingsColors } from "@/components/difficult-markings/markings-theme";
 import { useAuth } from "@/contexts/AuthContext";
-import { canAccessDifficultMarkings } from "@/lib/access/guest-preview-mode";
 import { subscribeAdminCatalogRefresh } from "@/lib/admin-catalog-refresh";
 import { DEFAULT_MENU_COMPETITION_ID } from "@/lib/competitions-with-matches";
 import { useCompetitionsWithMatches } from "@/lib/competitions/useCompetitionsWithMatches";
+import { canViewDifficultMarkings } from "@/lib/difficult-markings/visibility";
 import { useAdminMatchesRefresh } from "@/lib/matches/useAdminMatchesRefresh";
-import { colors, spacing } from "@/lib/theme";
+import { spacing } from "@/lib/theme";
 
 export default function MarkingsScreen() {
-  const { userStatus, access } = useAuth();
-  const { openAuthFromPaywall } = useAccessFlow();
+  const { access } = useAuth();
   const { availableIds, preferredId, refresh: refreshCompetitions } = useCompetitionsWithMatches();
   const [competitionId, setCompetitionId] = useState(DEFAULT_MENU_COMPETITION_ID);
   const [refreshToken, setRefreshToken] = useState(0);
@@ -26,8 +24,6 @@ export default function MarkingsScreen() {
     setRefreshToken((value) => value + 1);
     void refreshCompetitions();
   });
-
-  const canUseMarkings = canAccessDifficultMarkings(userStatus);
 
   useEffect(() => {
     if (preferredId && (!availableIds?.includes(competitionId as never) || !competitionId)) {
@@ -49,13 +45,20 @@ export default function MarkingsScreen() {
     });
   }, [refreshCompetitions]);
 
+  if (!canViewDifficultMarkings(access)) {
+    return <Redirect href="/" />;
+  }
 
   return (
     <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
       <ScrollView
         contentContainerStyle={styles.content}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} tintColor={colors.cyan} />
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => void onRefresh()}
+            tintColor={markingsColors.green}
+          />
         }
         showsVerticalScrollIndicator={false}
       >
@@ -66,10 +69,9 @@ export default function MarkingsScreen() {
           </Text>
           <Text style={styles.title}>Marcature difficili</Text>
           <Text style={styles.subtitle}>
-            Per ogni duello: quale marcatore dovrà arginare un attaccante difficile, con indice basato su falli
-            subiti e dribbling.
+            Per ogni duello: quale marcatore dovrà arginare un attaccante difficile, con indice basato su falli subiti e
+            dribbling.
           </Text>
-          <ScrollMoreHint />
         </View>
 
         {access?.canRefreshData ? (
@@ -83,29 +85,20 @@ export default function MarkingsScreen() {
           />
         ) : null}
 
-        {!canUseMarkings ? (
-          <GuestProFeatureLockPanel
-            title="Accedi per continuare"
-            description="Le Marcature difficili sono disponibili gratuitamente durante la Beta di PitchBrain. Crea un account gratuito per consultare la graduatoria completa."
-            onDiscoverPro={openAuthFromPaywall}
+        <Text style={styles.pickerLabel}>Campionato</Text>
+        <MarkingsCompetitionPicker
+          variant="matrix"
+          active={competitionId}
+          onChange={setCompetitionId}
+          availableIds={availableIds}
+        />
+        {availableIds && availableIds.length > 0 ? (
+          <DifficultMarkingsList
+            competitionId={competitionId}
+            refreshToken={refreshToken}
+            onCompetitionChange={setCompetitionId}
           />
-        ) : (
-          <>
-            <Text style={styles.pickerLabel}>Campionato</Text>
-            <MarkingsCompetitionPicker
-              active={competitionId}
-              onChange={setCompetitionId}
-              availableIds={availableIds}
-            />
-            {availableIds && availableIds.length > 0 ? (
-              <DifficultMarkingsList
-                competitionId={competitionId}
-                refreshToken={refreshToken}
-                onCompetitionChange={setCompetitionId}
-              />
-            ) : null}
-          </>
-        )}
+        ) : null}
       </ScrollView>
     </SafeAreaView>
   );
@@ -114,39 +107,39 @@ export default function MarkingsScreen() {
 const styles = StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: colors.background
+    backgroundColor: markingsColors.bg
   },
   content: {
     paddingHorizontal: spacing.md,
     paddingBottom: spacing.xl
   },
   header: {
-    gap: spacing.sm,
+    gap: 8,
     marginBottom: spacing.md
   },
   brand: {
-    fontSize: 18,
-    fontWeight: "900"
+    fontSize: 22,
+    fontWeight: "800"
   },
   brandPitch: {
-    color: colors.text
+    color: markingsColors.text
   },
   brandBrain: {
-    color: colors.cyan
+    color: markingsColors.green
   },
   title: {
-    color: colors.text,
-    fontSize: 24,
-    fontWeight: "900"
+    color: markingsColors.text,
+    fontSize: 28,
+    fontWeight: "800"
   },
   subtitle: {
-    color: colors.textMuted,
+    color: markingsColors.textMuted,
     fontSize: 14,
-    lineHeight: 20
+    lineHeight: 21
   },
   pickerLabel: {
     marginBottom: spacing.sm,
-    color: colors.textDim,
+    color: markingsColors.textDim,
     fontSize: 11,
     fontWeight: "800",
     letterSpacing: 1.1,

@@ -1,16 +1,19 @@
 import { StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { colors, radii, spacing } from "@/lib/theme";
+import { homeColors } from "@/components/home/home-theme";
+import { spacing } from "@/lib/theme";
 
 export function EarlySeasonNoticeBanner({ message }: { message?: string | null }) {
   if (!message) return null;
 
   return (
     <View style={styles.wrap}>
-      <View style={styles.iconWrap}>
-        <Ionicons name="information-circle-outline" size={18} color={colors.amber} />
-      </View>
-      <Text style={styles.text}>{message}</Text>
+      <Ionicons name="information-circle-outline" size={16} color={homeColors.green} />
+      <Text style={styles.text}>
+        <Text style={styles.title}>INIZIO STAGIONE</Text>
+        <Text style={styles.sep}> · </Text>
+        <Text style={styles.body}>{message}</Text>
+      </Text>
     </View>
   );
 }
@@ -18,26 +21,31 @@ export function EarlySeasonNoticeBanner({ message }: { message?: string | null }
 const styles = StyleSheet.create({
   wrap: {
     flexDirection: "row",
-    alignItems: "flex-start",
+    alignItems: "center",
     gap: spacing.sm,
     borderWidth: 1,
-    borderColor: "rgba(250,204,21,0.25)",
-    backgroundColor: "rgba(250,204,21,0.06)",
-    borderRadius: radii.lg,
-    padding: spacing.md
-  },
-  iconWrap: {
-    width: 28,
-    height: 28,
-    borderRadius: radii.md,
-    alignItems: "center",
-    justifyContent: "center"
+    borderColor: homeColors.border,
+    backgroundColor: homeColors.card,
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 10
   },
   text: {
     flex: 1,
-    color: colors.amber,
     fontSize: 12,
-    fontWeight: "700",
-    lineHeight: 18
+    lineHeight: 17
+  },
+  title: {
+    color: homeColors.green,
+    fontWeight: "800",
+    letterSpacing: 0.4
+  },
+  sep: {
+    color: homeColors.textMuted,
+    fontWeight: "600"
+  },
+  body: {
+    color: homeColors.textMuted,
+    fontWeight: "500"
   }
 });

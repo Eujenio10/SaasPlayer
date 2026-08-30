@@ -1,6 +1,5 @@
 import 'react-native-reanimated';
 import { useEffect, useRef } from "react";
-import { ActivityIndicator, View } from "react-native";
 import { DarkTheme, ThemeProvider } from "@react-navigation/native";
 import { Stack, useRouter, useSegments } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
@@ -11,7 +10,7 @@ import { AccessFlowProvider } from "@/contexts/AccessFlowContext";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { EntitlementsProvider } from "@/contexts/EntitlementsContext";
 import { GuestPreviewProvider } from "@/contexts/GuestPreviewContext";
-import { colors } from "@/lib/theme";
+import { pitchbrainColors } from "@/lib/pitchbrain-theme";
 
 export { ErrorBoundary } from "expo-router";
 
@@ -21,11 +20,11 @@ const navTheme = {
   ...DarkTheme,
   colors: {
     ...DarkTheme.colors,
-    background: colors.background,
-    card: colors.surfaceAlt,
-    border: colors.border,
-    primary: colors.cyan,
-    text: colors.text
+    background: pitchbrainColors.bg,
+    card: pitchbrainColors.card,
+    border: pitchbrainColors.border,
+    primary: pitchbrainColors.green,
+    text: pitchbrainColors.text
   }
 };
 
@@ -49,13 +48,14 @@ function RootNavigation({ children }: { children: React.ReactNode }) {
     void SplashScreen.hideAsync().catch(() => undefined);
   }, [loading]);
 
-  if (loading) {
-    return (
-      <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.background }}>
-        <ActivityIndicator color={colors.cyan} size="large" />
-      </View>
-    );
-  }
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (splashHiddenRef.current) return;
+      splashHiddenRef.current = true;
+      void SplashScreen.hideAsync().catch(() => undefined);
+    }, 2_500);
+    return () => clearTimeout(timer);
+  }, []);
 
   return children;
 }
@@ -70,14 +70,20 @@ export default function RootLayout() {
               <RootNavigation>
                 <StatusBar style="light" />
                 <Stack>
-                  <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+                  <Stack.Screen
+                    name="(tabs)"
+                    options={{ headerShown: false, title: "Analisi Partita" }}
+                  />
                   <Stack.Screen
                     name="login"
                     options={{
                       title: "Account",
                       presentation: "modal",
-                      headerStyle: { backgroundColor: colors.surfaceAlt },
-                      headerTintColor: colors.cyan
+                      headerStyle: { backgroundColor: pitchbrainColors.bg },
+                      headerTintColor: pitchbrainColors.green,
+                      headerTitleStyle: { color: pitchbrainColors.text, fontWeight: "800" },
+                      headerShadowVisible: false,
+                      contentStyle: { backgroundColor: pitchbrainColors.bg }
                     }}
                   />
                   <Stack.Screen
@@ -88,17 +94,35 @@ export default function RootLayout() {
                     name="auth/reset-password"
                     options={{
                       title: "Nuova password",
-                      headerStyle: { backgroundColor: colors.surfaceAlt },
-                      headerTintColor: colors.cyan
+                      headerStyle: { backgroundColor: pitchbrainColors.bg },
+                      headerTintColor: pitchbrainColors.green,
+                      headerTitleStyle: { color: pitchbrainColors.text, fontWeight: "800" },
+                      headerShadowVisible: false,
+                      contentStyle: { backgroundColor: pitchbrainColors.bg }
                     }}
                   />
                   <Stack.Screen
                     name="match/[eventId]"
+                    options={{ headerShown: false }}
+                  />
+                  <Stack.Screen
+                    name="simulator/[eventId]"
+                    options={{ headerShown: false, title: "Simulatore match" }}
+                  />
+                  <Stack.Screen
+                    name="match-radar/index"
                     options={{
-                      title: "Analisi partita",
-                      headerStyle: { backgroundColor: colors.surfaceAlt },
-                      headerTintColor: colors.cyan
+                      title: "Match Radar",
+                      headerStyle: { backgroundColor: pitchbrainColors.bg },
+                      headerTintColor: pitchbrainColors.green,
+                      headerTitleStyle: { color: pitchbrainColors.text, fontWeight: "800" },
+                      headerShadowVisible: false,
+                      contentStyle: { backgroundColor: pitchbrainColors.bg }
                     }}
+                  />
+                  <Stack.Screen
+                    name="match-radar/[matchId]"
+                    options={{ headerShown: false, title: "Match Radar" }}
                   />
                 </Stack>
                 <ProPaywallModal />

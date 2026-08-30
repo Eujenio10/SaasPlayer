@@ -73,6 +73,11 @@ export function ProfilePage({
             <footer className="mt-12 border-t border-[rgba(120,170,255,0.1)] pt-6 text-center text-xs text-slate-500 sm:text-left">
               <p>Tactical Intelligence Hub © 2025 | IlDodicesimo</p>
               <p className="mt-1 text-[11px] text-slate-600">Piattaforma di Analisi Statistica ed Editoriale.</p>
+              <p className="mt-2 max-w-xl text-[11px] leading-relaxed text-slate-600">
+                PitchBrain fornisce analisi statistiche sportive a fini esclusivamente informativi.
+                Non fornisce quote, consigli di scommessa, indicazioni di puntata o servizi relativi
+                al gioco con vincite in denaro.
+              </p>
             </footer>
           </div>
         </div>

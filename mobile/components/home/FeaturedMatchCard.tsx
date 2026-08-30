@@ -1,69 +1,107 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import type { HomeFeaturedMatch } from "@/lib/home-dashboard/types";
-import { TeamAvatar } from "@/components/home/TeamAvatar";
-import { colors, radii, spacing } from "@/lib/theme";
+import { homeColors } from "@/components/home/home-theme";
+import { spacing } from "@/lib/theme";
 
-function formatMetric(value: number | null, suffix = ""): string {
+function formatMetric(value: number | null): string {
   if (value == null || !Number.isFinite(value)) return "—";
-  return `${value}${suffix}`;
+  return String(value);
 }
 
-function intensityBadgeLabel(match: HomeFeaturedMatch): string {
-  const value = match.matchIntensityValue != null ? formatMetric(match.matchIntensityValue) : "";
-  const level =
-    match.matchIntensityLevel === "very_high" || match.matchIntensityLevel === "high"
-      ? "alta"
-      : match.matchIntensityLevel === "medium"
-        ? "media"
-        : "bassa";
-  return value ? `Intensità ${level} ${value}` : match.intensityLabel;
+function intensityShortLabel(match: HomeFeaturedMatch): string {
+  if (match.intensityLevel === "high") return "ALTA";
+  if (match.intensityLevel === "medium") return "MEDIA";
+  return "BASSA";
 }
 
-function trendLabel(trend: HomeFeaturedMatch["trend"]): string {
-  if (trend === "up") return "In crescita";
-  if (trend === "down") return "In calo";
-  return "Stabile";
+function trendShortLabel(trend: HomeFeaturedMatch["trend"]): string {
+  if (trend === "up") return "CRESCITA";
+  if (trend === "down") return "CALO";
+  return "STABILE";
 }
 
-function trendColor(trend: HomeFeaturedMatch["trend"]): string {
-  if (trend === "up") return colors.rose;
-  if (trend === "down") return colors.cyan;
-  return colors.textMuted;
+function dateKeyRome(date: Date): string {
+  return new Intl.DateTimeFormat("sv-SE", {
+    timeZone: "Europe/Rome",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(date);
+}
+
+function formatFeaturedMeta(match: HomeFeaturedMatch): string {
+  const kickoff = new Date(match.kickoffTime);
+  if (Number.isNaN(kickoff.getTime())) {
+    return `${match.competitionName.toUpperCase()}  •  ${match.kickoffLabel}`;
+  }
+  const isToday = dateKeyRome(kickoff) === dateKeyRome(new Date());
+  const dayMonth = new Intl.DateTimeFormat("it-IT", {
+    timeZone: "Europe/Rome",
+    day: "2-digit",
+    month: "short"
+  })
+    .format(kickoff)
+    .replace(".", "")
+    .toUpperCase();
+  const time = new Intl.DateTimeFormat("it-IT", {
+    timeZone: "Europe/Rome",
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(kickoff);
+  const dayPart = isToday ? `OGGI, ${dayMonth}` : dayMonth;
+  return `${match.competitionName.toUpperCase()}  •  ${dayPart}  •  ${time}`;
 }
 
 interface FeaturedMatchCardProps {
   match: HomeFeaturedMatch;
   onPress: () => void;
+  onOpenCalendar?: () => void;
   obscureStats?: boolean;
 }
 
-export function FeaturedMatchCard({ match, onPress, obscureStats = false }: FeaturedMatchCardProps) {
+export function FeaturedMatchCard({
+  match,
+  onPress,
+  onOpenCalendar,
+  obscureStats = false
+}: FeaturedMatchCardProps) {
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => [styles.card, pressed && styles.pressed]}>
-      <View style={styles.pitchBg}>
-        <View style={styles.pitchLineMid} />
-        <View style={styles.pitchCircle} />
+    <View style={styles.card}>
+      <View style={styles.gridBg} pointerEvents="none">
+        <View style={[styles.gridLine, styles.gridH1]} />
+        <View style={[styles.gridLine, styles.gridH2]} />
+        <View style={[styles.gridLineV, styles.gridV1]} />
+        <View style={[styles.gridLineV, styles.gridV2]} />
+        <View style={styles.gridCircle} />
       </View>
 
-      <View style={styles.content}>
-        <View style={styles.header}>
-          <View style={styles.headerLeft}>
-            <Text style={styles.competition}>{match.competitionName.toUpperCase()}</Text>
-            <Text style={styles.kickoff}>{match.kickoffLabel}</Text>
-          </View>
-          <View style={styles.intensityPill}>
-            <View style={styles.intensityDot} />
-            <Text style={styles.intensityText} numberOfLines={1}>
-              {obscureStats ? "Stats Pro" : intensityBadgeLabel(match)}
-            </Text>
-          </View>
-        </View>
+      <View style={styles.header}>
+        <Text style={styles.sectionTitle}>PARTITA IN EVIDENZA</Text>
+        {onOpenCalendar ? (
+          <Pressable
+            onPress={onOpenCalendar}
+            hitSlop={8}
+            style={({ pressed }) => [styles.calendarBtn, pressed && { opacity: 0.8 }]}
+          >
+            <Ionicons name="calendar-outline" size={13} color={homeColors.green} />
+            <Text style={styles.calendarText}>VEDI CALENDARIO</Text>
+          </Pressable>
+        ) : null}
+      </View>
 
+      <Text style={styles.meta} numberOfLines={2}>
+        {formatFeaturedMeta(match)}
+      </Text>
+
+      <Pressable onPress={onPress} style={({ pressed }) => pressed && { opacity: 0.96 }}>
         <View style={styles.teamsRow}>
           <View style={styles.teamCol}>
-            <TeamAvatar initials={match.homeTeamInitials} color={match.homeTeamColor} size={56} />
-            <Text style={styles.teamCode}>{match.homeTeamInitials}</Text>
+            <View style={styles.avatar}>
+              <Text style={styles.avatarText} numberOfLines={1}>
+                {match.homeTeamInitials}
+              </Text>
+            </View>
             <Text style={styles.teamName} numberOfLines={1}>
               {match.homeTeamName}
             </Text>
@@ -72,8 +110,11 @@ export function FeaturedMatchCard({ match, onPress, obscureStats = false }: Feat
           <Text style={styles.vs}>VS</Text>
 
           <View style={styles.teamCol}>
-            <TeamAvatar initials={match.awayTeamInitials} color={match.awayTeamColor} size={56} />
-            <Text style={styles.teamCode}>{match.awayTeamInitials}</Text>
+            <View style={styles.avatar}>
+              <Text style={styles.avatarText} numberOfLines={1}>
+                {match.awayTeamInitials}
+              </Text>
+            </View>
             <Text style={styles.teamName} numberOfLines={1}>
               {match.awayTeamName}
             </Text>
@@ -82,59 +123,58 @@ export function FeaturedMatchCard({ match, onPress, obscureStats = false }: Feat
 
         <View style={styles.metrics}>
           <MetricTile
-            icon="trophy-outline"
-            iconColor={colors.cyan}
+            icon="flash-outline"
             value={obscureStats ? "•••" : formatMetric(match.keyDuelsCount)}
-            label="Scontri chiave"
+            label="SCONTRI CHIAVE"
             locked={obscureStats}
           />
           <MetricTile
             icon="pulse-outline"
-            iconColor={colors.emerald}
-            value={obscureStats ? "•••" : formatMetric(match.averageFouls)}
-            label="Falli medi torneo"
+            value={obscureStats ? "•••" : intensityShortLabel(match)}
+            label="INTENSITÀ"
+            valueColor={homeColors.green}
             locked={obscureStats}
           />
           <MetricTile
-            icon="shield-outline"
-            iconColor={colors.amber}
-            value={obscureStats ? "•••" : formatMetric(match.matchIntensityValue)}
-            label="Indice intensità"
-            locked={obscureStats}
-          />
-          <MetricTile
-            icon="trending-down-outline"
-            iconColor="#A78BFA"
-            value={obscureStats ? "Pro" : trendLabel(match.trend)}
-            label="Trend"
-            valueColor={obscureStats ? colors.amber : trendColor(match.trend)}
+            icon="trending-up-outline"
+            value={obscureStats ? "•••" : trendShortLabel(match.trend)}
+            label="TREND"
+            valueColor={homeColors.green}
             locked={obscureStats}
           />
         </View>
-      </View>
-    </Pressable>
+      </Pressable>
+
+      <Pressable
+        onPress={onPress}
+        accessibilityRole="button"
+        accessibilityLabel="Analizza partita"
+        style={({ pressed }) => [styles.cta, pressed && { opacity: 0.92 }]}
+      >
+        <Text style={styles.ctaText}>ANALIZZA PARTITA</Text>
+        <Ionicons name="arrow-forward" size={16} color={homeColors.ctaText} />
+      </Pressable>
+    </View>
   );
 }
 
 function MetricTile({
   icon,
-  iconColor,
   value,
   label,
-  valueColor = colors.text,
+  valueColor = homeColors.text,
   locked = false
 }: {
   icon: keyof typeof Ionicons.glyphMap;
-  iconColor: string;
   value: string;
   label: string;
   valueColor?: string;
   locked?: boolean;
 }) {
   return (
-    <View style={[styles.metricTile, locked && styles.metricTileLocked]}>
-      <Ionicons name={locked ? "lock-closed-outline" : icon} size={16} color={iconColor} />
-      <Text style={[styles.metricValue, { color: valueColor }]} numberOfLines={1}>
+    <View style={styles.metricTile}>
+      <Ionicons name={locked ? "lock-closed-outline" : icon} size={16} color={homeColors.green} />
+      <Text style={[styles.metricValue, { color: valueColor }]} numberOfLines={1} adjustsFontSizeToFit>
         {value}
       </Text>
       <Text style={styles.metricLabel} numberOfLines={2}>
@@ -146,84 +186,82 @@ function MetricTile({
 
 const styles = StyleSheet.create({
   card: {
-    borderRadius: radii.xl,
+    borderRadius: 18,
     borderWidth: 1,
-    borderColor: "rgba(103,232,249,0.22)",
-    backgroundColor: "rgba(6,14,28,0.98)",
-    overflow: "hidden"
+    borderColor: homeColors.border,
+    backgroundColor: homeColors.card,
+    overflow: "hidden",
+    padding: spacing.md,
+    shadowColor: homeColors.green,
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 0 }
   },
-  pressed: {
-    opacity: 0.94
-  },
-  pitchBg: {
+  gridBg: {
     ...StyleSheet.absoluteFillObject,
     opacity: 0.35
   },
-  pitchLineMid: {
+  gridLine: {
     position: "absolute",
-    top: "42%",
-    left: 0,
-    right: 0,
-    height: 1,
-    backgroundColor: "rgba(103,232,249,0.12)"
+    left: 16,
+    right: 16,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: "rgba(106,240,90,0.14)"
   },
-  pitchCircle: {
+  gridH1: { top: "38%" },
+  gridH2: { top: "62%" },
+  gridLineV: {
+    position: "absolute",
+    top: 72,
+    bottom: 88,
+    width: StyleSheet.hairlineWidth,
+    backgroundColor: "rgba(106,240,90,0.1)"
+  },
+  gridV1: { left: "33%" },
+  gridV2: { left: "66%" },
+  gridCircle: {
     position: "absolute",
     top: "28%",
     alignSelf: "center",
+    left: "50%",
+    marginLeft: -36,
     width: 72,
     height: 72,
     borderRadius: 36,
-    borderWidth: 1,
-    borderColor: "rgba(103,232,249,0.1)"
-  },
-  content: {
-    padding: spacing.md
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(106,240,90,0.16)"
   },
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "flex-start",
+    alignItems: "center",
     gap: spacing.sm
   },
-  headerLeft: {
-    flex: 1
-  },
-  competition: {
-    color: colors.cyanMuted,
-    fontSize: 10,
+  sectionTitle: {
+    flex: 1,
+    color: homeColors.green,
+    fontSize: 13,
     fontWeight: "800",
-    letterSpacing: 0.9
+    letterSpacing: 1.1
   },
-  kickoff: {
-    marginTop: 4,
-    color: colors.textMuted,
-    fontSize: 12,
-    fontWeight: "600"
-  },
-  intensityPill: {
+  calendarBtn: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    maxWidth: "46%",
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: radii.pill,
-    borderWidth: 1,
-    borderColor: "rgba(110,231,183,0.28)",
-    backgroundColor: "rgba(16,185,129,0.08)"
+    gap: 4,
+    flexShrink: 0
   },
-  intensityDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-    backgroundColor: colors.emerald
+  calendarText: {
+    color: homeColors.green,
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 0.4
   },
-  intensityText: {
-    flex: 1,
-    color: colors.emerald,
-    fontSize: 9,
-    fontWeight: "800"
+  meta: {
+    marginTop: 8,
+    color: homeColors.textMuted,
+    fontSize: 12,
+    fontWeight: "600",
+    letterSpacing: 0.2
   },
   teamsRow: {
     marginTop: spacing.lg,
@@ -234,56 +272,91 @@ const styles = StyleSheet.create({
   teamCol: {
     flex: 1,
     alignItems: "center",
-    gap: 4
+    gap: 8,
+    minWidth: 0
   },
-  teamCode: {
-    marginTop: spacing.xs,
-    color: colors.text,
-    fontSize: 13,
-    fontWeight: "900",
-    letterSpacing: 0.5
+  avatar: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    borderWidth: 1.5,
+    borderColor: homeColors.borderStrong,
+    backgroundColor: "rgba(6,18,8,0.9)",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: homeColors.green,
+    shadowOpacity: 0.18,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 0 }
+  },
+  avatarText: {
+    color: homeColors.text,
+    fontSize: 16,
+    fontWeight: "800",
+    letterSpacing: 0.8
   },
   teamName: {
-    color: colors.textMuted,
-    fontSize: 11,
-    fontWeight: "600",
-    textAlign: "center"
+    color: homeColors.text,
+    fontSize: 15,
+    fontWeight: "700",
+    textAlign: "center",
+    maxWidth: "100%",
+    paddingHorizontal: 4
   },
   vs: {
-    color: colors.textDim,
-    fontSize: 12,
-    fontWeight: "900",
-    marginHorizontal: spacing.sm
+    color: homeColors.green,
+    fontSize: 16,
+    fontWeight: "800",
+    marginHorizontal: spacing.sm,
+    letterSpacing: 1
   },
   metrics: {
     marginTop: spacing.lg,
     flexDirection: "row",
-    gap: spacing.xs
+    gap: 8
   },
   metricTile: {
     flex: 1,
     alignItems: "center",
-    paddingVertical: spacing.sm,
+    paddingVertical: 10,
     paddingHorizontal: 4,
-    borderRadius: radii.md,
-    backgroundColor: "rgba(255,255,255,0.03)",
-    gap: 4
-  },
-  metricTileLocked: {
-    backgroundColor: "rgba(250,204,21,0.04)",
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: "rgba(250,204,21,0.12)"
+    borderColor: homeColors.border,
+    backgroundColor: homeColors.bg,
+    gap: 4,
+    minWidth: 0
   },
   metricValue: {
-    fontSize: 13,
-    fontWeight: "900",
+    fontSize: 16,
+    fontWeight: "800",
     textAlign: "center"
   },
   metricLabel: {
-    color: colors.textDim,
-    fontSize: 8,
+    color: homeColors.textMuted,
+    fontSize: 9,
     fontWeight: "700",
     textAlign: "center",
-    textTransform: "uppercase"
+    letterSpacing: 0.4
+  },
+  cta: {
+    marginTop: spacing.md,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: homeColors.green,
+    borderRadius: 14,
+    paddingVertical: 14,
+    shadowColor: homeColors.green,
+    shadowOpacity: 0.22,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 }
+  },
+  ctaText: {
+    color: homeColors.ctaText,
+    fontSize: 14,
+    fontWeight: "800",
+    letterSpacing: 0.6
   }
 });

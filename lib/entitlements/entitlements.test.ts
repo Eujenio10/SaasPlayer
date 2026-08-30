@@ -46,7 +46,7 @@ const guestWithBudget = emptyGuestEntitlements();
 assert.equal(canUnlockWithRewardedAd("match_full_analysis", guestWithBudget), true);
 
 const free = freeEntitlements();
-assert.equal(canAccessFeature("difficult_markings_full", free).allowed, false);
+assert.equal(canAccessFeature("difficult_markings_full", free).allowed, true);
 assert.equal(canUnlockWithRewardedAd("match_full_analysis", free), true);
 assert.equal(canUnlockWithRewardedAd("trends_full", free), false);
 
@@ -89,9 +89,9 @@ const markings = redactDifficultMarkingsList({
   results: [{ id: 1 }, { id: 2 }, { id: 3 }, { id: 4 }],
   tier: "free"
 });
-assert.equal(markings.results.length, 0);
-assert.equal(markings.lockedCount, 4);
-assert.equal(markings.accessMode, "locked");
+assert.equal(markings.results.length, 4);
+assert.equal(markings.lockedCount, 0);
+assert.equal(markings.accessMode, "full");
 
 const trends = redactTrendsList({
   results: [

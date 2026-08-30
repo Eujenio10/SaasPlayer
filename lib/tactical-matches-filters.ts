@@ -3,9 +3,9 @@
  *
  * Ogni regola del prodotto è isolata in una funzione dedicata e documentata, così il flusso è
  * leggibile e modificabile senza effetti collaterali:
- *   1. `filterMonitoredCompetitionMatches`  → solo le competizioni gestite (Top 5)
+ *   1. `filterMonitoredCompetitionMatches`  → solo le competizioni gestite (menu attivo)
  *   2. `filterRealTeamMatches`              → niente placeholder tabellone (es. "1A", "Winner 3")
- *   3. `filterMatchesWithinNextDays`        → solo entro i prossimi N giorni (default 30)
+ *   3. `filterMatchesWithinMenuHorizon`     → da adesso fino a fine giornata di «7 giorni dopo domani» (Roma)
  *   4. `selectNextMatchdayPerCompetition`   → solo la prossima giornata di ogni campionato
  *   5. `dedupeMatchesByEventId`             → nessun duplicato
  *   6. `sortMatchesChronologically`         → ordinamento per calcio d’inizio
@@ -16,8 +16,21 @@
 import { isMonitoredCompetitionSlug, resolveCompetitionId } from "@/lib/competitions";
 import type { MonitoredCompetitionId } from "@/lib/competitions";
 
-/** Orizzonte di ricerca della prossima giornata (non è il numero di giornate da analizzare). */
-export const MATCHES_WINDOW_DAYS = 30;
+/** Fuso usato per il calendario menu (oggi → 7 giorni dopo domani). */
+export const MENU_HORIZON_TZ = "Europe/Rome";
+
+/**
+ * Giorni di calendario **inclusi** da oggi: oggi + 8 = «7 giorni dopo domani».
+ * Es. 30 agosto → fine inclusiva 7 settembre (fino a mezzanotte Roma dell'8).
+ */
+export const MENU_HORIZON_INCLUSIVE_CALENDAR_DAYS = 8;
+
+/**
+ * Lookahead discovery allineato all'orizzonte calendario (con piccolo margine serale).
+ * Non è più una finestra rolling di 30 giorni: altrimenti Nations League a fine settembre
+ * comparirebbe già a fine agosto.
+ */
+export const MATCHES_WINDOW_DAYS = MENU_HORIZON_INCLUSIVE_CALENDAR_DAYS + 1;
 
 /**
  * Se manca `round` dal provider, tiene le partite entro questo arco dal primo calcio d’inizio
@@ -30,6 +43,106 @@ const MATCHDAY_CLUSTER_SECONDS = MATCHDAY_CLUSTER_DAYS * SECONDS_PER_DAY;
 
 function nowSeconds(): number {
   return Math.floor(Date.now() / 1000);
+}
+
+function romeYmd(ms: number): { year: number; month: number; day: number } {
+  const fmt = new Intl.DateTimeFormat("en-CA", {
+    timeZone: MENU_HORIZON_TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  });
+  const [year, month, day] = fmt.format(new Date(ms)).split("-").map(Number);
+  return { year, month, day };
+}
+
+function romeLocalToUnixMs(
+  year: number,
+  month: number,
+  day: number,
+  hour: number,
+  minute: number
+): number {
+  let ts = Date.UTC(year, month - 1, day, hour, minute, 0);
+  const fmt = new Intl.DateTimeFormat("en-CA", {
+    timeZone: MENU_HORIZON_TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false
+  });
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const parts = fmt.formatToParts(new Date(ts));
+    const get = (type: Intl.DateTimeFormatPartTypes) =>
+      Number(parts.find((p) => p.type === type)?.value ?? "0");
+    const desiredMs = Date.UTC(year, month - 1, day, hour, minute, 0);
+    const actualMs = Date.UTC(
+      get("year"),
+      get("month") - 1,
+      get("day"),
+      get("hour"),
+      get("minute"),
+      get("second")
+    );
+    const diff = desiredMs - actualMs;
+    ts += diff;
+    if (Math.abs(diff) < 1000) break;
+  }
+  return ts;
+}
+
+function addCalendarDays(
+  year: number,
+  month: number,
+  day: number,
+  days: number
+): { year: number; month: number; day: number } {
+  const midday = romeLocalToUnixMs(year, month, day, 12, 0);
+  return romeYmd(midday + days * 24 * 60 * 60 * 1000);
+}
+
+/**
+ * Fine esclusiva dell'orizzonte menu: mezzanotte Roma del giorno successivo
+ * a «oggi + 8 giorni di calendario». Kickoff del 7 settembre 20:45 (con oggi 30 agosto)
+ * è incluso; il 8 settembre 00:00 Roma no.
+ */
+export function menuHorizonEndUnix(nowMs: number = Date.now()): number {
+  const today = romeYmd(nowMs);
+  const inclusiveEnd = addCalendarDays(
+    today.year,
+    today.month,
+    today.day,
+    MENU_HORIZON_INCLUSIVE_CALENDAR_DAYS
+  );
+  const exclusive = addCalendarDays(inclusiveEnd.year, inclusiveEnd.month, inclusiveEnd.day, 1);
+  return Math.floor(romeLocalToUnixMs(exclusive.year, exclusive.month, exclusive.day, 0, 0) / 1000);
+}
+
+/** True se il calcio d'inizio è ancora futuro e cade nell'orizzonte menu (calendario Roma). */
+export function isKickoffInsideMenuHorizon(
+  startTimestamp: number,
+  nowSec: number = nowSeconds()
+): boolean {
+  if (!(startTimestamp > nowSec)) return false;
+  return startTimestamp < menuHorizonEndUnix(nowSec * 1000);
+}
+
+/** Giorni rolling di discovery: copre l'orizzonte calendario più un giorno di margine serale. */
+export function matchesWindowLookaheadDays(nowMs: number = Date.now()): number {
+  const nowSec = Math.floor(nowMs / 1000);
+  const end = menuHorizonEndUnix(nowMs);
+  return Math.max(1, Math.ceil((end - nowSec) / SECONDS_PER_DAY) + 1);
+}
+
+/** Tiene solo le partite il cui calcio d'inizio è nell'orizzonte menu. */
+export function filterMatchesWithinMenuHorizon<T extends { startTimestamp: number }>(
+  list: T[],
+  nowSec: number = nowSeconds()
+): T[] {
+  return list.filter((m) => isKickoffInsideMenuHorizon(m.startTimestamp, nowSec));
 }
 
 /** Riga minima richiesta dalla pipeline del menu. */
@@ -91,7 +204,7 @@ export function dedupeMatchesByEventId<T extends { eventId: number; startTimesta
   return sortMatchesChronologically(Array.from(map.values()));
 }
 
-/** Tiene solo le partite appartenenti a una delle 10 competizioni monitorate. */
+/** Tiene solo le partite appartenenti a una competizione attiva in menu. */
 export function filterMonitoredCompetitionMatches<T extends { competitionSlug: string }>(
   list: T[]
 ): T[] {
@@ -192,7 +305,7 @@ function selectNextMatchdayForCompetitionGroup<T extends MenuMatchRow>(matches: 
 
 /**
  * Per ogni competizione monitorata, analizza solo la prossima giornata (tutte le squadre
- * di quella giornata), non le giornate successive nella finestra di 30 giorni.
+ * di quella giornata), non le giornate successive nella finestra menu.
  */
 export function selectNextMatchdayPerCompetition<T extends MenuMatchRow>(
   matches: T[]
@@ -214,26 +327,37 @@ export function selectNextMatchdayPerCompetition<T extends MenuMatchRow>(
 }
 
 export interface BuildMatchesMenuOptions {
-  /** Ampiezza finestra in giorni (default 7). */
+  /**
+   * Se impostato, usa una finestra rolling di N giorni da `nowSec` invece dell'orizzonte
+   * calendario (oggi → 7 giorni dopo domani, fuso Roma).
+   */
   windowDays?: number;
   /** Istante di riferimento (epoch secondi) per ancorare la finestra. Default: adesso. */
   nowSec?: number;
 }
 
+function matchesInsideMenuWindow<T extends { startTimestamp: number }>(
+  list: T[],
+  options: BuildMatchesMenuOptions
+): T[] {
+  const nowSec = options.nowSec ?? nowSeconds();
+  if (options.windowDays != null) {
+    return filterMatchesWithinNextDays(list, options.windowDays, nowSec);
+  }
+  return filterMatchesWithinMenuHorizon(list, nowSec);
+}
+
 /**
- * Orchestratore unico del menu: monitorata → nomi reali → finestra giorni → prossima giornata
+ * Orchestratore unico del menu: monitorata → nomi reali → orizzonte menu → prossima giornata
  * per campionato → dedupe → ordinamento.
  */
 export function buildMonitoredMatchesMenu<T extends MenuMatchRow>(
   matches: T[],
   options: BuildMatchesMenuOptions = {}
 ): T[] {
-  const windowDays = options.windowDays ?? MATCHES_WINDOW_DAYS;
-  const nowSec = options.nowSec ?? nowSeconds();
-
   const monitored = filterMonitoredCompetitionMatches(matches);
   const realTeams = filterRealTeamMatches(monitored);
-  const inWindow = filterMatchesWithinNextDays(realTeams, windowDays, nowSec);
+  const inWindow = matchesInsideMenuWindow(realTeams, options);
   const nextMatchday = selectNextMatchdayPerCompetition(inWindow);
   const deduped = dedupeMatchesByEventId(nextMatchday);
   return sortMatchesChronologically(deduped);
@@ -272,12 +396,10 @@ export function combinePersistedOrganizationMenuSnapshots<T extends MenuMatchRow
   international: T[],
   options: BuildMatchesMenuOptions = {}
 ): T[] {
-  const windowDays = options.windowDays ?? MATCHES_WINDOW_DAYS;
-  const nowSec = options.nowSec ?? nowSeconds();
   const merged = dedupeMatchesByEventId([...domestic, ...international]);
   const monitored = filterMonitoredCompetitionMatches(merged);
   const realTeams = filterRealTeamMatches(monitored);
-  const inWindow = filterMatchesWithinNextDays(realTeams, windowDays, nowSec);
+  const inWindow = matchesInsideMenuWindow(realTeams, options);
   return sortMatchesChronologically(selectNextMatchdayPerCompetition(inWindow));
 }
 
@@ -295,14 +417,15 @@ export function pickNearestUpcomingMatch<T extends { eventId: number; startTimes
 }
 
 /**
- * Raggruppa le partite per competizione monitorata, preservando l’ordine cronologico interno.
- * Le partite non monitorate vengono ignorate.
+ * Raggruppa le partite per competizione attiva in menu, preservando l’ordine cronologico interno.
+ * Conference League e slug non monitorati vengono ignorati.
  */
 export function groupMatchesByCompetition<T extends { competitionSlug: string } & { eventId: number; startTimestamp: number }>(
   matches: T[]
 ): Map<MonitoredCompetitionId, T[]> {
   const groups = new Map<MonitoredCompetitionId, T[]>();
   for (const match of sortMatchesChronologically(matches)) {
+    if (!isMonitoredCompetitionSlug(match.competitionSlug)) continue;
     const id = resolveCompetitionId(match.competitionSlug);
     if (!id) continue;
     const list = groups.get(id) ?? [];

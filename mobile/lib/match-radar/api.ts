@@ -1,4 +1,5 @@
 import { env } from "@/lib/env";
+import { fetchWithTimeout } from "@/lib/mobile-http";
 import type { MatchRadarApiResponse } from "@/lib/match-radar/api-handlers";
 import type { MatchRadarMode } from "@/lib/match-radar/config";
 

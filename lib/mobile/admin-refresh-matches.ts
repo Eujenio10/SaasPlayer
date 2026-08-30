@@ -9,6 +9,7 @@ import {
   normalizeTacticalCompetitionSlug,
   scopeFromCompetitionSlugForInsights
 } from "@/lib/tactical-stats-eligible-matches";
+import { isClubMenuCompetitionSlug } from "@/lib/competitions";
 import {
   purgeOrganizationKioskAuxiliarySnapshots,
   pruneOrganizationMatchInsightsOutsideEventIds,
@@ -153,7 +154,7 @@ async function loadOrganizationMenus(organizationId: string): Promise<{
   ]);
 
   const domestic = normalizePersistedMenuRows(domesticRow?.matches).filter((m) =>
-    isTopFiveLeagueSlug(m.competitionSlug)
+    isClubMenuCompetitionSlug(m.competitionSlug)
   );
   const international = normalizePersistedMenuRows(intlRow?.matches).filter((m) =>
     isNationalTeamCompetitionSlug(m.competitionSlug)
@@ -301,7 +302,7 @@ async function runStartPhase(
     return emptyResult("start", { error: message });
   }
 
-  domesticMenu = domesticMenu.filter((m) => isTopFiveLeagueSlug(m.competitionSlug));
+  domesticMenu = domesticMenu.filter((m) => isClubMenuCompetitionSlug(m.competitionSlug));
 
   let internationalDiscoveryCount = 0;
   let international: UpcomingMatchItem[] = [];

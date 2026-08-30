@@ -14,7 +14,7 @@ export function resolveContentAccessMode(params: {
   return "locked";
 }
 
-/** Limita le marcature: solo Pro vede la lista; Free/Guest → locked. */
+/** Marcature visibili anche agli utenti Free: niente taglio lista. */
 export function redactDifficultMarkingsList<T>(params: {
   results: T[];
   tier: SubscriptionTier;
@@ -25,23 +25,14 @@ export function redactDifficultMarkingsList<T>(params: {
   freeLimit: number;
   lockedCount: number;
 } {
-  const freeLimit = ENTITLEMENT_FLAGS.freeDifficultMarkingsLimit;
+  void params.tier;
   const totalAvailable = params.results.length;
-  if (params.tier === "pro") {
-    return {
-      results: params.results,
-      accessMode: "full",
-      totalAvailable,
-      freeLimit,
-      lockedCount: 0
-    };
-  }
   return {
-    results: [],
-    accessMode: "locked",
+    results: params.results,
+    accessMode: "full",
     totalAvailable,
-    freeLimit: 0,
-    lockedCount: totalAvailable
+    freeLimit: totalAvailable,
+    lockedCount: 0
   };
 }
 

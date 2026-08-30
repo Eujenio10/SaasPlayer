@@ -1,20 +1,24 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
+import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { EmptyReportState } from "./EmptyReportState";
 import { MatchReportHeader } from "./MatchReportHeader";
 import { ReportMetricBadge } from "./ReportMetricBadge";
 import { ReportProgressBar } from "./ReportProgressBar";
 import { ReportSectionCard } from "./ReportSectionCard";
-import { ReportSectionNav, type ReportSectionId } from "./ReportSectionNav";
+import { PREMATCH_SECTIONS, type ReportSectionId } from "./ReportSectionNav";
+import { PitchBrainLoading } from "@/components/PitchBrainLoading";
 import { ReportSkeleton } from "./ReportSkeleton";
-import { ReportSummaryCard } from "./ReportSummaryCard";
-import { HintedScrollView } from "@/components/HintedScrollView";
-import { fetchPreMatchReport } from "@/lib/prematch-report/api";
+import { SectionRow } from "@/components/analysis/SectionRow";
+import { analysisColors } from "@/components/analysis/analysis-theme";
+import { clearPreMatchReportCache, fetchPreMatchReport } from "@/lib/prematch-report/api";
+import { subscribeAdminCatalogRefresh } from "@/lib/admin-catalog-refresh";
 import type { PreMatchReport } from "@/lib/prematch-report/types";
 import type { GuestPreviewMode } from "@/lib/access/guest-preview-mode";
 import { MATCH_DATA_UNAVAILABLE_MESSAGE } from "@/lib/analysis-unavailable";
 import { useAccessFlow } from "@/contexts/AccessFlowContext";
+import { PITCHBRAIN_MOBILE_PRO_PLANS_ENABLED } from "@/lib/access/pro-plans";
+import { useDeferredLoading } from "@/lib/use-deferred-loading";
 import { colors, radii, spacing } from "@/lib/theme";
 
 function resolveErrorMessage(error: unknown): string {
@@ -49,6 +53,16 @@ function setPieceWeightLabel(weight: PreMatchReport["setPieces"]["weight"]): str
   return map[weight];
 }
 
+const SECTION_COPY: Record<ReportSectionId, string> = {
+  summary: "Lettura generale del match",
+  realForm: "Stato di forma delle due squadre",
+  offensive: "Produzione offensiva e pericolosità",
+  defensive: "Solidità e vulnerabilità",
+  keyZone: "Zona o fase di gioco decisiva",
+  tempo: "Possesso atteso, verticalità e gestione",
+  setPieces: "Corner, punizioni e situazioni da fermo"
+};
+
 export function PreMatchReportView({
   eventId,
   homeName,
@@ -73,6 +87,7 @@ export function PreMatchReportView({
   const [premiumLocked, setPremiumLocked] = useState(false);
   const [activeSection, setActiveSection] = useState<ReportSectionId>("summary");
   const { openPaywall } = useAccessFlow();
+  const showOverlay = useDeferredLoading(loading);
 
   const load = useCallback(
     async (refresh = false) => {
@@ -82,7 +97,7 @@ export function PreMatchReportView({
         return;
       }
 
-      if (guestPreviewMode !== "full") {
+      if (PITCHBRAIN_MOBILE_PRO_PLANS_ENABLED && guestPreviewMode !== "full") {
         setLoading(false);
         setPremiumLocked(false);
         setReport(null);
@@ -90,7 +105,7 @@ export function PreMatchReportView({
         return;
       }
 
-      if (!canAccess) {
+      if (PITCHBRAIN_MOBILE_PRO_PLANS_ENABLED && !canAccess) {
         setPremiumLocked(true);
         setLoading(false);
         return;
@@ -106,7 +121,7 @@ export function PreMatchReportView({
         const data = await fetchPreMatchReport(eventId, { refresh });
         setReport(data);
       } catch (e) {
-        if (isPremiumError(e)) {
+        if (PITCHBRAIN_MOBILE_PRO_PLANS_ENABLED && isPremiumError(e)) {
           setPremiumLocked(true);
         } else {
           setError(resolveErrorMessage(e));
@@ -124,6 +139,15 @@ export function PreMatchReportView({
     void load();
   }, [load]);
 
+  useEffect(
+    () =>
+      subscribeAdminCatalogRefresh(() => {
+        clearPreMatchReportCache(eventId);
+        void load(true);
+      }),
+    [eventId, load]
+  );
+
   const homeDisplay = homeName ?? report?.homeTeamName ?? "Casa";
   const awayDisplay = awayName ?? report?.awayTeamName ?? "Trasferta";
   const competitionDisplay = competition ?? report?.competitionName ?? "Competizione";
@@ -135,6 +159,7 @@ export function PreMatchReportView({
       case "summary":
         return (
           <ReportSectionCard
+            hideTitle
             title="Sintesi iniziale"
             description="Lettura generale della partita attesa"
             text={report.summary.text}
@@ -167,6 +192,7 @@ export function PreMatchReportView({
       case "realForm":
         return (
           <ReportSectionCard
+            hideTitle
             title="Stato di forma reale"
             description="Forma apparente vs produzione realistica nelle ultime uscite"
             text={report.realForm.text}
@@ -181,6 +207,7 @@ export function PreMatchReportView({
       case "offensive":
         return (
           <ReportSectionCard
+            hideTitle
             title="Profilo offensivo delle squadre"
             description="Come le due squadre creano occasioni e volume d'attacco"
             text={report.offensiveProfile.text}
@@ -195,6 +222,7 @@ export function PreMatchReportView({
       case "defensive":
         return (
           <ReportSectionCard
+            hideTitle
             title="Profilo difensivo delle squadre"
             description="Volume e qualità delle occasioni concesse"
             text={report.defensiveProfile.text}
@@ -209,6 +237,7 @@ export function PreMatchReportView({
       case "keyZone":
         return (
           <ReportSectionCard
+            hideTitle
             title="Dove può decidersi la partita"
             description="Zona o fase di gioco con il mismatch tattico più rilevante"
             text={report.keyZone.text}
@@ -230,6 +259,7 @@ export function PreMatchReportView({
       case "tempo":
         return (
           <ReportSectionCard
+            hideTitle
             title="Ritmo e controllo della partita"
             description="Possesso atteso, verticalità e gestione del match"
             text={report.tempoControl.text}
@@ -260,6 +290,7 @@ export function PreMatchReportView({
       case "setPieces":
         return (
           <ReportSectionCard
+            hideTitle
             title="Palle inattive"
             description="Corner, punizioni e peso potenziale delle situazioni da fermo"
             text={report.setPieces.text}
@@ -292,11 +323,7 @@ export function PreMatchReportView({
     }
   }, [activeSection, awayDisplay, homeDisplay, report]);
 
-  if (loading) {
-    return <ReportSkeleton />;
-  }
-
-  if (guestPreviewMode !== "full") {
+  if (PITCHBRAIN_MOBILE_PRO_PLANS_ENABLED && !loading && guestPreviewMode !== "full") {
     return (
       <View style={styles.premiumWrap}>
         <Ionicons name="lock-closed-outline" size={28} color={colors.amber} />
@@ -322,7 +349,7 @@ export function PreMatchReportView({
     );
   }
 
-  if (premiumLocked) {
+  if (PITCHBRAIN_MOBILE_PRO_PLANS_ENABLED && !loading && premiumLocked) {
     return (
       <View style={styles.premiumWrap}>
         <Ionicons name="star-outline" size={28} color={colors.amber} />
@@ -348,26 +375,28 @@ export function PreMatchReportView({
     );
   }
 
-  if (error) {
-    return (
-      <View style={styles.center}>
-        <EmptyReportState message={error} />
-        <Pressable onPress={() => void load(true)} style={styles.retryBtn}>
-          <Text style={styles.retryText}>Riprova</Text>
-        </Pressable>
-      </View>
-    );
-  }
-
-  if (!report) {
-    return <EmptyReportState message={MATCH_DATA_UNAVAILABLE_MESSAGE} />;
-  }
-
   return (
-    <HintedScrollView
+    <View style={styles.loadingShell}>
+      {loading && !report && !showOverlay ? <ReportSkeleton /> : null}
+
+      {!loading && error ? (
+        <View style={styles.center}>
+          <EmptyReportState message={error} />
+          <Pressable onPress={() => void load(true)} style={styles.retryBtn}>
+            <Text style={styles.retryText}>Riprova</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
+      {!loading && !error && !report ? (
+        <EmptyReportState message={MATCH_DATA_UNAVAILABLE_MESSAGE} />
+      ) : null}
+
+      {report ? (
+    <ScrollView
       style={styles.scroll}
       contentContainerStyle={styles.scrollContent}
-      showsVerticalScrollIndicator
+      showsVerticalScrollIndicator={false}
       refreshControl={
         <RefreshControl refreshing={refreshing} onRefresh={() => void load(true)} tintColor={colors.cyan} />
       }
@@ -379,18 +408,24 @@ export function PreMatchReportView({
         kickoffLabel={report.kickoffLabel}
       />
 
-      <ReportSummaryCard summary={report.summary} />
-
       {report.dataQualityNote ? (
         <View style={styles.qualityNote}>
-          <Ionicons name="information-circle-outline" size={14} color={colors.cyanMuted} />
+          <Ionicons name="information-circle-outline" size={14} color={analysisColors.green} />
           <Text style={styles.qualityNoteText}>{report.dataQualityNote}</Text>
         </View>
       ) : null}
 
-      <ReportSectionNav active={activeSection} onChange={setActiveSection} />
-
-      <View style={styles.sectionCard}>{activeSectionContent}</View>
+      {PREMATCH_SECTIONS.map((section) => (
+        <SectionRow
+          key={section.id}
+          title={section.title}
+          description={SECTION_COPY[section.id]}
+          expanded={activeSection === section.id}
+          onPress={() => setActiveSection(section.id)}
+        >
+          {activeSection === section.id ? activeSectionContent : null}
+        </SectionRow>
+      ))}
 
       <Text style={styles.footerHint}>
         Report generato il{" "}
@@ -402,7 +437,10 @@ export function PreMatchReportView({
         })}
         . Trascina verso il basso per aggiornare.
       </Text>
-    </HintedScrollView>
+    </ScrollView>
+      ) : null}
+      <PitchBrainLoading visible={loading} message="Analisi in corso…" />
+    </View>
   );
 }
 
@@ -410,6 +448,7 @@ export function PreMatchReportView({
 export const PreMatchReportScreen = PreMatchReportView;
 
 const styles = StyleSheet.create({
+  loadingShell: { flex: 1, position: "relative" },
   scroll: { flex: 1 },
   scrollContent: {
     paddingBottom: spacing.xl,

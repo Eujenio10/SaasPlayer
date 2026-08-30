@@ -1,8 +1,8 @@
 export const DATA_REFRESH_CONFIG = {
   timezone: "Europe/Rome",
-  hour: 5,
+  hour: 8,
   minute: 0,
-  scheduleLabel: "05:00",
+  scheduleLabel: "08:00",
   /** Ore di Roma tra un campionato e il successivo. */
   hoursBetweenCompetitions: 1,
   /**
@@ -18,17 +18,15 @@ export const DATA_REFRESH_CONFIG = {
 export type DataRefreshTrigger = "admin_manual" | "scheduled_cron";
 
 /**
- * Ordine di aggiornamento mattutino: Serie A per prima, poi le altre top 5,
- * infine le nazionali. Allineato alle competizioni attive in menu.
+ * Giro mattutino dalle 08:00 (Roma): solo i 5 campionati top, Serie A per prima.
+ * Le nazionali restano in menu ma si aggiornano a mano.
  */
 export const MORNING_REFRESH_COMPETITION_SLUGS = [
   "serie-a",
   "premier-league",
   "laliga",
   "bundesliga",
-  "ligue-1",
-  "uefa-nations-league",
-  "world-cup"
+  "ligue-1"
 ] as const;
 
 export type MorningRefreshCompetitionSlug = (typeof MORNING_REFRESH_COMPETITION_SLUGS)[number];

@@ -11,16 +11,15 @@ export function isProUserStatus(userStatus: UserAccessStatus): boolean {
   return userStatus === "authenticated_pro";
 }
 
-/** Durante la Beta, guest e Free hanno lo stesso accesso completo dei Pro. */
 export function hasFullBetaAccess(userStatus: UserAccessStatus): boolean {
   return PITCHBRAIN_BETA_FREE_FOR_ALL || isProUserStatus(userStatus);
 }
 
 /**
  * Modalità anteprima contenuti avanzati.
- * - Pro (o Beta free-for-all, qualunque userStatus) → full
- * - Guest con ADS attiva (fuori Beta) → partial
- * - Guest senza ADS / Free / Pro scaduto (fuori Beta) → locked (salvo contentUnlocked esplicito)
+ * - Pro (o free-for-all di test) → full
+ * - Guest con ADS attiva → partial
+ * - Guest senza ADS / Free / Pro scaduto → locked (salvo contentUnlocked esplicito)
  */
 export function resolveGuestPreviewMode(
   userStatus: UserAccessStatus,
@@ -42,7 +41,6 @@ export function shouldObscureGuestStats(
   return userStatus === "guest";
 }
 
-/** Durante la Beta: Simulatore disponibile per tutti, guest incluso, senza pubblicità. */
 export function canAccessMatchSimulator(
   userStatus: UserAccessStatus,
   featuresPreviewActive: boolean
@@ -68,12 +66,10 @@ export function canGuestAccessMatchSimulator(
   return canAccessMatchSimulator(userStatus, featuresPreviewActive);
 }
 
-/** Marcature difficili: Pro, o chiunque durante la Beta free-for-all (guest incluso). */
 export function canAccessDifficultMarkings(userStatus: UserAccessStatus): boolean {
   return hasFullBetaAccess(userStatus);
 }
 
-/** Graduatoria completa marcature: Pro, o chiunque durante la Beta free-for-all. */
 export function canAccessDifficultMarkingsFull(userStatus: UserAccessStatus): boolean {
   return hasFullBetaAccess(userStatus);
 }
@@ -81,7 +77,9 @@ export function canAccessDifficultMarkingsFull(userStatus: UserAccessStatus): bo
 export function formatGuestApiError(message: string): string {
   switch (message) {
     case "public_access_unavailable":
-      return "Calendario pubblico non disponibile al momento. Puoi comunque esplorare l'app: le statistiche avanzate restano oscurate finché non passi a Pro o sblocchi l'anteprima.";
+      return "Calendario pubblico non disponibile al momento. Puoi comunque esplorare l'app.";
+    case "persisted_matches_read_failed":
+      return "Calendario non disponibile al momento. Riprova tra poco.";
     default:
       return message;
   }

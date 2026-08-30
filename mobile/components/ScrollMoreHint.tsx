@@ -2,7 +2,7 @@ import { StyleSheet, Text, View, type ViewStyle } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { colors, radii, spacing } from "@/lib/theme";
 
-export const SCROLL_MORE_HINT_LABEL = "Scorri in basso per vedere altro";
+export const SCROLL_MORE_HINT_LABEL = "Scorri a destra per vedere altro";
 
 export function ScrollMoreHint({
   label = SCROLL_MORE_HINT_LABEL,
@@ -15,7 +15,7 @@ export function ScrollMoreHint({
 }) {
   return (
     <View style={[styles.box, compact && styles.boxCompact, style]} accessibilityRole="text">
-      <Ionicons name="chevron-down" size={compact ? 14 : 16} color={colors.cyan} />
+      <Ionicons name="chevron-forward" size={compact ? 14 : 16} color={colors.cyan} />
       <Text style={[styles.text, compact && styles.textCompact]}>{label}</Text>
     </View>
   );

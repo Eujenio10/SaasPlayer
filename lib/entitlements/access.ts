@@ -70,6 +70,7 @@ export function canAccessFeature(
   if (
     featureKey === "match_preview" ||
     featureKey === "difficult_markings_preview" ||
+    featureKey === "difficult_markings_full" ||
     featureKey === "simulation_preview" ||
     featureKey === "trends_preview"
   ) {

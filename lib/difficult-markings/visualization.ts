@@ -1,4 +1,5 @@
 import type { DifficultMarkingMatchup, ProbableZone } from "@/lib/difficult-markings/types";
+import { difficultMarkingOverlapBreakdownIt } from "@/lib/difficult-markings/text";
 
 export function markingOverlapFieldProps(item: {
   visualization?: DifficultMarkingMatchup["visualization"];
@@ -6,6 +7,8 @@ export function markingOverlapFieldProps(item: {
   attackerRole: string;
   defenderPlayerName: string;
   attackerPlayerName: string;
+  extraAttackers?: DifficultMarkingMatchup["extraAttackers"];
+  attackerMetrics?: DifficultMarkingMatchup["attackerMetrics"];
   probableZone: ProbableZone;
   heatmapOverlapPct: number;
   usedHeatmap: boolean;
@@ -21,6 +24,7 @@ export function markingOverlapFieldProps(item: {
     attackerPlayerName: item.attackerPlayerName,
     probableZone: item.probableZone,
     overlapPct: item.heatmapOverlapPct,
+    overlapCaption: difficultMarkingOverlapBreakdownIt(item),
     usedHeatmap: item.usedHeatmap,
     estimatedZoneOnly: item.visualization?.estimatedZoneOnly ?? !item.usedHeatmap
   };

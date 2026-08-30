@@ -8,6 +8,7 @@ function ctx(partial: Partial<ApiAccessContext>): ApiAccessContext {
     organizationId: "org",
     userId: "user",
     role: "member",
+    email: null,
     supabase: {} as ApiAccessContext["supabase"],
     ...partial
   };

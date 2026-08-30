@@ -31,6 +31,7 @@ export interface DifficultMarkingMatchup {
   roundKey: string;
   homeTeamName: string;
   awayTeamName: string;
+  kickoffTimestamp?: number;
   defenderPlayerId: string;
   attackerPlayerId: string;
   defenderPlayerName: string;
@@ -48,7 +49,11 @@ export interface DifficultMarkingMatchup {
   reliabilityScore: number;
   heatmapOverlapPct: number;
   usedHeatmap: boolean;
+  /** Quanti avversari coperti (2+ sul carico, 1 sul duello di ruolo). */
   markingLoadCount?: number;
+  markingKind?: "multi" | "single";
+  /** Sempre `marker`: il soggetto è chi marca, mai la punta/ala. */
+  leadKind?: "marker" | "forward";
   extraAttackers?: Array<{
     playerId: string;
     playerName: string;
@@ -56,6 +61,10 @@ export interface DifficultMarkingMatchup {
     dribblesSuccessfulPer90: number | null;
     heatmapOverlapPct: number;
   }>;
+  primaryThreatScore?: number;
+  zonePressureScore?: number;
+  secondaryThreatScore?: number;
+  zonePressureLabel?: "Alta" | "Media" | "Bassa";
   visualization?: {
     attackerHeatmapPoints?: Array<{ x: number; y: number; intensity?: number }>;
     defenderHeatmapPoints?: Array<{ x: number; y: number; intensity?: number }>;

@@ -14,7 +14,8 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useAccessFlow } from "@/contexts/AccessFlowContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { mapAuthError } from "@/lib/auth-errors";
-import { colors, radii, spacing } from "@/lib/theme";
+import { pitchbrainColors } from "@/lib/pitchbrain-theme";
+import { radii, spacing } from "@/lib/theme";
 
 type AuthMode = "login" | "register" | "recover";
 
@@ -192,7 +193,7 @@ export default function LoginScreen() {
         ? "Apri il link nell'email per scegliere una nuova password."
         : "Inserisci l'email dell'account: ti invieremo un link di reset."
       : mode === "login"
-        ? "Sincronizza sblocchi, Pro e preferenze su tutti i dispositivi."
+        ? "Sincronizza le tue analisi e preferenze su tutti i dispositivi."
         : registerSent
           ? "Apri il link di conferma nell'email per attivare l'account."
           : "Gratis. Conferma l'email per completare la registrazione.";
@@ -229,7 +230,7 @@ export default function LoginScreen() {
                 value={email}
                 onChangeText={setEmail}
                 placeholder="nome@email.it"
-                placeholderTextColor={colors.textDim}
+                placeholderTextColor={pitchbrainColors.textDim}
                 style={styles.input}
               />
               <Text style={styles.label}>Password</Text>
@@ -238,7 +239,7 @@ export default function LoginScreen() {
                 value={password}
                 onChangeText={setPassword}
                 placeholder="La tua password"
-                placeholderTextColor={colors.textDim}
+                placeholderTextColor={pitchbrainColors.textDim}
                 style={styles.input}
               />
               <Pressable onPress={() => switchMode("recover")} hitSlop={8}>
@@ -257,7 +258,7 @@ export default function LoginScreen() {
                 value={email}
                 onChangeText={setEmail}
                 placeholder="nome@email.it"
-                placeholderTextColor={colors.textDim}
+                placeholderTextColor={pitchbrainColors.textDim}
                 style={styles.input}
               />
             </>
@@ -273,7 +274,7 @@ export default function LoginScreen() {
                 value={email}
                 onChangeText={setEmail}
                 placeholder="nome@email.it"
-                placeholderTextColor={colors.textDim}
+                placeholderTextColor={pitchbrainColors.textDim}
                 style={styles.input}
               />
               <Text style={styles.label}>Password</Text>
@@ -282,7 +283,7 @@ export default function LoginScreen() {
                 value={password}
                 onChangeText={setPassword}
                 placeholder="Almeno 8 caratteri"
-                placeholderTextColor={colors.textDim}
+                placeholderTextColor={pitchbrainColors.textDim}
                 style={styles.input}
               />
               <Text style={styles.label}>Conferma password</Text>
@@ -291,7 +292,7 @@ export default function LoginScreen() {
                 value={confirmPassword}
                 onChangeText={setConfirmPassword}
                 placeholder="Ripeti la password"
-                placeholderTextColor={colors.textDim}
+                placeholderTextColor={pitchbrainColors.textDim}
                 style={styles.input}
               />
               <StepList steps={REGISTER_STEPS} />
@@ -310,7 +311,7 @@ export default function LoginScreen() {
                 ]}
               >
                 {resending ? (
-                  <ActivityIndicator color={colors.cyan} />
+                  <ActivityIndicator color={pitchbrainColors.green} />
                 ) : (
                   <Text style={styles.secondaryBtnText}>
                     {resendCooldown > 0
@@ -348,7 +349,7 @@ export default function LoginScreen() {
               ]}
             >
               {submitting ? (
-                <ActivityIndicator color={colors.background} />
+                <ActivityIndicator color={pitchbrainColors.ctaText} />
               ) : (
                 <Text style={styles.buttonText}>
                   {mode === "login"
@@ -381,7 +382,7 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: colors.background
+    backgroundColor: pitchbrainColors.bg
   },
   scrollContent: {
     flexGrow: 1,
@@ -391,12 +392,12 @@ const styles = StyleSheet.create({
   card: {
     borderRadius: radii.xl,
     borderWidth: 1,
-    borderColor: "rgba(56,189,248,0.25)",
-    backgroundColor: colors.surface,
+    borderColor: pitchbrainColors.border,
+    backgroundColor: pitchbrainColors.card,
     padding: spacing.lg
   },
   badge: {
-    color: colors.cyanMuted,
+    color: pitchbrainColors.green,
     fontSize: 11,
     fontWeight: "800",
     letterSpacing: 1.2,
@@ -404,13 +405,13 @@ const styles = StyleSheet.create({
   },
   title: {
     marginTop: spacing.sm,
-    color: colors.cyan,
+    color: pitchbrainColors.text,
     fontSize: 28,
-    fontWeight: "900"
+    fontWeight: "800"
   },
   subtitle: {
     marginTop: spacing.sm,
-    color: colors.textMuted,
+    color: pitchbrainColors.textMuted,
     fontSize: 14,
     lineHeight: 21
   },
@@ -419,26 +420,28 @@ const styles = StyleSheet.create({
     marginTop: spacing.lg,
     padding: 4,
     borderRadius: radii.lg,
-    backgroundColor: "#0A1628",
+    backgroundColor: pitchbrainColors.bgAlt,
     borderWidth: 1,
-    borderColor: "rgba(56,189,248,0.15)"
+    borderColor: pitchbrainColors.border
   },
   tab: {
     flex: 1,
     paddingVertical: 10,
+    minHeight: 44,
     borderRadius: radii.md,
-    alignItems: "center"
+    alignItems: "center",
+    justifyContent: "center"
   },
   tabActive: {
-    backgroundColor: colors.cyan
+    backgroundColor: pitchbrainColors.green
   },
   tabText: {
-    color: colors.textDim,
+    color: pitchbrainColors.textDim,
     fontSize: 14,
     fontWeight: "700"
   },
   tabTextActive: {
-    color: colors.background
+    color: pitchbrainColors.ctaText
   },
   error: {
     marginTop: spacing.md,
@@ -446,7 +449,7 @@ const styles = StyleSheet.create({
     borderRadius: radii.md,
     borderWidth: 1,
     borderColor: "rgba(248,113,113,0.35)",
-    color: colors.danger,
+    color: pitchbrainColors.danger,
     fontSize: 13,
     lineHeight: 18
   },
@@ -455,30 +458,30 @@ const styles = StyleSheet.create({
     padding: spacing.sm,
     borderRadius: radii.md,
     borderWidth: 1,
-    borderColor: "rgba(103,232,249,0.35)",
-    color: colors.cyanMuted,
+    borderColor: pitchbrainColors.borderStrong,
+    color: pitchbrainColors.green,
     fontSize: 13,
     lineHeight: 18
   },
   label: {
     marginTop: spacing.md,
     marginBottom: 6,
-    color: colors.textMuted,
+    color: pitchbrainColors.textMuted,
     fontSize: 13
   },
   input: {
     borderWidth: 1,
-    borderColor: "rgba(56,189,248,0.25)",
+    borderColor: pitchbrainColors.border,
     borderRadius: radii.lg,
-    backgroundColor: "#0A1628",
-    color: colors.text,
+    backgroundColor: pitchbrainColors.bgAlt,
+    color: pitchbrainColors.text,
     paddingHorizontal: spacing.md,
     paddingVertical: 12,
     fontSize: 15
   },
   link: {
     marginTop: spacing.sm,
-    color: colors.cyan,
+    color: pitchbrainColors.green,
     fontSize: 13,
     fontWeight: "600"
   },
@@ -488,8 +491,8 @@ const styles = StyleSheet.create({
     padding: spacing.sm,
     borderRadius: radii.lg,
     borderWidth: 1,
-    borderColor: "rgba(56,189,248,0.12)",
-    backgroundColor: "#0A1628"
+    borderColor: pitchbrainColors.border,
+    backgroundColor: pitchbrainColors.bgAlt
   },
   stepRow: {
     flexDirection: "row",
@@ -500,18 +503,20 @@ const styles = StyleSheet.create({
     width: 22,
     height: 22,
     borderRadius: 11,
-    backgroundColor: "rgba(103,232,249,0.15)",
+    backgroundColor: pitchbrainColors.cardAlt,
+    borderWidth: 1,
+    borderColor: pitchbrainColors.border,
     alignItems: "center",
     justifyContent: "center"
   },
   stepBadgeText: {
-    color: colors.cyan,
+    color: pitchbrainColors.green,
     fontSize: 11,
     fontWeight: "800"
   },
   stepText: {
     flex: 1,
-    color: colors.textDim,
+    color: pitchbrainColors.textDim,
     fontSize: 12,
     lineHeight: 18,
     paddingTop: 2
@@ -519,7 +524,7 @@ const styles = StyleSheet.create({
   button: {
     marginTop: spacing.lg,
     borderRadius: radii.lg,
-    backgroundColor: colors.cyan,
+    backgroundColor: pitchbrainColors.green,
     alignItems: "center",
     justifyContent: "center",
     minHeight: 48
@@ -531,7 +536,7 @@ const styles = StyleSheet.create({
     opacity: 0.5
   },
   buttonText: {
-    color: colors.background,
+    color: pitchbrainColors.ctaText,
     fontSize: 16,
     fontWeight: "800"
   },
@@ -539,14 +544,14 @@ const styles = StyleSheet.create({
     marginTop: spacing.md,
     borderRadius: radii.lg,
     borderWidth: 1,
-    borderColor: "rgba(56,189,248,0.3)",
+    borderColor: pitchbrainColors.borderStrong,
     paddingVertical: 12,
     alignItems: "center",
     minHeight: 48,
     justifyContent: "center"
   },
   secondaryBtnText: {
-    color: colors.cyan,
+    color: pitchbrainColors.green,
     fontSize: 14,
     fontWeight: "700",
     textAlign: "center"
@@ -556,7 +561,7 @@ const styles = StyleSheet.create({
     alignItems: "center"
   },
   guestLink: {
-    color: colors.textDim,
+    color: pitchbrainColors.textDim,
     fontSize: 13,
     fontWeight: "600"
   }

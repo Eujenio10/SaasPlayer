@@ -91,11 +91,13 @@ export async function simulateFixture(params: {
   const [homeSeason, awaySeason] = await Promise.all([
     resolveEffectiveSeasonContextForTeam({
       teamId: params.match.homeTeam.id,
-      eventId: params.match.eventId
+      eventId: params.match.eventId,
+      switchThreshold: minSample.teamSeasonMatches
     }),
     resolveEffectiveSeasonContextForTeam({
       teamId: params.match.awayTeam.id,
-      eventId: params.match.eventId
+      eventId: params.match.eventId,
+      switchThreshold: minSample.teamSeasonMatches
     })
   ]);
   const ctx =

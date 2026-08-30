@@ -1,7 +1,10 @@
 import { resolveMatchCompetitionId } from "@/lib/competitions";
 import { buildProfilesFromMetrics } from "@/lib/difficult-markings/profiles";
 import { canonicalCompetitionId } from "@/lib/difficult-markings/query";
-import { selectCanonicalMatchupsForMatch } from "@/lib/difficult-markings/publish";
+import {
+  MARKINGS_MAX_PER_ROUND,
+  selectCanonicalMatchupsForMatch
+} from "@/lib/difficult-markings/publish";
 import { computeDifficultMarkingsForMatch } from "@/lib/difficult-markings/scoring";
 import type {
   DifficultMarkingsRoundBucket,
@@ -10,11 +13,6 @@ import type {
 } from "@/lib/difficult-markings/types";
 import type { TacticalMetrics } from "@/lib/types";
 import type { UpcomingMatchItem } from "@/services/sportapi";
-
-function isInternationalMarkingsCompetition(competitionId?: string): boolean {
-  const id = canonicalCompetitionId(competitionId);
-  return id === "world-cup" || id === "uefa-nations-league";
-}
 
 export function roundKeyFromMatch(match: UpcomingMatchItem): string {
   const d = new Date(match.startTimestamp * 1000);
@@ -55,6 +53,10 @@ export function computeDifficultMarkingsSnapshot(params: {
 
   const roundBuckets = new Map<string, DifficultMarkingsRoundBucket>();
   const matchupIndex: Record<string, DifficultMarkingMatchup> = {};
+  const rawByBucket = new Map<
+    string,
+    { competitionId: string; roundKey: string; officialLineupsUsed: boolean; raw: DifficultMarkingMatchup[] }
+  >();
   let pairsGenerated = 0;
   let pairsPublished = 0;
   let rawMatchups = 0;
@@ -93,22 +95,33 @@ export function computeDifficultMarkingsSnapshot(params: {
     });
 
     rawMatchups += raw.length;
-    const selected = selectCanonicalMatchupsForMatch(raw, {
-      maxPerMatch: 4,
-      minAttackerThreat: isInternationalMarkingsCompetition(competitionId) ? 0.18 : 0.28
+    const pending = rawByBucket.get(bucketKey) ?? {
+      competitionId,
+      roundKey,
+      officialLineupsUsed: params.officialLineupsUsed ?? false,
+      raw: []
+    };
+    pending.raw.push(...raw);
+    rawByBucket.set(bucketKey, pending);
+  }
+
+  for (const pending of rawByBucket.values()) {
+    const selected = selectCanonicalMatchupsForMatch(pending.raw, {
+      limit: MARKINGS_MAX_PER_ROUND
     });
     pairsPublished += selected.length;
+    if (!selected.length) continue;
 
+    const bucketKey = `${pending.competitionId}|${pending.roundKey}`;
     if (!roundBuckets.has(bucketKey)) {
       roundBuckets.set(bucketKey, {
-        competitionId,
-        round: roundKey,
+        competitionId: pending.competitionId,
+        round: pending.roundKey,
         generatedAt,
-        officialLineupsUsed: params.officialLineupsUsed ?? false,
+        officialLineupsUsed: pending.officialLineupsUsed,
         results: []
       });
     }
-
     const bucket = roundBuckets.get(bucketKey)!;
     for (const item of selected) {
       bucket.results.push(item);
@@ -117,11 +130,7 @@ export function computeDifficultMarkingsSnapshot(params: {
   }
 
   for (const bucket of roundBuckets.values()) {
-    const intl = isInternationalMarkingsCompetition(bucket.competitionId);
-    bucket.results = selectCanonicalMatchupsForMatch(bucket.results, {
-      maxPerMatch: 3,
-      minAttackerThreat: intl ? 0.18 : 0.28
-    }).sort((a, b) => b.difficultMarkingScore - a.difficultMarkingScore);
+    bucket.results = [...bucket.results].sort((a, b) => b.difficultMarkingScore - a.difficultMarkingScore);
   }
 
   const rounds = [...roundBuckets.values()]

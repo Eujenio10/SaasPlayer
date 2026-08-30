@@ -71,10 +71,26 @@ export interface HomeQuickAction {
   enabled: boolean;
 }
 
+export interface HomeUpcomingMatch {
+  id: number;
+  homeTeamId: number;
+  awayTeamId: number;
+  competitionName: string;
+  homeTeamName: string;
+  awayTeamName: string;
+  homeTeamInitials: string;
+  awayTeamInitials: string;
+  homeTeamColor: string;
+  awayTeamColor: string;
+  kickoffClock: string;
+  startTimestamp: number;
+}
+
 export interface HomeDashboardData {
   user: HomeDashboardUser;
   todaySummary: HomeTodaySummary;
   featuredMatch: HomeFeaturedMatch | null;
+  upcomingMatches?: HomeUpcomingMatch[];
   modules: HomeModule[];
   quickActions: HomeQuickAction[];
   dataRefresh: DataRefreshStatus;

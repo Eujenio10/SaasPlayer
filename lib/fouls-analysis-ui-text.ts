@@ -4,7 +4,7 @@ import { MATCH_DATA_UNAVAILABLE_MESSAGE } from "@/lib/analysis-unavailable";
 export const FOULS_ANALYSIS_UI = {
   title: "Scontri & Falli",
   tabHint:
-    "Analisi su falli commessi e subiti, duelli fisici e zone di contatto atteso.",
+    "Tutti i giocatori con media falli commessi o subiti > 1,20 nella stagione in corso.",
   guestTabHint:
     "Profili falli sopra soglia media (>1,20). Duelli, zone e trend riservati a Pro.",
   emptyState: MATCH_DATA_UNAVAILABLE_MESSAGE,

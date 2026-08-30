@@ -53,19 +53,24 @@ export function HeatmapDots({
   points,
   color,
   width = PITCH_W,
-  height = PITCH_H
+  height = PITCH_H,
+  sizeMin = 5,
+  sizeMax = 12
 }: {
   points: HeatmapPoint[];
   color: string;
   width?: number;
   height?: number;
+  sizeMin?: number;
+  sizeMax?: number;
 }) {
   const peak = maxIntensity(points);
+  const span = Math.max(0, sizeMax - sizeMin);
   return (
     <>
       {points.map((point, index) => {
         const norm = (point.intensity ?? 1) / peak;
-        const size = 5 + norm * 7;
+        const size = sizeMin + norm * span;
         const left = (Math.max(0, Math.min(100, point.x)) / 100) * width - size / 2;
         const top = (Math.max(0, Math.min(100, point.y)) / 100) * height - size / 2;
         return (
@@ -79,7 +84,7 @@ export function HeatmapDots({
               height: size,
               borderRadius: size / 2,
               backgroundColor: color,
-              opacity: 0.25 + norm * 0.5
+              opacity: 0.28 + norm * 0.42
             }}
           />
         );

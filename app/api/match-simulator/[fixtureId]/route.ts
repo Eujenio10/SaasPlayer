@@ -28,6 +28,7 @@ export async function GET(
   const payload = await buildMatchSimulatorDetailResponse({
     organizationId: ctx.organizationId,
     fixtureId,
+    // Lista fixtures: solo snapshot. Qui l'utente apre una partita: genera se manca.
     generateIfMissing: canGenerate
   });
 

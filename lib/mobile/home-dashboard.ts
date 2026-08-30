@@ -20,6 +20,7 @@ import type { TacticalMetrics } from "@/lib/types";
 import {
   pruneYellowCardSnapshotToScheduledFuture
 } from "@/lib/yellow-card-schedule-utils";
+import { canViewDifficultMarkings } from "@/lib/difficult-markings/visibility";
 import type { UpcomingMatchItem } from "@/services/sportapi";
 
 const HOME_FEATURED_COMPETITIONS = new Set<MonitoredCompetitionId>(["serie-a", "world-cup"]);
@@ -96,10 +97,26 @@ export interface HomeQuickAction {
   enabled: boolean;
 }
 
+export interface HomeUpcomingMatch {
+  id: number;
+  homeTeamId: number;
+  awayTeamId: number;
+  competitionName: string;
+  homeTeamName: string;
+  awayTeamName: string;
+  homeTeamInitials: string;
+  awayTeamInitials: string;
+  homeTeamColor: string;
+  awayTeamColor: string;
+  kickoffClock: string;
+  startTimestamp: number;
+}
+
 export interface HomeDashboardData {
   user: HomeDashboardUser;
   todaySummary: HomeTodaySummary;
   featuredMatch: HomeFeaturedMatch | null;
+  upcomingMatches: HomeUpcomingMatch[];
   modules: HomeModule[];
   quickActions: HomeQuickAction[];
   dataRefresh: DataRefreshStatus;
@@ -182,6 +199,14 @@ export function formatKickoffLabelRome(startTimestampSec: number): string {
   }).format(new Date(startTimestampSec * 1000));
 }
 
+function formatKickoffClockRome(startTimestampSec: number): string {
+  return new Intl.DateTimeFormat("it-IT", {
+    timeZone: "Europe/Rome",
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(new Date(startTimestampSec * 1000));
+}
+
 function planNameFromRole(role: UserAccessRole, guestMode?: boolean): string {
   if (guestMode) return "Guest";
   if (role === "admin") return "Admin";
@@ -223,7 +248,7 @@ function cardRiskForEvent(
 }
 
 function buildModules(access: UserAccessSummary): HomeModule[] {
-  const proOrAdmin = access.isPro || access.isAdmin;
+  const showMarkings = canViewDifficultMarkings(access);
   return [
     {
       id: "matchups",
@@ -235,16 +260,20 @@ function buildModules(access: UserAccessSummary): HomeModule[] {
       enabled: true,
       badge: null
     },
-    {
-      id: "markings",
-      title: "Marcature difficili",
-      description: "Duelli individuali con indice di esposizione alla marcatura.",
-      icon: "shield",
-      color: "#FB923C",
-      route: "/markings",
-      enabled: true,
-      badge: proOrAdmin ? null : "PRO"
-    },
+    ...(showMarkings
+      ? [
+          {
+            id: "markings",
+            title: "Marcature difficili",
+            description: "Duelli individuali con indice di esposizione alla marcatura.",
+            icon: "shield",
+            color: "#FB923C",
+            route: "/markings",
+            enabled: true,
+            badge: null
+          } satisfies HomeModule
+        ]
+      : []),
     {
       id: "trends",
       title: "Trend",
@@ -253,7 +282,7 @@ function buildModules(access: UserAccessSummary): HomeModule[] {
       color: "#FCD34D",
       route: "/trends",
       enabled: true,
-      badge: "Presto in arrivo"
+      badge: null
     },
     {
       id: "simulator",
@@ -263,26 +292,18 @@ function buildModules(access: UserAccessSummary): HomeModule[] {
       color: "#34D399",
       route: "/simulator",
       enabled: true,
-      badge: "Presto in arrivo"
-    },
-    {
-      id: "advanced-stats",
-      title: "Statistiche avanzate",
-      description: "Metriche esclusive per leggere il gioco in profondità.",
-      icon: "bar-chart",
-      color: "#A78BFA",
-      route: "/matches",
-      enabled: access.isPro || access.isAdmin,
-      badge: access.isPro || access.isAdmin ? "PRO" : "In arrivo"
+      badge: null
     }
   ];
 }
 
 function buildQuickActions(access: UserAccessSummary): HomeQuickAction[] {
-  void access;
+  const showMarkings = canViewDifficultMarkings(access);
   return [
     { id: "matches", label: "Analisi partita", icon: "football", route: "/matches", enabled: true },
-    { id: "markings", label: "Marcature", icon: "shield", route: "/markings", enabled: true },
+    ...(showMarkings
+      ? [{ id: "markings", label: "Marcature", icon: "shield", route: "/markings", enabled: true } satisfies HomeQuickAction]
+      : []),
     { id: "trends", label: "Trend", icon: "trending-up", route: "/trends", enabled: true },
     { id: "simulator", label: "Simulatore", icon: "stats-chart", route: "/simulator", enabled: true }
   ];
@@ -355,6 +376,28 @@ export function buildHomeDashboard(params: {
     };
   }
 
+  const upcomingMatches = [...upcoming]
+    .filter((match) => !featured || match.eventId !== featured.eventId)
+    .sort((a, b) => a.startTimestamp - b.startTimestamp)
+    .slice(0, 3)
+    .map((match) => ({
+      id: match.eventId,
+      homeTeamId: match.homeTeam.id,
+      awayTeamId: match.awayTeam.id,
+      competitionName:
+        formatMonitoredCompetitionLabel(resolveMatchCompetitionId(match) ?? match.competitionSlug) ||
+        match.competitionName?.trim() ||
+        match.competitionSlug,
+      homeTeamName: match.homeTeam.name,
+      awayTeamName: match.awayTeam.name,
+      homeTeamInitials: teamInitialsFromName(match.homeTeam.name),
+      awayTeamInitials: teamInitialsFromName(match.awayTeam.name),
+      homeTeamColor: genericTeamColor(match.homeTeam.name),
+      awayTeamColor: genericTeamColor(match.awayTeam.name),
+      kickoffClock: formatKickoffClockRome(match.startTimestamp),
+      startTimestamp: match.startTimestamp
+    }));
+
   return {
     user: {
       email,
@@ -368,6 +411,7 @@ export function buildHomeDashboard(params: {
       foulsSignalsCount: foulsFromFeatured
     },
     featuredMatch,
+    upcomingMatches,
     modules: buildModules(access),
     quickActions: buildQuickActions(access),
     dataRefresh,

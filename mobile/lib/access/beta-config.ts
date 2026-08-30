@@ -1,8 +1,7 @@
+import { PITCHBRAIN_MOBILE_PRO_PLANS_ENABLED } from "@/lib/access/pro-plans";
+
 /**
- * Beta pubblica "PitchBrain Beta": tutte le funzionalità sono gratuite per chiunque usi
- * l'app, guest incluso — nessuna distinzione tra Guest, Free e Pro lato UI/feature-gating.
- * Specchia lato client il flag server `PITCHBRAIN_BETA_FREE_FOR_ALL`
- * (lib/entitlements/config.ts). Impostare a `false` per tornare al modello Free/Pro reale
- * (richiede una nuova build, essendo un valore compilato nel bundle).
+ * Sull'app, con i piani Pro disattivati, guest e Free hanno accesso completo.
+ * Allineare con `isBetaFreeForAllRequest` lato server (`lib/entitlements/config.ts`).
  */
-export const PITCHBRAIN_BETA_FREE_FOR_ALL = true;
+export const PITCHBRAIN_BETA_FREE_FOR_ALL = !PITCHBRAIN_MOBILE_PRO_PLANS_ENABLED;
