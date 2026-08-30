@@ -30,3 +30,22 @@ export const MORNING_REFRESH_COMPETITION_SLUGS = [
 ] as const;
 
 export type MorningRefreshCompetitionSlug = (typeof MORNING_REFRESH_COMPETITION_SLUGS)[number];
+
+/**
+ * Rinfresco pre-partita: le formazioni ufficiali escono circa un'ora prima del
+ * calcio d'inizio, quindi poco prima si rigenerano simulazione e marcature con
+ * i giocatori realmente disponibili.
+ *
+ * Con un ticker ogni 10 minuti la finestra 35→5 fa scattare ogni partita una
+ * volta sola, circa 30 minuti prima, e regge anche un ping saltato.
+ */
+export const PREMATCH_REFRESH_CONFIG = {
+  /** Minuti prima del calcio d'inizio da cui la partita entra in finestra. */
+  leadMinutes: 35,
+  /** Sotto questa soglia è troppo tardi: la partita sta per iniziare. */
+  cutoffMinutes: 5,
+  /** Tetto per invocazione: di sabato più partite cadono nella stessa finestra. */
+  maxMatchesPerTick: 4,
+  /** Budget serverless conservativo rispetto a maxDuration 300. */
+  timeBudgetMs: 210_000
+} as const;

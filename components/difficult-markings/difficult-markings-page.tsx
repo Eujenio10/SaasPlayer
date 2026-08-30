@@ -48,6 +48,140 @@ function formatUpdatedAt(iso: string | null): string {
   }).format(d);
 }
 
+function MarkingListCard({
+  item,
+  featured = false,
+  rank,
+  expanded,
+  onToggle
+}: {
+  item: DifficultMarkingMatchup;
+  featured?: boolean;
+  rank: number;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <article
+      className={
+        featured
+          ? "overflow-hidden rounded-[1.75rem] border border-orange-400/20 bg-gradient-to-br from-slate-950 via-slate-900 to-orange-950/30 p-6 sm:p-8"
+          : "rounded-2xl border border-white/10 bg-white/[0.03] p-5 shadow-sm transition hover:border-orange-400/20"
+      }
+    >
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={expanded}
+        className="flex w-full items-center justify-between gap-4 text-left"
+      >
+        <span className="min-w-0">
+          <span className="block truncate text-lg font-bold text-white sm:text-xl">
+            {item.defenderPlayerName}
+          </span>
+          <span className="mt-1 inline-flex items-center gap-1.5 text-sm font-semibold text-orange-300">
+            <span aria-hidden>{expanded ? "▾" : "▸"}</span>
+            {expanded ? "Chiudi analisi" : "Apri per l'analisi"}
+          </span>
+        </span>
+        <span className={`shrink-0 text-3xl font-black ${levelColor(item.difficultMarkingScore)}`}>
+          {item.difficultMarkingScore}
+          <span className="text-base font-semibold text-slate-400">/100</span>
+        </span>
+      </button>
+
+      {expanded ? (
+        featured ? (
+          <div className="mt-6 flex flex-col gap-6 border-t border-white/10 pt-6 lg:flex-row lg:items-center lg:justify-between">
+            <div className="space-y-3">
+              <p className="text-xs uppercase tracking-[0.2em] text-orange-200/80">
+                {difficultMarkingKindLabelIt(item)}
+              </p>
+              <h2 className="text-2xl font-bold text-white">{difficultMarkingSubjectLineIt(item)}</h2>
+              <p className="text-sm text-slate-400">{difficultMarkingSubjectHintIt()}</p>
+              <p className="text-sm font-medium text-orange-200/90">
+                Matchup principale: {item.attackerPlayerName}
+              </p>
+              <p className="text-sm font-medium text-orange-200/90">
+                {difficultMarkingAttackerThreatLineIt(item)}
+              </p>
+              <p className="text-sm text-slate-200">{difficultMarkingZonePressureLineIt(item)}</p>
+              {difficultMarkingOthersLineIt(item) ? (
+                <p className="text-sm text-slate-200">{difficultMarkingOthersLineIt(item)}</p>
+              ) : null}
+              <p className="text-sm text-slate-300">{difficultMarkingMotiveLineIt(item)}</p>
+              <p className="text-sm text-slate-300">
+                {translateTeamName(item.homeTeamName)} vs {translateTeamName(item.awayTeamName)} ·{" "}
+                {zoneLabelIt(item.probableZone)}
+              </p>
+              <ul className="space-y-1 text-sm text-slate-200">
+                {item.reasons.slice(0, 3).map((reason) => (
+                  <li key={reason.type}>
+                    • {reason.label}: {reason.detail}
+                  </li>
+                ))}
+              </ul>
+              <Link
+                href={`/kiosk/marcature-difficili/${encodeURIComponent(item.id)}`}
+                className="inline-flex rounded-full bg-orange-500 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-orange-400"
+              >
+                Apri scheda completa
+              </Link>
+            </div>
+            <div className="flex flex-col items-center gap-5">
+              <div className="text-center">
+                <p className={`text-lg font-semibold ${levelColor(item.difficultMarkingScore)}`}>
+                  {difficultMarkingLevelLabelIt(item.difficultMarkingLevel)}
+                </p>
+              </div>
+              <div className="w-full max-w-[280px]">
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                  Sovrapposizione zone
+                </p>
+                <DifficultMarkingZoneField {...markingOverlapFieldProps(item)} />
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="mt-4 space-y-3 border-t border-white/10 pt-4">
+            <p className="text-xs text-slate-400">
+              #{rank} · {difficultMarkingKindLabelIt(item)}
+            </p>
+            <h3 className="font-semibold text-white">{difficultMarkingSubjectLineIt(item)}</h3>
+            <p className="text-xs text-orange-200/80">{difficultMarkingAttackerThreatLineIt(item)}</p>
+            <p className="text-xs text-slate-300">{difficultMarkingZonePressureLineIt(item)}</p>
+            {difficultMarkingOthersLineIt(item) ? (
+              <p className="text-xs text-slate-300">{difficultMarkingOthersLineIt(item)}</p>
+            ) : null}
+            <p className="text-xs text-slate-400">
+              {translateTeamName(item.homeTeamName)} vs {translateTeamName(item.awayTeamName)}
+            </p>
+            <div className="space-y-2 text-xs text-slate-300">
+              <p>{difficultMarkingFoulsBreakdownIt(item)}</p>
+              <p>Falli marcatore: {(item.defenderMetrics.foulsCommittedPer90 ?? 0).toFixed(1)}/90&apos;</p>
+              <p>Overlap: {difficultMarkingOverlapBreakdownIt(item)}</p>
+            </div>
+            <div className="max-w-[220px]">
+              <DifficultMarkingZoneField compact {...markingOverlapFieldProps(item)} />
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-slate-400">
+                Affidabilità {reliabilityLabelIt(item.reliabilityScore)}
+              </span>
+              <Link
+                href={`/kiosk/marcature-difficili/${encodeURIComponent(item.id)}`}
+                className="text-sm font-semibold text-orange-300 hover:text-orange-200"
+              >
+                Dettaglio
+              </Link>
+            </div>
+          </div>
+        )
+      ) : null}
+    </article>
+  );
+}
+
 export function DifficultMarkingsPage() {
   const { competitions: availableCompetitions, preferredId } = useWebCompetitionsWithMatches();
   const [competitionId, setCompetitionId] = useState(DEFAULT_MENU_COMPETITION_ID);
@@ -60,6 +194,7 @@ export function DifficultMarkingsPage() {
   const [availableRounds, setAvailableRounds] = useState<string[]>([]);
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
   const [officialLineupsUsed, setOfficialLineupsUsed] = useState(false);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!preferredId) return;
@@ -108,6 +243,10 @@ export function DifficultMarkingsPage() {
     } finally {
       setLoading(false);
     }
+  }, [competitionId, round, filter, sort]);
+
+  useEffect(() => {
+    setExpandedId(null);
   }, [competitionId, round, filter, sort]);
 
   useEffect(() => {
@@ -223,111 +362,24 @@ export function DifficultMarkingsPage() {
       ) : (
         <>
           {hero ? (
-            <section className="overflow-hidden rounded-[1.75rem] border border-orange-400/20 bg-gradient-to-br from-slate-950 via-slate-900 to-orange-950/30 p-6 sm:p-8">
-              <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
-                <div className="space-y-3">
-                  <p className="text-xs uppercase tracking-[0.2em] text-orange-200/80">
-                    {difficultMarkingKindLabelIt(hero)}
-                  </p>
-                  <h2 className="text-2xl font-bold text-white">{difficultMarkingSubjectLineIt(hero)}</h2>
-                  <p className="text-sm text-slate-400">{difficultMarkingSubjectHintIt()}</p>
-                  <p className="text-sm font-medium text-orange-200/90">
-                    Matchup principale: {hero.attackerPlayerName}
-                  </p>
-                  <p className="text-sm font-medium text-orange-200/90">
-                    {difficultMarkingAttackerThreatLineIt(hero)}
-                  </p>
-                  <p className="text-sm text-slate-200">{difficultMarkingZonePressureLineIt(hero)}</p>
-                  {difficultMarkingOthersLineIt(hero) ? (
-                    <p className="text-sm text-slate-200">{difficultMarkingOthersLineIt(hero)}</p>
-                  ) : null}
-                  <p className="text-sm text-slate-300">{difficultMarkingMotiveLineIt(hero)}</p>
-                  <p className="text-sm text-slate-300">
-                    {translateTeamName(hero.homeTeamName)} vs {translateTeamName(hero.awayTeamName)} ·{" "}
-                    {zoneLabelIt(hero.probableZone)}
-                  </p>
-                  <ul className="space-y-1 text-sm text-slate-200">
-                    {hero.reasons.slice(0, 3).map((reason) => (
-                      <li key={reason.type}>• {reason.label}: {reason.detail}</li>
-                    ))}
-                  </ul>
-                  <Link
-                    href={`/kiosk/marcature-difficili/${encodeURIComponent(hero.id)}`}
-                    className="inline-flex rounded-full bg-orange-500 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-orange-400"
-                  >
-                    Apri analisi
-                  </Link>
-                </div>
-                <div className="flex flex-col items-center gap-5">
-                  <div className="text-center">
-                    <div className={`text-6xl font-black ${levelColor(hero.difficultMarkingScore)}`}>
-                      {hero.difficultMarkingScore}
-                      <span className="text-2xl text-slate-400">/100</span>
-                    </div>
-                    <p className={`mt-2 text-lg font-semibold ${levelColor(hero.difficultMarkingScore)}`}>
-                      {difficultMarkingLevelLabelIt(hero.difficultMarkingLevel)}
-                    </p>
-                  </div>
-                  <div className="w-full max-w-[280px]">
-                    <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
-                      Sovrapposizione zone
-                    </p>
-                    <DifficultMarkingZoneField {...markingOverlapFieldProps(hero)} />
-                  </div>
-                </div>
-              </div>
-            </section>
+            <MarkingListCard
+              item={hero}
+              featured
+              rank={1}
+              expanded={expandedId === hero.id}
+              onToggle={() => setExpandedId((id) => (id === hero.id ? null : hero.id))}
+            />
           ) : null}
 
           <section className="grid gap-4 md:grid-cols-2">
             {rest.map((item, index) => (
-              <article
+              <MarkingListCard
                 key={item.id}
-                className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 shadow-sm transition hover:border-orange-400/20"
-              >
-                <div className="mb-3 flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-xs text-slate-400">
-                      #{index + 2} · {difficultMarkingKindLabelIt(item)}
-                    </p>
-                    <h3 className="font-semibold text-white">{difficultMarkingSubjectLineIt(item)}</h3>
-                    <p className="text-xs text-orange-200/80">{difficultMarkingAttackerThreatLineIt(item)}</p>
-                    <p className="text-xs text-slate-300">{difficultMarkingZonePressureLineIt(item)}</p>
-                    {difficultMarkingOthersLineIt(item) ? (
-                      <p className="text-xs text-slate-300">{difficultMarkingOthersLineIt(item)}</p>
-                    ) : null}
-                    <p className="text-xs text-slate-400">
-                      {translateTeamName(item.homeTeamName)} vs {translateTeamName(item.awayTeamName)}
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <p className={`text-2xl font-bold ${levelColor(item.difficultMarkingScore)}`}>
-                      {item.difficultMarkingScore}
-                      <span className="text-sm font-semibold text-slate-400">/100</span>
-                    </p>
-                    <p className="text-xs text-slate-400">{difficultMarkingLevelLabelIt(item.difficultMarkingLevel)}</p>
-                  </div>
-                </div>
-                <div className="space-y-2 text-xs text-slate-300">
-                  <p>{difficultMarkingFoulsBreakdownIt(item)}</p>
-                  <p>Falli marcatore: {(item.defenderMetrics.foulsCommittedPer90 ?? 0).toFixed(1)}/90&apos;</p>
-                  <p>Overlap: {difficultMarkingOverlapBreakdownIt(item)}</p>
-                </div>
-                <div className="mt-3 max-w-[220px]">
-                  <DifficultMarkingZoneField compact {...markingOverlapFieldProps(item)} />
-                </div>
-                <div className="mt-3 flex items-center justify-between">
-                  <span className="text-xs text-slate-400">
-                    Affidabilità {reliabilityLabelIt(item.reliabilityScore)}
-                  </span>
-                  <Link
-                    href={`/kiosk/marcature-difficili/${encodeURIComponent(item.id)}`}
-                    className="text-sm font-semibold text-orange-300 hover:text-orange-200"
-                  >
-                    Dettaglio
-                  </Link>
-                </div>
-              </article>
+                item={item}
+                rank={index + 2}
+                expanded={expandedId === item.id}
+                onToggle={() => setExpandedId((id) => (id === item.id ? null : item.id))}
+              />
             ))}
           </section>
         </>

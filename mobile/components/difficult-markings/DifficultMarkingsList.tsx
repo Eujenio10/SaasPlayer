@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { PitchBrainLoading } from "@/components/PitchBrainLoading";
 import { useFocusEffect } from "expo-router";
 import type { DifficultMarkingMatchup } from "@/lib/difficult-markings/types";
@@ -125,6 +126,134 @@ function MatchInfo({ matchup }: { matchup: DifficultMarkingMatchup }) {
   );
 }
 
+function MarkingPlayerCard({
+  matchup,
+  featured,
+  rank,
+  expanded,
+  onToggle
+}: {
+  matchup: DifficultMarkingMatchup;
+  featured: boolean;
+  rank: number;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  const opponents = difficultMarkingOpponents(matchup);
+  return (
+    <View style={[featured ? styles.heroCard : styles.card, expanded && styles.cardOpen]}>
+      <Pressable
+        onPress={onToggle}
+        accessibilityRole="button"
+        accessibilityState={{ expanded }}
+        accessibilityLabel={`${expanded ? "Chiudi" : "Apri"} analisi ${matchup.defenderPlayerName}`}
+        style={({ pressed }) => [styles.previewRow, pressed && { opacity: 0.88 }]}
+      >
+        <View style={styles.previewCopy}>
+          <Text style={styles.previewName} numberOfLines={1}>
+            {matchup.defenderPlayerName}
+          </Text>
+          <View style={styles.previewCta}>
+            <Ionicons
+              name={expanded ? "chevron-down" : "chevron-forward"}
+              size={16}
+              color={markingsColors.green}
+            />
+            <Text style={styles.previewCtaText}>
+              {expanded ? "Chiudi analisi" : "Apri per l'analisi"}
+            </Text>
+          </View>
+        </View>
+        <Text style={styles.cardScore}>
+          {matchup.difficultMarkingScore}
+          <Text style={styles.scoreDenom}>/100</Text>
+        </Text>
+      </Pressable>
+
+      {expanded ? (
+        <View style={styles.expandedBody}>
+          {featured ? (
+            <>
+              <Text style={styles.heroKicker}>Marcatura più difficile</Text>
+              <Text style={styles.heroLead}>
+                Il marcatore che dovrà arginare gli avversari più difficili in questo match
+              </Text>
+              <Text style={styles.heroHint}>
+                Indice di difficoltà per il marcatore, calcolato su falli subiti e dribbling riusciti degli avversari da
+                marcare.
+              </Text>
+            </>
+          ) : (
+            <Text style={styles.rank}>#{rank}</Text>
+          )}
+
+          <View style={styles.markerRow}>
+            <InitialsAvatar name={matchup.defenderPlayerName} />
+            <View style={styles.markerCopy}>
+              <Text style={featured ? styles.markerName : styles.cardTitle}>{matchup.defenderPlayerName}</Text>
+              <Text style={styles.markerMeta}>
+                {roleLabelIt(matchup.defenderRole)} · {translateTeamName(matchup.defenderTeamName)}
+              </Text>
+              <Text style={styles.markerLoad}>
+                {opponentCount(matchup)}{" "}
+                {opponentCount(matchup) === 1
+                  ? "avversario difficile da contenere"
+                  : "avversari difficili da contenere"}
+              </Text>
+            </View>
+            {featured ? (
+              <View style={styles.scoreBlock}>
+                <Text style={styles.scoreLabel}>Difficoltà complessiva</Text>
+                <View style={styles.scoreLine}>
+                  <Text style={styles.scoreValue}>{matchup.difficultMarkingScore}</Text>
+                  <Text style={styles.scoreDenom}>/100</Text>
+                </View>
+                <DifficultyBar score={matchup.difficultMarkingScore} />
+              </View>
+            ) : null}
+          </View>
+
+          {featured ? <Text style={styles.sectionTitle}>Avversari da marcare</Text> : null}
+          {opponents.map((opponent) => (
+            <OpponentRow
+              key={`${matchup.id}-${opponent.playerId}-${opponent.playerName}`}
+              name={opponent.playerName}
+              team={opponent.teamName}
+              role={opponent.role}
+              fouls={opponent.foulsDrawnPer90}
+              dribbles={opponent.dribblesSuccessfulPer90}
+            />
+          ))}
+
+          {featured
+            ? matchup.reasons.slice(0, 2).map((reason) => (
+                <Text key={reason.type} style={styles.reasonLine}>
+                  {reason.label}
+                </Text>
+              ))
+            : null}
+
+          {featured ? (
+            <View style={styles.fieldBlock}>
+              <MarkingOverlapHeatmap matchup={matchup} />
+              <MatchInfo matchup={matchup} />
+            </View>
+          ) : (
+            <>
+              <MarkingOverlapHeatmap compact matchup={matchup} />
+              <MatchInfo matchup={matchup} />
+              <Text style={styles.reliability}>
+                {difficultMarkingLevelLabelIt(matchup.difficultMarkingLevel)} · Affidabilità{" "}
+                {reliabilityLabelIt(matchup.reliabilityScore)}
+              </Text>
+            </>
+          )}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
 export function DifficultMarkingsList({
   competitionId,
   refreshToken = 0,
@@ -141,6 +270,7 @@ export function DifficultMarkingsList({
   const [results, setResults] = useState<DifficultMarkingMatchup[]>([]);
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
   const [officialLineupsUsed, setOfficialLineupsUsed] = useState(false);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const load = useCallback(
     async (isRefresh = false) => {
@@ -168,6 +298,7 @@ export function DifficultMarkingsList({
 
         const sorted = sortByDifficultyIndex(data.results);
         setResults(sorted);
+        setExpandedId(null);
         setUpdatedAt(data.updatedAt);
         setOfficialLineupsUsed(data.officialLineupsUsed);
         if (
@@ -227,10 +358,6 @@ export function DifficultMarkingsList({
     void load(true);
   }, [refreshToken, load]);
 
-  const hero = results[0] ?? null;
-  const rest = results.slice(1);
-  const heroOpponents = hero ? difficultMarkingOpponents(hero) : [];
-
   const metaLine = useMemo(() => {
     const parts: string[] = [];
     if (updatedAt) {
@@ -255,115 +382,24 @@ export function DifficultMarkingsList({
         </View>
       ) : null}
 
-      {hero ? (
-        <View style={styles.heroCard}>
-          <Text style={styles.heroKicker}>Marcatura più difficile</Text>
-          <Text style={styles.heroLead}>
-            Il marcatore che dovrà arginare gli avversari più difficili in questo match
+      {results.map((item, index) => (
+        <MarkingPlayerCard
+          key={item.id}
+          matchup={item}
+          featured={index === 0}
+          rank={index + 1}
+          expanded={expandedId === item.id}
+          onToggle={() => setExpandedId((current) => (current === item.id ? null : item.id))}
+        />
+      ))}
+
+      {results.length ? (
+        <View style={styles.noteBox}>
+          <Text style={styles.noteText}>
+            Solo i 5 marcatori più sotto pressione: duello principale, avversari in zona e posizioni in campo.
           </Text>
-          <Text style={styles.heroHint}>
-            Indice di difficoltà per il marcatore, calcolato su falli subiti e dribbling riusciti degli avversari da
-            marcare.
-          </Text>
-
-          <View style={styles.markerRow}>
-            <InitialsAvatar name={hero.defenderPlayerName} />
-            <View style={styles.markerCopy}>
-              <Text style={styles.markerName}>{hero.defenderPlayerName}</Text>
-              <Text style={styles.markerMeta}>
-                {roleLabelIt(hero.defenderRole)} · {translateTeamName(hero.defenderTeamName)}
-              </Text>
-              <Text style={styles.markerLoad}>
-                {opponentCount(hero)}{" "}
-                {opponentCount(hero) === 1 ? "avversario difficile da contenere" : "avversari difficili da contenere"}
-              </Text>
-            </View>
-            <View style={styles.scoreBlock}>
-              <Text style={styles.scoreLabel}>Difficoltà complessiva</Text>
-              <View style={styles.scoreLine}>
-                <Text style={styles.scoreValue}>{hero.difficultMarkingScore}</Text>
-                <Text style={styles.scoreDenom}>/100</Text>
-              </View>
-              <DifficultyBar score={hero.difficultMarkingScore} />
-            </View>
-          </View>
-
-          <Text style={styles.sectionTitle}>Avversari da marcare</Text>
-          {heroOpponents.map((opponent) => (
-            <OpponentRow
-              key={`${hero.id}-${opponent.playerId}-${opponent.playerName}`}
-              name={opponent.playerName}
-              team={opponent.teamName}
-              role={opponent.role}
-              fouls={opponent.foulsDrawnPer90}
-              dribbles={opponent.dribblesSuccessfulPer90}
-            />
-          ))}
-
-          {hero.reasons.slice(0, 2).map((reason) => (
-            <Text key={reason.type} style={styles.reasonLine}>
-              {reason.label}
-            </Text>
-          ))}
-
-          <View style={styles.fieldBlock}>
-            <MarkingOverlapHeatmap matchup={hero} />
-            <MatchInfo matchup={hero} />
-          </View>
         </View>
       ) : null}
-
-      {rest.map((item, index) => {
-        const opponents = difficultMarkingOpponents(item);
-        return (
-          <View key={item.id} style={styles.card}>
-            <View style={styles.cardHeader}>
-              <Text style={styles.rank}>#{index + 2}</Text>
-              <Text style={styles.cardScore}>
-                {item.difficultMarkingScore}
-                <Text style={styles.scoreDenom}>/100</Text>
-              </Text>
-            </View>
-            <View style={styles.markerRow}>
-              <InitialsAvatar name={item.defenderPlayerName} />
-              <View style={styles.markerCopy}>
-                <Text style={styles.cardTitle}>{item.defenderPlayerName}</Text>
-                <Text style={styles.markerMeta}>
-                  {roleLabelIt(item.defenderRole)} · {translateTeamName(item.defenderTeamName)}
-                </Text>
-                <Text style={styles.markerLoad}>
-                  {opponentCount(item)}{" "}
-                  {opponentCount(item) === 1
-                    ? "avversario difficile da contenere"
-                    : "avversari difficili da contenere"}
-                </Text>
-              </View>
-            </View>
-            {opponents.map((opponent) => (
-              <OpponentRow
-                key={`${item.id}-${opponent.playerId}-${opponent.playerName}`}
-                name={opponent.playerName}
-                team={opponent.teamName}
-                role={opponent.role}
-                fouls={opponent.foulsDrawnPer90}
-                dribbles={opponent.dribblesSuccessfulPer90}
-              />
-            ))}
-            <MarkingOverlapHeatmap compact matchup={item} />
-            <MatchInfo matchup={item} />
-            <Text style={styles.reliability}>
-              {difficultMarkingLevelLabelIt(item.difficultMarkingLevel)} · Affidabilità{" "}
-              {reliabilityLabelIt(item.reliabilityScore)}
-            </Text>
-          </View>
-        );
-      })}
-
-      <View style={styles.noteBox}>
-        <Text style={styles.noteText}>
-          Solo i 5 marcatori più sotto pressione: duello principale, avversari in zona e posizioni in campo.
-        </Text>
-      </View>
 
       {refreshing ? (
         <View style={styles.refreshOverlay}>
@@ -416,6 +452,40 @@ const styles = StyleSheet.create({
     backgroundColor: markingsColors.card,
     padding: 18,
     gap: 12
+  },
+  cardOpen: {
+    borderColor: markingsColors.borderStrong
+  },
+  previewRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12
+  },
+  previewCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 6
+  },
+  previewName: {
+    color: markingsColors.text,
+    fontSize: 16,
+    fontWeight: "800"
+  },
+  previewCta: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6
+  },
+  previewCtaText: {
+    color: markingsColors.green,
+    fontSize: 13,
+    fontWeight: "700"
+  },
+  expandedBody: {
+    gap: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: markingsColors.divider
   },
   heroKicker: {
     color: markingsColors.green,
@@ -627,11 +697,6 @@ const styles = StyleSheet.create({
     backgroundColor: markingsColors.card,
     padding: 16,
     gap: 10
-  },
-  cardHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center"
   },
   rank: {
     color: markingsColors.textDim,

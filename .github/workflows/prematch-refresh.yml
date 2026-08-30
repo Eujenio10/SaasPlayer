@@ -1,0 +1,32 @@
+name: Prematch refresh
+
+# Piano Vercel Hobby: un solo cron al giorno, già usato dal giro mattutino.
+# Qui il ping arriva ogni 10 minuti: l'endpoint controlla se una partita in menu
+# inizia tra 35 e 5 minuti e, solo in quel caso, rigenera simulazione e marcature
+# con le formazioni ufficiali. Fuori finestra la chiamata esce subito.
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+# Un ping alla volta: evita che due tick si sovrappongano sulla stessa partita.
+concurrency:
+  group: prematch-refresh
+  cancel-in-progress: false
+
+jobs:
+  ping-prematch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Trigger PitchBrain prematch refresh
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          APP_URL: https://saas-player.vercel.app
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "Manca il secret GitHub CRON_SECRET (stesso valore di Vercel → Environment Variables)."
+            exit 1
+          fi
+          curl -fsS --max-time 300 -X GET "$APP_URL/api/internal/cron/prematch-refresh" \
+            -H "Authorization: Bearer ${CRON_SECRET}"

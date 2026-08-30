@@ -2,6 +2,8 @@
 export {
   ACTIVE_MENU_COMPETITIONS,
   MONITORED_COMPETITIONS,
+  formatMonitoredCompetitionLabel,
+  formatMonitoredCompetitionList,
   getCompetitionLabel,
   isMonitoredInternationalCompetitionSlug,
   resolveCompetitionId,
