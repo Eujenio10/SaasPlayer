@@ -10,6 +10,7 @@ import {
   SIMULATIONS_COUNT
 } from "@/lib/match-simulator/constants";
 import { computeExpectedMatchMetrics, type ExpectedMatchMetrics } from "@/lib/match-simulator/expected";
+import { applyStandingsToExpected } from "@/lib/match-simulator/standings-strength";
 import {
   clamp,
   sampleBernoulli,
@@ -31,6 +32,7 @@ import type {
   NormalizedTeamMatchStats,
   RefereeProfile,
   ScoreProbability,
+  StandingsAdjustment,
   TeamSimulationProfile
 } from "@/lib/match-simulator/types";
 
@@ -49,6 +51,7 @@ export interface MonteCarloInput {
   simulationsCount?: number;
   seed?: number;
   historicalRows?: NormalizedTeamMatchStats[];
+  standings?: StandingsAdjustment | null;
 }
 
 export interface SingleSimulationRow {
@@ -242,6 +245,10 @@ export function runMonteCarloSimulation(input: MonteCarloInput): MatchSimulation
     referee: input.referee ?? null,
     tempoFactor: tempoProfile.expectedTempo
   });
+  const standings = input.standings ?? null;
+  const expectedAfterStandings = standings
+    ? applyStandingsToExpected(rawExpected, standings)
+    : rawExpected;
 
   const historicalValidation =
     input.historicalRows && input.historicalRows.length > 0
@@ -262,7 +269,7 @@ export function runMonteCarloSimulation(input: MonteCarloInput): MatchSimulation
   });
 
   const expected = applyHistoricalCalibration({
-    expected: rawExpected,
+    expected: expectedAfterStandings,
     home: input.home,
     away: input.away,
     shrinkage
@@ -272,7 +279,8 @@ export function runMonteCarloSimulation(input: MonteCarloInput): MatchSimulation
     home: input.home,
     away: input.away,
     shrinkage,
-    historicalValidation
+    historicalValidation,
+    standings
   });
 
   const rows: SingleSimulationRow[] = [];
@@ -368,6 +376,7 @@ export function runMonteCarloSimulation(input: MonteCarloInput): MatchSimulation
     expected,
     calibration,
     historicalValidation,
+    standings,
     referee: input.referee ?? null,
     simulation: {
       simulationsCount,
@@ -415,7 +424,8 @@ export function runMonteCarloSimulation(input: MonteCarloInput): MatchSimulation
     lineupConsidered: Boolean(input.lineup?.home || input.lineup?.away),
     methodology,
     calibration,
-    historicalValidation: historicalValidation ?? undefined
+    historicalValidation: historicalValidation ?? undefined,
+    standingsAdjustment: standings ?? undefined
   };
 }
 

@@ -1,29 +1,24 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { PitchBrainLoading } from "@/components/PitchBrainLoading";
+import { subscribeAdminCatalogRefresh } from "@/lib/admin-catalog-refresh";
 import { fetchMatchSimulatorFixtures } from "@/lib/match-simulator/api";
 import type { MatchSimulatorFixtureListItem } from "@/lib/match-simulator/types";
 import { translateTeamName } from "@/lib/italian-display";
 import { pitchbrainColors } from "@/lib/pitchbrain-theme";
 
-function statusLabel(status: MatchSimulatorFixtureListItem["simulationStatus"]): string {
+function statusLabel(status: MatchSimulatorFixtureListItem["simulationStatus"]): string | null {
   switch (status) {
     case "ready":
       return "Simulazione disponibile";
-    case "missing":
-      return "Simulazione non generata";
-    case "insufficient_data":
-      return "Dati insufficienti";
-    case "stale":
-      return "Simulazione da aggiornare";
     case "live":
       return "Partita in corso";
     case "postponed":
       return "Partita rinviata";
     default:
-      return status;
+      return null;
   }
 }
 
@@ -59,7 +54,7 @@ export function MatchSimulatorList({ competitionId }: { competitionId: string })
       setSimulatorDatabaseReady(response.simulatorDatabaseReady !== false);
       if (!response.fixtures?.length) {
         if (response.simulatorDatabaseReady === false) {
-          setError("Simulazioni non disponibili al momento per questo campionato.");
+          setError("Nessuna partita disponibile per il campionato selezionato.");
         } else {
           setError(null);
         }
@@ -83,15 +78,13 @@ export function MatchSimulatorList({ competitionId }: { competitionId: string })
     }, [load])
   );
 
+  useEffect(() => subscribeAdminCatalogRefresh(() => void load()), [load]);
+
   return (
     <View style={styles.shell}>
       {!loading && error ? <Text style={styles.error}>{error}</Text> : null}
       {!loading && !error && !fixtures.length ? (
-        <Text style={styles.empty}>
-          {simulatorDatabaseReady
-            ? "Nessuna partita disponibile per il campionato selezionato."
-            : "Nessuna simulazione disponibile al momento."}
-        </Text>
+        <Text style={styles.empty}>Nessuna partita disponibile per il campionato selezionato.</Text>
       ) : null}
       {fixtures.length ? (
     <View style={styles.list}>
@@ -99,24 +92,24 @@ export function MatchSimulatorList({ competitionId }: { competitionId: string })
         const home = translateTeamName(fixture.homeTeam.name);
         const away = translateTeamName(fixture.awayTeam.name);
         const ready = fixture.simulationStatus === "ready";
-        const action = ready ? "Apri simulazione" : "Simula partita";
+        const status = statusLabel(fixture.simulationStatus);
         return (
           <Pressable
             key={fixture.fixtureId}
             style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
             onPress={() => router.push(`/simulator/${fixture.fixtureId}`)}
             accessibilityRole="button"
-            accessibilityLabel={`${home} contro ${away}. ${statusLabel(fixture.simulationStatus)}. ${action}`}
+            accessibilityLabel={`${home} contro ${away}${status ? `. ${status}` : ""}. Apri simulazione`}
           >
             <View style={styles.cardBody}>
               <Text style={styles.meta}>{formatKickoff(fixture.kickoffIso)}</Text>
               <Text style={styles.title}>
                 {home} — {away}
               </Text>
-              <Text style={[styles.status, ready && styles.statusReady]}>
-                {statusLabel(fixture.simulationStatus)}
-              </Text>
-              <Text style={styles.action}>{action}</Text>
+              {status ? (
+                <Text style={[styles.status, ready && styles.statusReady]}>{status}</Text>
+              ) : null}
+              <Text style={styles.action}>Apri simulazione</Text>
             </View>
             <Ionicons name="chevron-forward" size={18} color={pitchbrainColors.green} />
           </Pressable>

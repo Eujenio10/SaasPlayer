@@ -7,6 +7,7 @@ import type {
   NormalizedTeamMatchStats,
   SimulationCalibration,
   SimulationHistoricalValidation,
+  StandingsAdjustment,
   TeamSimulationProfile
 } from "@/lib/match-simulator/types";
 
@@ -85,6 +86,7 @@ export function buildSimulationCalibration(params: {
   away: TeamSimulationProfile;
   shrinkage: CalibrationShrinkage;
   historicalValidation: SimulationHistoricalValidation | null;
+  standings?: StandingsAdjustment | null;
 }): SimulationCalibration {
   return {
     goalSource: resolveGoalSource(params.home, params.away),
@@ -95,7 +97,8 @@ export function buildSimulationCalibration(params: {
     shrinkageFouls: params.shrinkage.fouls,
     shrinkageCorners: params.shrinkage.corners,
     historicalFixturesEvaluated: params.historicalValidation?.fixturesEvaluated ?? 0,
-    historicalCalibrationScore: params.historicalValidation?.calibrationScore ?? null
+    historicalCalibrationScore: params.historicalValidation?.calibrationScore ?? null,
+    standings: params.standings ?? undefined
   };
 }
 

@@ -1,4 +1,25 @@
-export const MATCH_SIMULATOR_MODEL_VERSION = "match-simulator-v1.0.9";
+export const MATCH_SIMULATOR_MODEL_VERSION = "match-simulator-v1.1.0";
+
+/** Correttore classifica: pesi e clamp centralizzati (non duplicare nei caller). */
+export const STANDINGS_STRENGTH = {
+  k: 0.04,
+  maxModifier: 0.05,
+  ppgWeight: 0.5,
+  gdWeight: 0.3,
+  rankWeight: 0.2,
+  fallbackGdWeight: 0.6,
+  fallbackRankWeight: 0.4,
+  possessionShift: 2,
+  progress: {
+    veryEarlyMaxMatches: 2,
+    earlyMaxMatches: 5,
+    midMaxMatches: 9,
+    veryEarly: 0.2,
+    early: 0.5,
+    mid: 0.75,
+    full: 1
+  }
+} as const;
 
 export const SIMULATIONS_COUNT = 10_000;
 

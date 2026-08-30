@@ -12,6 +12,10 @@ import {
 
 import { runMonteCarloSimulation } from "@/lib/match-simulator/monte-carlo";
 
+import { loadSimulatorStandings } from "@/lib/match-simulator/standings";
+
+import { neutralStandingsAdjustment } from "@/lib/match-simulator/standings-strength";
+
 import {
 
   buildCompetitionMetricProfile,
@@ -295,6 +299,26 @@ export async function simulateFixture(params: {
 
 
 
+  const currentSeason = homeSeason.current ?? awaySeason.current;
+
+  const standingsPromise =
+    currentSeason && currentSeason.tournamentId > 0 && currentSeason.seasonId > 0
+      ? loadSimulatorStandings({
+          tournamentId: currentSeason.tournamentId,
+          seasonId: currentSeason.seasonId,
+          homeTeamId: String(params.match.homeTeam.id),
+          awayTeamId: String(params.match.awayTeam.id),
+          historicalRows: competitionRows.length > 0 ? competitionRows : [...homeRows, ...awayRows]
+        })
+      : Promise.resolve(
+          neutralStandingsAdjustment(
+            String(params.match.homeTeam.id),
+            String(params.match.awayTeam.id)
+          )
+        );
+
+
+
   let lineupVersion = "none";
 
   let homeLineup = buildLineupAdjustment(null);
@@ -377,6 +401,28 @@ export async function simulateFixture(params: {
 
 
 
+  const standingsAdjustment = await standingsPromise;
+
+  console.info("[match-simulator] standings_modifier", {
+
+    fixtureId,
+
+    source: standingsAdjustment.source,
+
+    modifierHome: standingsAdjustment.modifierHome,
+
+    modifierAway: standingsAdjustment.modifierAway,
+
+    strengthDiff: standingsAdjustment.strengthDiff,
+
+    seasonProgressWeight: standingsAdjustment.seasonProgressWeight,
+
+    effectiveK: standingsAdjustment.effectiveK
+
+  });
+
+
+
   const startedAt = Date.now();
 
   const result = runMonteCarloSimulation({
@@ -409,7 +455,9 @@ export async function simulateFixture(params: {
 
     historicalRows:
 
-      competitionRows.length > 0 ? competitionRows : [...homeRows, ...awayRows]
+      competitionRows.length > 0 ? competitionRows : [...homeRows, ...awayRows],
+
+    standings: standingsAdjustment
 
   });
 

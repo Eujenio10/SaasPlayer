@@ -40,13 +40,11 @@ export default function SimulatorDetailScreen() {
       }
       setFixture(null);
       setSimulation(null);
-      if (data.status === "insufficient_data") {
-        setError("Dati insufficienti per generare una simulazione su questa partita.");
-      } else if (data.status === "missing") {
-        setError("Simulazione non disponibile per questa partita.");
-      } else {
-        setError(data.message || "Impossibile caricare la simulazione.");
-      }
+      setError(
+        data.message && !/non disponibil|non generat/i.test(data.message)
+          ? data.message
+          : "Impossibile caricare i dati di questa partita."
+      );
     } catch {
       setFixture(null);
       setSimulation(null);

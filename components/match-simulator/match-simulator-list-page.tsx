@@ -39,22 +39,16 @@ function formatKickoff(iso: string): string {
   }).format(d);
 }
 
-function statusLabel(status: MatchSimulatorFixtureListItem["simulationStatus"]): string {
+function statusLabel(status: MatchSimulatorFixtureListItem["simulationStatus"]): string | null {
   switch (status) {
     case "ready":
       return "Simulazione disponibile";
-    case "missing":
-      return "Simulazione non generata";
-    case "insufficient_data":
-      return "Dati insufficienti";
-    case "stale":
-      return "Simulazione da aggiornare";
     case "live":
       return "Partita in corso";
     case "postponed":
       return "Partita rinviata";
     default:
-      return status;
+      return null;
   }
 }
 
@@ -192,9 +186,11 @@ export function MatchSimulatorListPage() {
                     {translateTeamName(fixture.homeTeam.name)} — {translateTeamName(fixture.awayTeam.name)}
                   </h2>
                   <div className="mt-3 flex flex-wrap gap-2 text-xs">
-                    <span className="rounded-full border border-white/10 px-2.5 py-1 text-slate-300">
-                      {statusLabel(fixture.simulationStatus)}
-                    </span>
+                    {statusLabel(fixture.simulationStatus) ? (
+                      <span className="rounded-full border border-white/10 px-2.5 py-1 text-slate-300">
+                        {statusLabel(fixture.simulationStatus)}
+                      </span>
+                    ) : null}
                     {fixture.reliabilityLabel ? (
                       <span className="rounded-full border border-cyan-400/20 bg-cyan-400/10 px-2.5 py-1 text-cyan-100">
                         Affidabilità {reliabilityLabelIt(fixture.reliabilityLabel)}
@@ -206,7 +202,7 @@ export function MatchSimulatorListPage() {
                   href={`/kiosk/simulatore-match/${fixture.fixtureId}`}
                   className="inline-flex items-center justify-center rounded-2xl bg-cyan-400/15 px-5 py-3 text-sm font-semibold text-cyan-100 ring-1 ring-cyan-300/20 transition hover:bg-cyan-400/20"
                 >
-                  {fixture.simulationStatus === "ready" ? "Apri simulazione" : "Simula partita"}
+                  Apri simulazione
                 </Link>
               </div>
             </article>

@@ -138,6 +138,15 @@ export async function generateAndCacheSimulation(params: {
   const loaded = await loadBestMatchSimulatorSnapshot(params.organizationId);
   let snapshot = loaded.snapshot ?? emptySnapshot();
 
+  if (!params.force) {
+    const cached = await getCachedSimulation({
+      snapshot,
+      fixtureId,
+      lineupVersion: snapshot.simulationIndex?.[fixtureId]?.lineupVersion ?? "none"
+    });
+    if (cached) return { ok: true, entry: cached };
+  }
+
   const simulated = await simulateFixture({ match: params.match });
   if (!simulated.ok || !simulated.result) {
     return { ok: false, message: simulated.message ?? "simulate_failed" };
@@ -219,6 +228,7 @@ export async function regenerateMatchSimulatorSnapshotForOrganization(params: {
   matches: UpcomingMatchItem[];
   insightsSnap: number;
   maxMatches?: number;
+  maxDurationMs?: number;
   /** Se true, aggiorna solo le partite passate e lascia intatte le altre competizioni. */
   mergeExisting?: boolean;
 }): Promise<{ ok: boolean; snapshot?: MatchSimulatorSnapshot; message?: string }> {
@@ -236,10 +246,20 @@ export async function regenerateMatchSimulatorSnapshotForOrganization(params: {
       }
     : emptySnapshot();
   snapshot.insightsSnap = params.insightsSnap;
-  const limit = params.maxMatches ?? 12;
+  const limit = params.maxMatches ?? params.matches.length;
   let generated = 0;
+  const startedAt = Date.now();
+  const maxDurationMs = params.maxDurationMs ?? 180_000;
 
   for (const match of params.matches.slice(0, limit)) {
+    if (Date.now() - startedAt > maxDurationMs) {
+      console.warn("[match-simulator] regenerate_budget_exhausted", {
+        organizationId: params.organizationId,
+        generated,
+        remaining: params.matches.length - generated
+      });
+      break;
+    }
     const result = await generateAndCacheSimulation({
       organizationId: params.organizationId,
       match,

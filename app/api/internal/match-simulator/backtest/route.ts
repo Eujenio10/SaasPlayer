@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getApiUser } from "@/lib/auth/get-api-user";
 import { getOrganizationContextForUser } from "@/lib/auth/organization";
-import { runTemporalBacktest } from "@/lib/match-simulator/backtest";
+import { compareStandingsK, runTemporalBacktest } from "@/lib/match-simulator/backtest";
 import { loadCompetitionTeamMatchStats } from "@/lib/match-simulator/persist";
 import { resolveCompetitionId } from "@/lib/competitions";
 
@@ -21,6 +21,7 @@ export async function POST(request: Request) {
     competitionId?: string;
     seasonId?: string;
     maxFixtures?: number;
+    compareStandingsK?: boolean;
   };
 
   const competitionId = resolveCompetitionId(body.competitionId ?? "serie-a") ?? "serie-a";
@@ -30,6 +31,20 @@ export async function POST(request: Request) {
     seasonId,
     limit: 500
   });
+
+  if (body.compareStandingsK) {
+    const comparison = compareStandingsK({
+      rows,
+      maxFixtures: body.maxFixtures ?? 8,
+      simulationsCount: 1200
+    });
+    return NextResponse.json({
+      ok: true,
+      competitionId,
+      seasonId,
+      comparison
+    });
+  }
 
   const summary = runTemporalBacktest({
     rows,

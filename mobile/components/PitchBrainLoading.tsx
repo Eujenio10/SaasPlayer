@@ -17,7 +17,7 @@ import { pitchbrainColors } from "@/lib/pitchbrain-theme";
 import { useDeferredLoading } from "@/lib/use-deferred-loading";
 
 const LOOP_MS = 2800;
-const JOKE_INTERVAL_MS = 2000;
+const JOKE_INTERVAL_MS = 3000;
 const JOKE_FADE_MS = 240;
 const SCREEN_FADE_IN_MS = 220;
 const SCREEN_FADE_OUT_MS = 200;

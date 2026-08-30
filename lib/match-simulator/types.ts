@@ -269,6 +269,33 @@ export interface CalibrationShrinkage {
   corners: number;
 }
 
+export type StandingsAdjustmentSource = "api" | "reconstructed" | "none";
+
+export interface StandingsTeamSnapshot {
+  teamId: string;
+  position: number | null;
+  matches: number;
+  points: number | null;
+  goalsFor: number | null;
+  goalsAgainst: number | null;
+  ppg: number | null;
+  gdPerGame: number | null;
+  strength: number | null;
+}
+
+/** Debug interno: non mostrare in UI. */
+export interface StandingsAdjustment {
+  source: StandingsAdjustmentSource;
+  home: StandingsTeamSnapshot;
+  away: StandingsTeamSnapshot;
+  strengthDiff: number;
+  modifierHome: number;
+  modifierAway: number;
+  seasonProgressWeight: number;
+  effectiveK: number;
+  k: number;
+}
+
 export interface SimulationCalibration {
   goalSource: GoalExpectationSource;
   xgCoverageHome: number;
@@ -279,6 +306,7 @@ export interface SimulationCalibration {
   shrinkageCorners: number;
   historicalFixturesEvaluated: number;
   historicalCalibrationScore: number | null;
+  standings?: StandingsAdjustment;
 }
 
 export interface HistoricalValidationMetric {
@@ -389,6 +417,8 @@ export interface MatchSimulationResult {
   methodology?: SimulationMethodology;
   calibration?: SimulationCalibration;
   historicalValidation?: SimulationHistoricalValidation;
+  /** Debug interno: non mostrare in UI. */
+  standingsAdjustment?: StandingsAdjustment;
 }
 
 export interface MatchSimulatorFixtureEntry {

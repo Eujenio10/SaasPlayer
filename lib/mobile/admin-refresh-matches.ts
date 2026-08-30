@@ -585,7 +585,8 @@ async function runFinalizePhase(
         organizationId,
         matches: scopedMatches,
         insightsSnap,
-        maxMatches: Math.min(scopedMatches.length, competitionSlug ? 40 : 25),
+        maxMatches: scopedMatches.length,
+        maxDurationMs: Math.max(40_000, remainingBudget()),
         mergeExisting: Boolean(competitionSlug)
       });
       if (simulator.ok) {

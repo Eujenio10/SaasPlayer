@@ -13,6 +13,8 @@ import type {
 
   SimulationMethodology,
 
+  StandingsAdjustment,
+
   TeamMethodologySample,
 
   TeamSimulationProfile
@@ -99,6 +101,7 @@ export function buildSimulationMethodology(params: {
 
   calibration?: SimulationCalibration;
   historicalValidation?: SimulationHistoricalValidation | null;
+  standings?: StandingsAdjustment | null;
   referee?: RefereeProfile | null;
   simulation: Pick<
 
@@ -218,7 +221,18 @@ export function buildSimulationMethodology(params: {
 
       {
 
-        step: "3. Validazione retroattiva",
+        step: "3. Correttore classifica",
+
+        detail:
+          !params.standings || params.standings.source === "none"
+            ? "Classifica della stagione in corso non disponibile: nessun aggiustamento (moltiplicatore 1.0). Non applicato a falli e cartellini."
+            : "Aggiustamento conservativo (±5%) su gol, tiri, corner e fuorigioco dalla classifica della stagione in corso. Non applicato a falli e cartellini."
+
+      },
+
+      {
+
+        step: "4. Validazione retroattiva",
 
         detail: validation
 
@@ -230,7 +244,7 @@ export function buildSimulationMethodology(params: {
 
       {
 
-        step: "4. Simulazione Monte Carlo",
+        step: "5. Simulazione Monte Carlo",
 
         detail: `${params.simulation.simulationsCount.toLocaleString("it-IT")} scenari. Preferisci mediana e P25–P75 rispetto alla sola media.`
 
