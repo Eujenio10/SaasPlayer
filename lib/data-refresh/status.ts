@@ -62,7 +62,7 @@ export async function buildDataRefreshStatus(organizationId: string): Promise<Da
     scheduleHour: DATA_REFRESH_CONFIG.hour,
     scheduleLabel: DATA_REFRESH_CONFIG.scheduleLabel,
     scheduleDetail:
-      "i 5 campionati top, un campionato all'ora",
+      "i 5 campionati top, un campionato all'ora, più formazioni e simulazioni circa 30 minuti prima di ogni partita",
     nextScheduledAt,
     lastRefreshAt,
     lastRefreshLabel: lastRefreshAt ? formatLastRefreshItalian(lastRefreshAt) : null,

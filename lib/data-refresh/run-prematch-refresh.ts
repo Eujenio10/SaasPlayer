@@ -1,4 +1,5 @@
 import { PREMATCH_REFRESH_CONFIG } from "@/lib/data-refresh/config";
+import { recordDataRefreshCompletion } from "@/lib/data-refresh/state";
 import { canonicalCompetitionId } from "@/lib/difficult-markings/query";
 import {
   loadOrganizationDifficultMarkingsSnapshot,
@@ -34,6 +35,8 @@ export interface PrematchRefreshTickResult {
   matches: PrematchMatchOutcome[];
   competitions: string[];
   markingsUpdated: boolean;
+  /** Orario mostrato dal banner "Ultimo aggiornamento", scritto solo se qualcosa è cambiato. */
+  lastRefreshAt?: string;
   reason?: string;
 }
 
@@ -205,6 +208,17 @@ export async function runPrematchRefreshTick(params: {
 
   const processed = matches.filter((match) => match.ok).length;
 
+  /** Allinea il banner "Ultimo aggiornamento": senza questo mostrerebbe ancora il giro mattutino. */
+  let lastRefreshAt: string | undefined;
+  if (processed > 0) {
+    lastRefreshAt = new Date().toISOString();
+    await recordDataRefreshCompletion({
+      organizationId: params.organizationId,
+      trigger: "scheduled_cron",
+      ok: true
+    });
+  }
+
   console.info("[prematch-refresh] tick", {
     scanned: menu.length,
     due: due.length,
@@ -212,6 +226,7 @@ export async function runPrematchRefreshTick(params: {
     processed,
     competitions: [...refreshedCompetitions],
     markingsUpdated,
+    lastRefreshAt,
     elapsedMs: Date.now() - startedAt
   });
 
@@ -223,6 +238,7 @@ export async function runPrematchRefreshTick(params: {
     matches,
     competitions: [...refreshedCompetitions],
     markingsUpdated,
+    lastRefreshAt,
     reason: processed > 0 ? undefined : "all_matches_failed"
   };
 }
