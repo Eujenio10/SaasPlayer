@@ -3154,16 +3154,22 @@ async function fetchFallbackPlayersForTeam(_params: {
   return [];
 }
 
+export interface CurrentTeamSquad {
+  playerIds: Set<number>;
+  nameKeys: Set<string>;
+}
+
 /**
- * Rosa attuale della squadra (stagione corrente), usata a inizio campionato per
- * filtrare le stats della stagione precedente sui giocatori ancora in rosa.
+ * Rosa attuale della squadra (stagione corrente). Serve a escludere chi ha
+ * cambiato squadra: gli id sono la chiave affidabile, i nomi restano come
+ * ripiego quando il provider non espone l'id.
  */
-async function fetchCurrentTeamRosterNames(
+export async function fetchCurrentTeamSquad(
   teamId: number,
   bypassCache?: boolean
-): Promise<Set<string>> {
-  const names = new Set<string>();
-  if (teamId <= 0) return names;
+): Promise<CurrentTeamSquad> {
+  const squad: CurrentTeamSquad = { playerIds: new Set(), nameKeys: new Set() };
+  if (teamId <= 0) return squad;
   try {
     const response = await sportApiFetch(sportApiTeamPlayersPath(teamId), {
       requestType: "snapshot",
@@ -3171,9 +3177,9 @@ async function fetchCurrentTeamRosterNames(
       revalidateSeconds: 3600,
       bypassCache
     });
-    if (!response.ok) return names;
+    if (!response.ok) return squad;
     const payload = await readSportApiJson(response);
-    if (!payload || typeof payload !== "object") return names;
+    if (!payload || typeof payload !== "object") return squad;
     const root = payload as Record<string, unknown>;
     const rawList = Array.isArray(root.players)
       ? root.players
@@ -3198,7 +3204,9 @@ async function fetchCurrentTeamRosterNames(
       const name = normalizePlayerNameKey(
         String(nested.name ?? nested.shortName ?? nested.playerName ?? "")
       );
-      if (name) names.add(name);
+      if (name) squad.nameKeys.add(name);
+      const playerId = coerceFiniteNumber(nested.id as number | undefined);
+      if (playerId && playerId > 0) squad.playerIds.add(playerId);
     }
   } catch (error) {
     console.warn("[sportapi] current_roster_fetch_failed", {
@@ -3206,7 +3214,14 @@ async function fetchCurrentTeamRosterNames(
       error: error instanceof Error ? error.message : String(error)
     });
   }
-  return names;
+  return squad;
+}
+
+async function fetchCurrentTeamRosterNames(
+  teamId: number,
+  bypassCache?: boolean
+): Promise<Set<string>> {
+  return (await fetchCurrentTeamSquad(teamId, bypassCache)).nameKeys;
 }
 
 async function fetchRecentPlayersForTeam(params: {

@@ -18,7 +18,7 @@ export const PLAYER_PERFORMANCE_TEXT = {
     declining: "In calo"
   },
   tooltip:
-    "La Player Performance analizza volume di tiro, precisione, creazione, dribbling, continuità e variazioni recenti. Tutte le statistiche sono normalizzate ogni 90 minuti. I trend confrontano le ultime cinque partite con il periodo precedente. Alcuni indicatori possono non essere disponibili in tutte le competizioni.",
+    "La Player Performance analizza volume di tiro, precisione, creazione, dribbling, continuità e variazioni recenti. Sono incluse soltanto le partite della stagione in corso nel campionato della gara e i giocatori attualmente in rosa. Tutte le statistiche sono normalizzate ogni 90 minuti. I trend confrontano le ultime cinque partite con il periodo precedente. Alcuni indicatori possono non essere disponibili in tutte le competizioni.",
   tooltips: {
     dangerIndex:
       "Indice composito 0–100 basato su tiri, tiri in porta, passaggi chiave e dribbling riusciti, normalizzati ogni 90 minuti e confrontati con giocatori dello stesso ruolo.",
@@ -78,7 +78,9 @@ export const PLAYER_PERFORMANCE_TEXT = {
   insufficientData:
     "Non sono disponibili abbastanza dati recenti per calcolare le prestazioni dei giocatori.",
   insufficientMatches:
-    "Il campione di partite recenti è limitato: l'analisi usa tutte le partite concluse disponibili.",
+    "Il campione è limitato alle partite già giocate in questa stagione di campionato.",
+  noCurrentSeasonMatches:
+    "Non ci sono ancora partite giocate in questa stagione di campionato: le prestazioni saranno disponibili dalla prima giornata conclusa.",
   limitedCoverage:
     "Alcune statistiche individuali non sono disponibili per questa competizione. L'analisi è stata calcolata utilizzando i dati disponibili.",
   rateLimited:

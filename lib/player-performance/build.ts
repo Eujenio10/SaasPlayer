@@ -39,11 +39,16 @@ import type {
   PlayerPerformanceItem,
   TeamPlayerPerformance
 } from "@/lib/player-performance/types";
+import {
+  countDistinctPlayers,
+  filterRowsByCurrentSeason,
+  filterRowsByCurrentSquad
+} from "@/lib/player-performance/squad";
 import { loadTeamMatchPlayerStats } from "@/lib/trends/persist";
 import type { PlayerMatchTrendStats } from "@/lib/trends/types";
 import {
+  fetchCurrentTeamSquad,
   fetchEventMatchTeamsContext,
-  resolveEffectiveSeasonContextForTeam,
   type EventMatchTeamsContext
 } from "@/services/sportapi";
 
@@ -257,36 +262,27 @@ export async function buildMatchPlayerPerformance(
     kickoffTimestamp: matchCtx.startTimestamp
   });
 
-  const [homeSeason, awaySeason] = await Promise.all([
-    resolveEffectiveSeasonContextForTeam({
-      teamId: matchCtx.homeTeam.id,
-      eventId,
-      tournamentId: matchCtx.tournamentId,
-      seasonId: matchCtx.seasonId
-    }),
-    resolveEffectiveSeasonContextForTeam({
-      teamId: matchCtx.awayTeam.id,
-      eventId,
-      tournamentId: matchCtx.tournamentId,
-      seasonId: matchCtx.seasonId
-    })
-  ]);
-
-  const [homeFixtureIds, awayFixtureIds] = await Promise.all([
+  /**
+   * Niente ripiego sulla stagione precedente: torneo e stagione sono quelli della
+   * gara analizzata, così le statistiche descrivono la squadra di adesso.
+   */
+  const [homeFixtureIds, awayFixtureIds, homeSquad, awaySquad] = await Promise.all([
     resolveTeamFixtureIds({
       teamId: matchCtx.homeTeam.id,
       anchorEventId: eventId,
       beforeTimestamp: matchCtx.startTimestamp,
-      preferredTournamentId: homeSeason.effective?.tournamentId ?? matchCtx.tournamentId,
-      preferredSeasonId: homeSeason.effective?.seasonId ?? matchCtx.seasonId
+      tournamentId: matchCtx.tournamentId,
+      seasonId: matchCtx.seasonId
     }),
     resolveTeamFixtureIds({
       teamId: matchCtx.awayTeam.id,
       anchorEventId: eventId,
       beforeTimestamp: matchCtx.startTimestamp,
-      preferredTournamentId: awaySeason.effective?.tournamentId ?? matchCtx.tournamentId,
-      preferredSeasonId: awaySeason.effective?.seasonId ?? matchCtx.seasonId
-    })
+      tournamentId: matchCtx.tournamentId,
+      seasonId: matchCtx.seasonId
+    }),
+    fetchCurrentTeamSquad(matchCtx.homeTeam.id),
+    fetchCurrentTeamSquad(matchCtx.awayTeam.id)
   ]);
 
   const fixtureIds = [...homeFixtureIds, ...awayFixtureIds]
@@ -295,7 +291,7 @@ export async function buildMatchPlayerPerformance(
 
   const ingestion = await ensureFixturePlayerStatsCached(fixtureIds);
 
-  const [homeRows, awayRows] = await Promise.all([
+  const [homeRowsRaw, awayRowsRaw] = await Promise.all([
     loadTeamMatchPlayerStats({
       teamId: String(matchCtx.homeTeam.id),
       matchIds: homeFixtureIds
@@ -305,6 +301,27 @@ export async function buildMatchPlayerPerformance(
       matchIds: awayFixtureIds
     })
   ]);
+
+  const homeRows = filterRowsByCurrentSquad(
+    filterRowsByCurrentSeason(homeRowsRaw, matchCtx.seasonId),
+    homeSquad
+  );
+  const awayRows = filterRowsByCurrentSquad(
+    filterRowsByCurrentSeason(awayRowsRaw, matchCtx.seasonId),
+    awaySquad
+  );
+
+  console.info("[player-performance] current_season_scope", {
+    eventId,
+    seasonId: matchCtx.seasonId,
+    tournamentId: matchCtx.tournamentId,
+    homeMatches: homeFixtureIds.length,
+    awayMatches: awayFixtureIds.length,
+    homePlayersKept: countDistinctPlayers(homeRows),
+    homePlayersDropped: countDistinctPlayers(homeRowsRaw) - countDistinctPlayers(homeRows),
+    awayPlayersKept: countDistinctPlayers(awayRows),
+    awayPlayersDropped: countDistinctPlayers(awayRowsRaw) - countDistinctPlayers(awayRows)
+  });
 
   const allRows = [...homeRows, ...awayRows];
   const coverage = buildCoverageFromRows(allRows);
@@ -316,7 +333,9 @@ export async function buildMatchPlayerPerformance(
   if (!coverage.keyPasses || !coverage.dribbles) {
     warnings.push(PLAYER_PERFORMANCE_TEXT.limitedCoverage);
   }
-  if (
+  if (homeFixtureIds.length === 0 && awayFixtureIds.length === 0) {
+    warnings.push(PLAYER_PERFORMANCE_TEXT.noCurrentSeasonMatches);
+  } else if (
     homeFixtureIds.length < PLAYER_PERFORMANCE_CONFIG.maxTeamMatchesAnalyzed ||
     awayFixtureIds.length < PLAYER_PERFORMANCE_CONFIG.maxTeamMatchesAnalyzed
   ) {

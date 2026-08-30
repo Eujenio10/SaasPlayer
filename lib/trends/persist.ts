@@ -250,14 +250,20 @@ export async function loadRecentTeamMatchIdsFromCache(params: {
   teamId: string;
   excludeMatchId?: string;
   limit?: number;
+  /** Restringe alla stagione indicata: senza filtro tornerebbero anche annate passate. */
+  seasonId?: string;
+  competitionId?: string;
 }): Promise<string[]> {
   const sb = createSupabaseServiceClient();
-  const { data, error } = await sb
+  let query = sb
     .from("player_match_trend_stats")
     .select("match_id, match_date")
-    .eq("team_id", params.teamId)
-    .order("match_date", { ascending: false })
-    .limit(200);
+    .eq("team_id", params.teamId);
+
+  if (params.seasonId) query = query.eq("season_id", params.seasonId);
+  if (params.competitionId) query = query.eq("competition_id", params.competitionId);
+
+  const { data, error } = await query.order("match_date", { ascending: false }).limit(200);
 
   if (error || !data) return [];
 
