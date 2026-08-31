@@ -118,16 +118,27 @@ export async function backfillTeamMatchStatsForTeam(params: {
   teamId: number;
   anchorEventId: number;
   maxEvents?: number;
+  /** Torneo e stagione da scaricare: nelle coppe UEFA è il campionato della squadra. */
+  tournamentId?: number;
+  seasonId?: number;
 }): Promise<{ ingested: number; skipped: number; errors: number }> {
   if (!(await areMatchSimulatorDatabaseTablesAvailable())) {
     return { ingested: 0, skipped: 0, errors: 0 };
   }
 
-  const resolved = await resolveEffectiveSeasonContextForTeam({
-    teamId: params.teamId,
-    eventId: params.anchorEventId
-  });
-  const ctx = resolved.effective;
+  const explicitScope =
+    Number(params.tournamentId) > 0 && Number(params.seasonId) > 0
+      ? { tournamentId: Number(params.tournamentId), seasonId: Number(params.seasonId) }
+      : null;
+
+  const ctx =
+    explicitScope ??
+    (
+      await resolveEffectiveSeasonContextForTeam({
+        teamId: params.teamId,
+        eventId: params.anchorEventId
+      })
+    ).effective;
   if (!ctx) return { ingested: 0, skipped: 0, errors: 1 };
 
   const events = await fetchFootApiTeamFinishedEvents({
@@ -165,18 +176,24 @@ export async function ensureTeamStatsForFixture(params: {
   awayTeamId: number;
   anchorEventId: number;
   competitionId?: string;
+  homeScope?: { tournamentId: number; seasonId: number };
+  awayScope?: { tournamentId: number; seasonId: number };
 }): Promise<void> {
   const maxEvents = params.competitionId && isInternationalSimulatorCompetition(params.competitionId) ? 24 : 18;
   await Promise.all([
     backfillTeamMatchStatsForTeam({
       teamId: params.homeTeamId,
       anchorEventId: params.anchorEventId,
-      maxEvents
+      maxEvents,
+      tournamentId: params.homeScope?.tournamentId,
+      seasonId: params.homeScope?.seasonId
     }),
     backfillTeamMatchStatsForTeam({
       teamId: params.awayTeamId,
       anchorEventId: params.anchorEventId,
-      maxEvents
+      maxEvents,
+      tournamentId: params.awayScope?.tournamentId,
+      seasonId: params.awayScope?.seasonId
     })
   ]);
 }

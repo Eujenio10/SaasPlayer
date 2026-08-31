@@ -55,6 +55,16 @@ import {
 import type { UpcomingMatchItem } from "@/services/sportapi";
 import { resolveEffectiveSeasonContextForTeam } from "@/services/sportapi";
 
+import {
+
+  dedupeTeamMatchStats,
+
+  resolveTeamSimulationScope,
+
+  sameSimulationScope
+
+} from "@/lib/match-simulator/season-scope";
+
 
 export interface SimulateFixtureResult {
 
@@ -112,6 +122,29 @@ export async function simulateFixture(params: {
         : homeSeason.effective ?? awaySeason.effective;
   const seasonId = ctx ? String(ctx.seasonId) : "unknown";
 
+  /**
+   * Nelle coppe UEFA ogni squadra porta il proprio campionato in corso, sia per
+   * le partite sia per la media di riferimento. Altrove le due parti coincidono
+   * e il comportamento resta identico a prima.
+   */
+  const [homeScope, awayScope] = await Promise.all([
+    resolveTeamSimulationScope({
+      teamId: params.match.homeTeam.id,
+      matchCompetitionSlug: params.match.competitionSlug,
+      fallbackCompetitionId: competitionId,
+      fallbackSeasonId: seasonId,
+      fallbackTournamentId: homeSeason.effective?.tournamentId ?? 0
+    }),
+    resolveTeamSimulationScope({
+      teamId: params.match.awayTeam.id,
+      matchCompetitionSlug: params.match.competitionSlug,
+      fallbackCompetitionId: competitionId,
+      fallbackSeasonId: seasonId,
+      fallbackTournamentId: awaySeason.effective?.tournamentId ?? 0
+    })
+  ]);
+
+  const singleScope = sameSimulationScope(homeScope, awayScope);
 
   await ensureTeamStatsForFixture({
 
@@ -121,21 +154,53 @@ export async function simulateFixture(params: {
 
     anchorEventId: params.match.eventId,
 
-    competitionId
-
-  });
-
-
-
-  const competitionRows = await loadCompetitionTeamMatchStatsForSimulation({
-
     competitionId,
 
-    seasonId,
+    homeScope:
+      homeScope.source === "domestic_league"
+        ? { tournamentId: homeScope.tournamentId, seasonId: Number(homeScope.seasonId) }
+        : undefined,
 
-    limit: 900
+    awayScope:
+      awayScope.source === "domestic_league"
+        ? { tournamentId: awayScope.tournamentId, seasonId: Number(awayScope.seasonId) }
+        : undefined
 
   });
+
+
+
+  const [homeCompetitionRows, awayCompetitionRows] = await Promise.all([
+
+    loadCompetitionTeamMatchStatsForSimulation({
+
+      competitionId: homeScope.competitionId,
+
+      seasonId: homeScope.seasonId,
+
+      limit: 900
+
+    }),
+
+    singleScope
+      ? Promise.resolve([])
+      : loadCompetitionTeamMatchStatsForSimulation({
+
+          competitionId: awayScope.competitionId,
+
+          seasonId: awayScope.seasonId,
+
+          limit: 900
+
+        })
+
+  ]);
+
+  const awayCompetitionSample = singleScope ? homeCompetitionRows : awayCompetitionRows;
+
+  const competitionRows = singleScope
+    ? homeCompetitionRows
+    : dedupeTeamMatchStats([...homeCompetitionRows, ...awayCompetitionRows]);
 
 
 
@@ -145,9 +210,9 @@ export async function simulateFixture(params: {
 
       teamId: String(params.match.homeTeam.id),
 
-      competitionId,
+      competitionId: homeScope.competitionId,
 
-      seasonId,
+      seasonId: homeScope.seasonId,
 
       limit: 30
 
@@ -157,9 +222,9 @@ export async function simulateFixture(params: {
 
       teamId: String(params.match.awayTeam.id),
 
-      competitionId,
+      competitionId: awayScope.competitionId,
 
-      seasonId,
+      seasonId: awayScope.seasonId,
 
       limit: 30
 
@@ -173,13 +238,13 @@ export async function simulateFixture(params: {
 
     teamId: String(params.match.homeTeam.id),
 
-    competitionId,
+    competitionId: homeScope.competitionId,
 
-    seasonId,
+    seasonId: homeScope.seasonId,
 
     rows: homeRows,
 
-    competitionRows,
+    competitionRows: homeCompetitionRows,
 
     venue: "home"
 
@@ -189,13 +254,13 @@ export async function simulateFixture(params: {
 
     teamId: String(params.match.awayTeam.id),
 
-    competitionId,
+    competitionId: awayScope.competitionId,
 
-    seasonId,
+    seasonId: awayScope.seasonId,
 
     rows: awayRows,
 
-    competitionRows,
+    competitionRows: awayCompetitionSample,
 
     venue: "away"
 

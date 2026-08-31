@@ -1253,6 +1253,8 @@ export interface EventMatchTeamsContext {
   startTimestamp: number;
   tournamentId: number;
   seasonId: number;
+  /** Slug del torneo: serve a riconoscere le coppe UEFA e cambiare fonte dati. */
+  competitionSlug: string;
   homeTeam: { id: number; name: string };
   awayTeam: { id: number; name: string };
 }
@@ -1292,6 +1294,7 @@ export async function fetchEventMatchTeamsContext(
     startTimestamp,
     tournamentId: ctx.tournamentId,
     seasonId: ctx.seasonId,
+    competitionSlug: competitionSlug(anchorNode as unknown as SportApiEvent),
     homeTeam: { id: homeTeamId, name: homeTeam?.name ?? "Home" },
     awayTeam: { id: awayTeamId, name: awayTeam?.name ?? "Away" }
   };
@@ -1344,7 +1347,7 @@ interface SportApiTeamDetailsResponse {
 }
 
 /** Contesto lega domestica della squadra (per stats giocatori in match UEFA). */
-interface TeamDomesticLeagueContext {
+export interface TeamDomesticLeagueContext {
   tournamentId: number;
   seasonId: number;
   slug: string;
@@ -1700,7 +1703,7 @@ export function isUefaClubCompetitionSlug(slug?: string): boolean {
   );
 }
 
-async function getTeamDomesticLeagueContext(
+export async function getTeamDomesticLeagueContext(
   teamId: number,
   bypassCache?: boolean
 ): Promise<TeamDomesticLeagueContext | null> {

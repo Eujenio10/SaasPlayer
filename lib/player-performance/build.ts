@@ -29,6 +29,7 @@ import { resolveTeamFixtureIds } from "@/lib/player-performance/fixtures";
 import { ensureFixturePlayerStatsCached } from "@/lib/player-performance/ingestion";
 import { calculateOffensiveTrend } from "@/lib/player-performance/offensive-trend";
 import { isOffensiveRoleGroup, resolvePerformanceRoleGroup, roleGroupLabelIt } from "@/lib/player-performance/roles";
+import { resolveTeamAnalysisSeason } from "@/lib/player-performance/season-scope";
 import {
   PLAYER_PERFORMANCE_TEXT,
   trendStatusLabelIt
@@ -263,23 +264,38 @@ export async function buildMatchPlayerPerformance(
   });
 
   /**
-   * Niente ripiego sulla stagione precedente: torneo e stagione sono quelli della
-   * gara analizzata, così le statistiche descrivono la squadra di adesso.
+   * Niente ripiego sulla stagione precedente. Nelle coppe UEFA la fonte diventa
+   * il campionato in corso di ciascuna squadra, che è dove ha giocato davvero.
    */
+  const [homeScope, awayScope] = await Promise.all([
+    resolveTeamAnalysisSeason({
+      teamId: matchCtx.homeTeam.id,
+      competitionSlug: matchCtx.competitionSlug,
+      tournamentId: matchCtx.tournamentId,
+      seasonId: matchCtx.seasonId
+    }),
+    resolveTeamAnalysisSeason({
+      teamId: matchCtx.awayTeam.id,
+      competitionSlug: matchCtx.competitionSlug,
+      tournamentId: matchCtx.tournamentId,
+      seasonId: matchCtx.seasonId
+    })
+  ]);
+
   const [homeFixtureIds, awayFixtureIds, homeSquad, awaySquad] = await Promise.all([
     resolveTeamFixtureIds({
       teamId: matchCtx.homeTeam.id,
       anchorEventId: eventId,
       beforeTimestamp: matchCtx.startTimestamp,
-      tournamentId: matchCtx.tournamentId,
-      seasonId: matchCtx.seasonId
+      tournamentId: homeScope.tournamentId,
+      seasonId: homeScope.seasonId
     }),
     resolveTeamFixtureIds({
       teamId: matchCtx.awayTeam.id,
       anchorEventId: eventId,
       beforeTimestamp: matchCtx.startTimestamp,
-      tournamentId: matchCtx.tournamentId,
-      seasonId: matchCtx.seasonId
+      tournamentId: awayScope.tournamentId,
+      seasonId: awayScope.seasonId
     }),
     fetchCurrentTeamSquad(matchCtx.homeTeam.id),
     fetchCurrentTeamSquad(matchCtx.awayTeam.id)
@@ -303,18 +319,19 @@ export async function buildMatchPlayerPerformance(
   ]);
 
   const homeRows = filterRowsByCurrentSquad(
-    filterRowsByCurrentSeason(homeRowsRaw, matchCtx.seasonId),
+    filterRowsByCurrentSeason(homeRowsRaw, homeScope.seasonId),
     homeSquad
   );
   const awayRows = filterRowsByCurrentSquad(
-    filterRowsByCurrentSeason(awayRowsRaw, matchCtx.seasonId),
+    filterRowsByCurrentSeason(awayRowsRaw, awayScope.seasonId),
     awaySquad
   );
 
   console.info("[player-performance] current_season_scope", {
     eventId,
-    seasonId: matchCtx.seasonId,
-    tournamentId: matchCtx.tournamentId,
+    competitionSlug: matchCtx.competitionSlug,
+    homeScope,
+    awayScope,
     homeMatches: homeFixtureIds.length,
     awayMatches: awayFixtureIds.length,
     homePlayersKept: countDistinctPlayers(homeRows),
@@ -416,6 +433,8 @@ async function resolveMatchContext(
       startTimestamp,
       tournamentId: hints.tournamentId ?? fetched?.tournamentId ?? 0,
       seasonId: hints.seasonId ?? fetched?.seasonId ?? 0,
+      /** Gli hint dei chiamanti non portano lo slug: arriva sempre dall'evento. */
+      competitionSlug: fetched?.competitionSlug ?? "",
       homeTeam: hints.homeTeam,
       awayTeam: hints.awayTeam
     };
