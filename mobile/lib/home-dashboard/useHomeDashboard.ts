@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { loadHomeDashboard } from "@/lib/home-dashboard/api";
 import { formatGuestApiError } from "@/lib/access/guest-preview-mode";
 import type { HomeDashboardData } from "@/lib/home-dashboard/types";
@@ -14,17 +14,22 @@ export function useHomeDashboard(): UseHomeDashboardResult {
   const [data, setData] = useState<HomeDashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const dataRef = useRef(data);
+  dataRef.current = data;
 
   const refetch = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+    const hadData = dataRef.current != null;
+    if (!hadData) setLoading(true);
+    if (!hadData) setError(null);
     try {
       const next = await loadHomeDashboard();
       setData(next);
+      setError(null);
     } catch (e) {
-      setData(null);
-      const raw = e instanceof Error ? e.message : "Impossibile caricare la dashboard.";
-      setError(formatGuestApiError(raw));
+      if (!hadData) {
+        const raw = e instanceof Error ? e.message : "Impossibile caricare la dashboard.";
+        setError(formatGuestApiError(raw));
+      }
     } finally {
       setLoading(false);
     }

@@ -36,6 +36,7 @@ export function filterMatches(
   }
 
   if (filter === "intensity") {
+    rows = rows.filter((m) => m.intensityPreview?.value != null);
     rows.sort((a, b) => {
       const av = a.intensityPreview?.value ?? -1;
       const bv = b.intensityPreview?.value ?? -1;

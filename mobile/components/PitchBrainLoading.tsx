@@ -12,15 +12,20 @@ import Animated, {
   withTiming,
   type SharedValue
 } from "react-native-reanimated";
-import { pickLoadingMessage } from "@/lib/loading-messages";
+import { pickLoadingMessage, estimateLoadingProgress, formatLoadingPercent } from "@/lib/loading-messages";
 import { pitchbrainColors } from "@/lib/pitchbrain-theme";
 import { useDeferredLoading } from "@/lib/use-deferred-loading";
+import { useLocale } from "@/contexts/LocaleContext";
 
 const LOOP_MS = 2800;
 const JOKE_INTERVAL_MS = 3000;
 const JOKE_FADE_MS = 240;
 const SCREEN_FADE_IN_MS = 220;
 const SCREEN_FADE_OUT_MS = 200;
+const BAR_W = 220;
+const BAR_H = 6;
+const PROGRESS_TICK_MS = 120;
+const PROGRESS_FILL_MS = 280;
 const PITCH_W = 220;
 const PITCH_H = 142;
 const DOT = 5;
@@ -201,24 +206,52 @@ function PitchGraphic({ reduceMotion }: { reduceMotion: boolean }) {
   );
 }
 
+function LoadingProgressBar({
+  fill,
+  percent
+}: {
+  fill: SharedValue<number>;
+  percent: number;
+}) {
+  const fillStyle = useAnimatedStyle(() => ({
+    width: interpolate(fill.value, [0, 1], [0, BAR_W], Extrapolation.CLAMP)
+  }));
+
+  return (
+    <View style={styles.progressBlock} accessibilityElementsHidden>
+      <View style={styles.progressTrack}>
+        <Animated.View style={[styles.progressFill, fillStyle]} />
+      </View>
+      <Text style={styles.progressLabel}>{formatLoadingPercent(percent / 100)}</Text>
+    </View>
+  );
+}
+
 export function PitchBrainLoading({
   visible,
-  message = "Analisi in corso…",
-  fullscreen = true
+  message,
+  fullscreen = true,
+  progress
 }: {
   visible: boolean;
   message?: string;
   fullscreen?: boolean;
+  /** Avanzamento 0–1 se noto; altrimenti la barra stima i tempi di attesa. */
+  progress?: number | null;
 }) {
+  const { t, locale } = useLocale();
+  const statusMessage = message ?? t("common.loading");
   const shown = useDeferredLoading(visible);
   const [mounted, setMounted] = useState(false);
   const [reduceMotion, setReduceMotion] = useState(false);
   const [joke, setJoke] = useState(() => pickLoadingMessage());
+  const [percent, setPercent] = useState(0);
   const jokeRef = useRef(joke);
   const mountedRef = useRef(false);
   const fadeGenRef = useRef(0);
   const screenOpacity = useSharedValue(0);
   const jokeOpacity = useSharedValue(1);
+  const barFill = useSharedValue(0);
 
   jokeRef.current = joke;
 
@@ -238,7 +271,9 @@ export function PitchBrainLoading({
     if (shown) {
       fadeGenRef.current += 1;
       if (!mountedRef.current) {
-        setJoke(pickLoadingMessage());
+        setJoke(pickLoadingMessage(undefined, locale));
+        setPercent(0);
+        barFill.value = 0;
         jokeOpacity.value = 1;
         mountedRef.current = true;
         setMounted(true);
@@ -251,6 +286,8 @@ export function PitchBrainLoading({
     }
     if (!mountedRef.current) return;
     const gen = fadeGenRef.current;
+    barFill.value = withTiming(1, { duration: 160, easing: Easing.out(Easing.quad) });
+    setPercent(100);
     screenOpacity.value = withTiming(
       0,
       { duration: SCREEN_FADE_OUT_MS, easing: Easing.in(Easing.quad) },
@@ -260,12 +297,46 @@ export function PitchBrainLoading({
         runOnJS(setMounted)(false);
       }
     );
-  }, [shown, screenOpacity, jokeOpacity]);
+  }, [shown, screenOpacity, jokeOpacity, barFill]);
+
+  useEffect(() => {
+    if (!mounted) return;
+    if (!shown) {
+      barFill.value = withTiming(1, {
+        duration: reduceMotion ? 0 : 160,
+        easing: Easing.out(Easing.quad)
+      });
+      setPercent(100);
+      return;
+    }
+    if (typeof progress === "number" && Number.isFinite(progress)) {
+      const next = Math.max(0, Math.min(1, progress));
+      barFill.value = withTiming(next, {
+        duration: reduceMotion ? 0 : PROGRESS_FILL_MS,
+        easing: Easing.out(Easing.quad)
+      });
+      setPercent(Math.round(next * 100));
+      return;
+    }
+
+    const startedAt = Date.now();
+    const tick = () => {
+      const next = estimateLoadingProgress(Date.now() - startedAt);
+      barFill.value = withTiming(next, {
+        duration: reduceMotion ? 0 : 180,
+        easing: Easing.out(Easing.quad)
+      });
+      setPercent(Math.round(next * 100));
+    };
+    tick();
+    const id = setInterval(tick, PROGRESS_TICK_MS);
+    return () => clearInterval(id);
+  }, [mounted, shown, progress, barFill, reduceMotion]);
 
   useEffect(() => {
     if (!mounted) return;
     const rotateJoke = () => {
-      setJoke(pickLoadingMessage(jokeRef.current));
+      setJoke(pickLoadingMessage(jokeRef.current, locale));
     };
     const id = setInterval(() => {
       jokeOpacity.value = withTiming(0, { duration: JOKE_FADE_MS }, (finished) => {
@@ -278,7 +349,7 @@ export function PitchBrainLoading({
       clearInterval(id);
       cancelAnimation(jokeOpacity);
     };
-  }, [mounted, jokeOpacity]);
+  }, [mounted, jokeOpacity, locale]);
 
   const overlayStyle = useAnimatedStyle(() => ({ opacity: screenOpacity.value }));
   const jokeStyle = useAnimatedStyle(() => ({ opacity: jokeOpacity.value }));
@@ -289,7 +360,8 @@ export function PitchBrainLoading({
     <Animated.View
       pointerEvents="auto"
       accessibilityRole="progressbar"
-      accessibilityLabel={`${message} ${joke}`}
+      accessibilityLabel={`${statusMessage} ${joke}`}
+      accessibilityValue={{ min: 0, max: 100, now: percent }}
       accessibilityState={{ busy: true }}
       style={[fullscreen ? styles.overlay : styles.inline, overlayStyle]}
     >
@@ -299,7 +371,8 @@ export function PitchBrainLoading({
           <Text style={styles.brandBrain}>Brain</Text>
         </Text>
         <PitchGraphic reduceMotion={reduceMotion} />
-        <Text style={styles.status}>{message}</Text>
+        <Text style={styles.status}>{statusMessage}</Text>
+        <LoadingProgressBar fill={barFill} percent={percent} />
         <Animated.Text style={[styles.joke, jokeStyle]} numberOfLines={2}>
           {joke}
         </Animated.Text>
@@ -437,6 +510,31 @@ const styles = StyleSheet.create({
     color: pitchbrainColors.text,
     fontSize: 14,
     fontWeight: "600"
+  },
+  progressBlock: {
+    width: BAR_W,
+    alignItems: "center",
+    gap: 8
+  },
+  progressTrack: {
+    width: BAR_W,
+    height: BAR_H,
+    borderRadius: BAR_H / 2,
+    overflow: "hidden",
+    backgroundColor: pitchbrainColors.track,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(154,242,56,0.22)"
+  },
+  progressFill: {
+    height: BAR_H,
+    borderRadius: BAR_H / 2,
+    backgroundColor: pitchbrainColors.green
+  },
+  progressLabel: {
+    color: pitchbrainColors.green,
+    fontSize: 12,
+    fontWeight: "800",
+    letterSpacing: 0.6
   },
   joke: {
     color: pitchbrainColors.textMuted,

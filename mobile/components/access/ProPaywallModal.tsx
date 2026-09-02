@@ -7,6 +7,7 @@ import type { UserAccessStatus } from "@/lib/access/types";
 import { formatProPrice, PRO_PLAN_PRICING } from "@/lib/pricing";
 import { STORE_IAP_BENEFIT } from "@/lib/store-links";
 import { PITCHBRAIN_MOBILE_PRO_PLANS_ENABLED } from "@/lib/access/pro-plans";
+import { useLocale } from "@/contexts/LocaleContext";
 import { colors, radii, spacing } from "@/lib/theme";
 
 const benefits = [
@@ -24,6 +25,7 @@ function primaryCtaLabel(status: UserAccessStatus): string {
 }
 
 export function ProPaywallModal() {
+  const { t } = useLocale();
   const { userStatus } = useAuth();
   const {
     paywallVisible,
@@ -53,10 +55,8 @@ export function ProPaywallModal() {
               </Pressable>
             </View>
 
-            <Text style={styles.title}>Sblocca PitchBrain Pro</Text>
-            <Text style={styles.subtitle}>
-              Report completi e analisi avanzate per leggere meglio ogni partita.
-            </Text>
+            <Text style={styles.title}>{t("paywall.title")}</Text>
+            <Text style={styles.subtitle}>{t("paywall.subtitle")}</Text>
 
             <View style={styles.pricingBox}>
               <View style={styles.discountPill}>
@@ -65,7 +65,7 @@ export function ProPaywallModal() {
               <View style={styles.priceRow}>
                 <Text style={styles.oldPrice}>{formatProPrice(PRO_PLAN_PRICING.originalPrice)}</Text>
                 <Text style={styles.newPrice}>{formatProPrice(PRO_PLAN_PRICING.monthlyPrice)}</Text>
-                <Text style={styles.perMonth}>/mese</Text>
+                <Text style={styles.perMonth}>{t("paywall.perMonth")}</Text>
               </View>
               <Text style={styles.priceHint}>
                 Offerta lancio: da {formatProPrice(PRO_PLAN_PRICING.originalPrice)} a{" "}

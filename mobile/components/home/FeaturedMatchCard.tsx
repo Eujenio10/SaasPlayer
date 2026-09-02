@@ -2,6 +2,8 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import type { HomeFeaturedMatch } from "@/lib/home-dashboard/types";
 import { homeColors } from "@/components/home/home-theme";
+import { useLocale } from "@/contexts/LocaleContext";
+import { LOCALE_BCP47, translateCompetitionName } from "@/lib/i18n";
 import { spacing } from "@/lib/theme";
 
 function formatMetric(value: number | null): string {
@@ -9,16 +11,16 @@ function formatMetric(value: number | null): string {
   return String(value);
 }
 
-function intensityShortLabel(match: HomeFeaturedMatch): string {
-  if (match.intensityLevel === "high") return "ALTA";
-  if (match.intensityLevel === "medium") return "MEDIA";
-  return "BASSA";
+function intensityShortLabel(match: HomeFeaturedMatch, t: (path: string) => string): string {
+  if (match.intensityLevel === "high") return t("home.intensityHigh");
+  if (match.intensityLevel === "medium") return t("home.intensityMedium");
+  return t("home.intensityLow");
 }
 
-function trendShortLabel(trend: HomeFeaturedMatch["trend"]): string {
-  if (trend === "up") return "CRESCITA";
-  if (trend === "down") return "CALO";
-  return "STABILE";
+function trendShortLabel(trend: HomeFeaturedMatch["trend"], t: (path: string) => string): string {
+  if (trend === "up") return t("home.trendUp");
+  if (trend === "down") return t("home.trendDown");
+  return t("home.trendStable");
 }
 
 function dateKeyRome(date: Date): string {
@@ -30,13 +32,18 @@ function dateKeyRome(date: Date): string {
   }).format(date);
 }
 
-function formatFeaturedMeta(match: HomeFeaturedMatch): string {
+function formatFeaturedMeta(
+  match: HomeFeaturedMatch,
+  locale: string,
+  t: (path: string, params?: Record<string, string | number>) => string
+): string {
   const kickoff = new Date(match.kickoffTime);
+  const competition = translateCompetitionName(match.competitionName).toUpperCase();
   if (Number.isNaN(kickoff.getTime())) {
-    return `${match.competitionName.toUpperCase()}  •  ${match.kickoffLabel}`;
+    return `${competition}  •  ${match.kickoffLabel}`;
   }
   const isToday = dateKeyRome(kickoff) === dateKeyRome(new Date());
-  const dayMonth = new Intl.DateTimeFormat("it-IT", {
+  const dayMonth = new Intl.DateTimeFormat(locale, {
     timeZone: "Europe/Rome",
     day: "2-digit",
     month: "short"
@@ -44,13 +51,13 @@ function formatFeaturedMeta(match: HomeFeaturedMatch): string {
     .format(kickoff)
     .replace(".", "")
     .toUpperCase();
-  const time = new Intl.DateTimeFormat("it-IT", {
+  const time = new Intl.DateTimeFormat(locale, {
     timeZone: "Europe/Rome",
     hour: "2-digit",
     minute: "2-digit"
   }).format(kickoff);
-  const dayPart = isToday ? `OGGI, ${dayMonth}` : dayMonth;
-  return `${match.competitionName.toUpperCase()}  •  ${dayPart}  •  ${time}`;
+  const dayPart = isToday ? t("home.todayPrefix", { date: dayMonth }) : dayMonth;
+  return `${competition}  •  ${dayPart}  •  ${time}`;
 }
 
 interface FeaturedMatchCardProps {
@@ -66,6 +73,7 @@ export function FeaturedMatchCard({
   onOpenCalendar,
   obscureStats = false
 }: FeaturedMatchCardProps) {
+  const { t, locale } = useLocale();
   return (
     <View style={styles.card}>
       <View style={styles.gridBg} pointerEvents="none">
@@ -77,7 +85,7 @@ export function FeaturedMatchCard({
       </View>
 
       <View style={styles.header}>
-        <Text style={styles.sectionTitle}>PARTITA IN EVIDENZA</Text>
+        <Text style={styles.sectionTitle}>{t("home.featured")}</Text>
         {onOpenCalendar ? (
           <Pressable
             onPress={onOpenCalendar}
@@ -85,13 +93,13 @@ export function FeaturedMatchCard({
             style={({ pressed }) => [styles.calendarBtn, pressed && { opacity: 0.8 }]}
           >
             <Ionicons name="calendar-outline" size={13} color={homeColors.green} />
-            <Text style={styles.calendarText}>VEDI CALENDARIO</Text>
+            <Text style={styles.calendarText}>{t("home.seeCalendar")}</Text>
           </Pressable>
         ) : null}
       </View>
 
       <Text style={styles.meta} numberOfLines={2}>
-        {formatFeaturedMeta(match)}
+        {formatFeaturedMeta(match, LOCALE_BCP47[locale], t)}
       </Text>
 
       <Pressable onPress={onPress} style={({ pressed }) => pressed && { opacity: 0.96 }}>
@@ -125,20 +133,20 @@ export function FeaturedMatchCard({
           <MetricTile
             icon="flash-outline"
             value={obscureStats ? "•••" : formatMetric(match.keyDuelsCount)}
-            label="SCONTRI CHIAVE"
+            label={t("home.keyDuels")}
             locked={obscureStats}
           />
           <MetricTile
             icon="pulse-outline"
-            value={obscureStats ? "•••" : intensityShortLabel(match)}
-            label="INTENSITÀ"
+            value={obscureStats ? "•••" : intensityShortLabel(match, t)}
+            label={t("home.intensity")}
             valueColor={homeColors.green}
             locked={obscureStats}
           />
           <MetricTile
             icon="trending-up-outline"
-            value={obscureStats ? "•••" : trendShortLabel(match.trend)}
-            label="TREND"
+            value={obscureStats ? "•••" : trendShortLabel(match.trend, t)}
+            label={t("home.trend")}
             valueColor={homeColors.green}
             locked={obscureStats}
           />
@@ -148,10 +156,10 @@ export function FeaturedMatchCard({
       <Pressable
         onPress={onPress}
         accessibilityRole="button"
-        accessibilityLabel="Analizza partita"
+        accessibilityLabel={t("home.analyzeMatch")}
         style={({ pressed }) => [styles.cta, pressed && { opacity: 0.92 }]}
       >
-        <Text style={styles.ctaText}>ANALIZZA PARTITA</Text>
+        <Text style={styles.ctaText}>{t("home.analyzeMatch")}</Text>
         <Ionicons name="arrow-forward" size={16} color={homeColors.ctaText} />
       </Pressable>
     </View>

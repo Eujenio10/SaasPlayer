@@ -1,4 +1,5 @@
 import { normalizePlayerNameKey } from "@/lib/player-identity";
+import type { UnavailablePlayerRefs } from "@/lib/tactical-probable-lineup";
 import type { PlayerMatchTrendStats } from "@/lib/trends/types";
 import type { CurrentTeamSquad } from "@/services/sportapi";
 
@@ -29,7 +30,27 @@ export function filterRowsByCurrentSeason(
 ): PlayerMatchTrendStats[] {
   if (!(seasonId > 0)) return rows;
   const seasonKey = String(seasonId);
-  return rows.filter((row) => row.seasonId === seasonKey);
+  const kept = rows.filter((row) => String(row.seasonId) === seasonKey);
+  /** Se lo seasonId in cache non combacia (es. coppa vs campionato) non svuotare l'analisi. */
+  return kept.length ? kept : rows;
+}
+
+/**
+ * Toglie infortunati e squalificati della partita: chi non scende in campo non
+ * va analizzato, come già avviene su marcature e analisi falli.
+ */
+export function filterRowsByAvailability(
+  rows: PlayerMatchTrendStats[],
+  unavailable: UnavailablePlayerRefs
+): PlayerMatchTrendStats[] {
+  if (unavailable.ids.size === 0 && unavailable.names.size === 0) return rows;
+
+  return rows.filter((row) => {
+    const playerId = Number(row.playerId);
+    if (playerId > 0 && unavailable.ids.has(playerId)) return false;
+    const nameKey = normalizePlayerNameKey(row.playerName ?? "");
+    return !(nameKey.length > 0 && unavailable.names.has(nameKey));
+  });
 }
 
 export function countDistinctPlayers(rows: PlayerMatchTrendStats[]): number {

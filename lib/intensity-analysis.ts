@@ -950,6 +950,24 @@ export function mapIntensityLevelForPreview(level: IntensityLevel): "low" | "med
   return "low";
 }
 
+function intensityIndexFromPlayers(players: PlayerIntensityMetrics[]): MatchIntensityIndex {
+  const indexed = computeMatchIntensityIndex(players);
+  if (indexed.value != null) return indexed;
+  const withP90 = players.filter((p) => p.foulsCommittedP90 != null);
+  if (!withP90.length) return indexed;
+  const value = roundMetric(
+    withP90.reduce((sum, p) => sum + (p.foulsCommittedP90 ?? 0), 0) / withP90.length
+  );
+  const { level, label } = intensityLevelFromScore(value);
+  return {
+    value,
+    level,
+    label,
+    explanation: indexed.explanation,
+    playersUsed: withP90.length
+  };
+}
+
 /** Indice intensità partita per card home / lista partite (prima del dettaglio). */
 export function computeMatchIntensityPreview(metrics: IntensityPlayerInput[]): {
   value: number | null;
@@ -957,9 +975,14 @@ export function computeMatchIntensityPreview(metrics: IntensityPlayerInput[]): {
   level: IntensityLevel;
   uiLevel: "low" | "medium" | "high";
 } {
-  const idx = computeMatchIntensityIndex(
-    dedupeIntensityInputs(metrics).filter(includeInFoulsAnalysis).map(buildPlayerIntensityMetrics)
+  const inputs = dedupeIntensityInputs(metrics);
+  const preferred = intensityIndexFromPlayers(
+    inputs.filter(includeInFoulsAnalysis).map(buildPlayerIntensityMetrics)
   );
+  const idx =
+    preferred.value != null
+      ? preferred
+      : intensityIndexFromPlayers(inputs.map(buildPlayerIntensityMetrics));
   return {
     value: idx.value,
     label: idx.label,

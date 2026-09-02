@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { analysisColors, playerInitials } from "@/components/analysis/analysis-theme";
 import { PlayerSeasonHeatmap } from "@/components/intensity/PlayerSeasonHeatmap";
+import { t } from "@/lib/i18n";
 import type { TacticalMetrics } from "@/lib/types";
 
 export function SimplePlayerCard({
@@ -11,7 +12,7 @@ export function SimplePlayerCard({
   roleLabel,
   description,
   metricValue,
-  metricLabel = "falli p90",
+  metricLabel = t("common.foulsP90"),
   reliabilityLabel,
   badgeIcon = "person",
   badgeText,
@@ -38,7 +39,7 @@ export function SimplePlayerCard({
       accessibilityRole={canShowHeatmap ? "button" : undefined}
       accessibilityLabel={
         canShowHeatmap
-          ? `${playerName}. ${heatmapOpen ? "Nascondi" : "Mostra"} heatmap`
+          ? `${playerName}. ${heatmapOpen ? t("intensity.hideHeatmapA11y") : t("intensity.showHeatmapA11y")}`
           : playerName
       }
       style={({ pressed }) => [styles.card, pressed && canShowHeatmap && styles.pressed]}
@@ -74,7 +75,7 @@ export function SimplePlayerCard({
         </View>
       ) : null}
       {reliabilityLabel ? (
-        <Text style={styles.reliability}>Affidabilità {reliabilityLabel}</Text>
+        <Text style={styles.reliability}>{t("intensity.reliabilityPrefix", { label: reliabilityLabel })}</Text>
       ) : null}
     </Pressable>
   );

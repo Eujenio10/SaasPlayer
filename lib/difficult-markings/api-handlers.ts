@@ -10,6 +10,7 @@ import {
   type DifficultMarkingSortKey
 } from "@/lib/difficult-markings/publish";
 import {
+  collectAllPublishedMarkings,
   collectMarkingsForCompetition,
   countStoredMarkupsInSnapshot,
   findBestCompetitionWithPreMatchMarkings,
@@ -20,7 +21,8 @@ import { isPreMatchDifficultMarkingMatchup } from "@/lib/difficult-markings/matc
 import {
   countUpcomingMarkupsInSnapshot,
   loadOrganizationFixtureKickoffMap,
-  pruneMarkingsSnapshot
+  pruneMarkingsSnapshot,
+  resolveMarkingKickoffSeconds
 } from "@/lib/difficult-markings/fixture-eligibility";
 import { loadBestDifficultMarkingsSnapshot } from "@/lib/difficult-markings/snapshot";
 import type { DifficultMarkingsResponse } from "@/lib/difficult-markings/types";
@@ -79,6 +81,7 @@ export async function buildDifficultMarkingsListResponse(params: {
   const bestCompetitionId = findBestCompetitionWithPreMatchMarkings(rawSnapshot, kickoffByFixtureId);
 
   if (
+    params.filter !== "today" &&
     bestCompetitionId &&
     bestCompetitionId !== normalizedCompetition &&
     !collectMarkingsForCompetition(snapshot, normalizedCompetition, kickoffByFixtureId).length
@@ -105,9 +108,30 @@ export async function buildDifficultMarkingsListResponse(params: {
     return { items, rounds, roundKey };
   };
 
-  let selected = selectForList(normalizedCompetition);
+  const selectToday = () => {
+    let items = collectAllPublishedMarkings(snapshot, kickoffByFixtureId).map((item) => {
+      const kickoff = resolveMarkingKickoffSeconds(item, kickoffByFixtureId);
+      return kickoff != null ? { ...item, kickoffTimestamp: kickoff } : item;
+    });
+    if (params.eventId != null) {
+      items = items.filter((r) => r.eventId === params.eventId);
+    }
+    items = filterDifficultMarkings(items, "today");
+    items = dedupeAndSelectMatchups(items, { limit: 25 });
+    const rounds = [
+      ...new Set(items.map((item) => String(item.roundKey)))
+    ].sort((a, b) => b.localeCompare(a));
+    return { items, rounds, roundKey: rounds[0] ?? "" };
+  };
 
-  if (!selected.items.length && bestCompetitionId && bestCompetitionId !== normalizedCompetition) {
+  let selected = params.filter === "today" ? selectToday() : selectForList(normalizedCompetition);
+
+  if (
+    params.filter !== "today" &&
+    !selected.items.length &&
+    bestCompetitionId &&
+    bestCompetitionId !== normalizedCompetition
+  ) {
     normalizedCompetition = bestCompetitionId;
     selected = selectForList(normalizedCompetition);
   }
@@ -169,7 +193,7 @@ export async function buildDifficultMarkingsListResponse(params: {
     totalUpcomingMatchups: countUpcomingMarkupsInSnapshot(snapshot, kickoffByFixtureId),
     storedCompetitions,
     suggestedCompetitionId:
-      results.length || !bestCompetitionId
+      params.filter === "today" || results.length || !bestCompetitionId
         ? null
         : bestCompetitionId !== canonicalCompetitionId(params.competitionId)
           ? bestCompetitionId

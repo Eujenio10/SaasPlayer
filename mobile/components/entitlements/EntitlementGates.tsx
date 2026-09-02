@@ -3,6 +3,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useAccessFlow } from "@/contexts/AccessFlowContext";
 import { useEntitlements } from "@/contexts/EntitlementsContext";
 import { colors, radii, spacing } from "@/lib/theme";
+import { useLocale } from "@/contexts/LocaleContext";
 import type { FeatureId } from "@/lib/access/types";
 import type { EntitlementFeatureKey } from "@/lib/entitlements-types";
 import { trackMobileEntitlementEvent } from "@/lib/entitlements/analytics";
@@ -18,13 +19,17 @@ export function ProBadge({ label = "Pro" }: { label?: string }) {
 }
 
 export function RemainingUnlocksIndicator() {
+  const { t } = useLocale();
   const { isPro, remainingUnlocks, entitlements } = useEntitlements();
   if (!PITCHBRAIN_MOBILE_PRO_PLANS_ENABLED || isPro) {
     return null;
   }
   return (
     <Text style={styles.remainingText}>
-      Ti restano {remainingUnlocks} sblocchi gratuiti oggi (max {entitlements.dailyRewardedUnlockLimit})
+      {t("entitlements.remaining", {
+        remaining: remainingUnlocks,
+        limit: entitlements.dailyRewardedUnlockLimit
+      })}
     </Text>
   );
 }
@@ -38,6 +43,7 @@ export function RewardedUnlockButton({
   sourceScreen?: string;
   featureKey?: EntitlementFeatureKey;
 }) {
+  const { t } = useLocale();
   const { unlocking, unlockMatchWithRewardedAd, canUnlockWithRewardedAd, isMatchUnlocked } =
     useEntitlements();
   const unlocked = isMatchUnlocked(matchId);
@@ -63,14 +69,14 @@ export function RewardedUnlockButton({
           <>
             <Ionicons name="play-circle" size={20} color={colors.background} />
             <Text style={styles.unlockBtnText}>
-              Guarda un breve video e sblocca l&apos;analisi completa di questa partita
+              {t("entitlements.unlockVideo")}
             </Text>
           </>
         )}
       </Pressable>
       {!canUnlock ? (
         <Text style={styles.hint}>
-          Limite giornaliero raggiunto oppure accedi per usare gli sblocchi video.
+          {t("entitlements.dailyLimit")}
         </Text>
       ) : null}
     </View>
@@ -79,13 +85,16 @@ export function RewardedUnlockButton({
 
 export function ProUpgradeCard({
   feature = "advancedMatchAnalysis",
-  title = "Passa a Pro",
-  body = "Analisi illimitate, trend e marcature complete, simulazioni personalizzabili e nessuna pubblicità."
+  title,
+  body
 }: {
   feature?: FeatureId;
   title?: string;
   body?: string;
 }) {
+  const { t } = useLocale();
+  const resolvedTitle = title ?? t("entitlements.goPro");
+  const resolvedBody = body ?? t("entitlements.goProBody");
   const { openPaywall } = useAccessFlow();
   useEffect(() => {
     if (!PITCHBRAIN_MOBILE_PRO_PLANS_ENABLED) return;
@@ -100,10 +109,10 @@ export function ProUpgradeCard({
   return (
     <View style={styles.upgradeCard}>
       <View style={styles.upgradeHeader}>
-        <Text style={styles.upgradeTitle}>{title}</Text>
+        <Text style={styles.upgradeTitle}>{resolvedTitle}</Text>
         <ProBadge />
       </View>
-      <Text style={styles.upgradeBody}>{body}</Text>
+      <Text style={styles.upgradeBody}>{resolvedBody}</Text>
       <Pressable
         style={({ pressed }) => [styles.upgradeBtn, pressed && { opacity: 0.92 }]}
         onPress={() => {
@@ -111,7 +120,7 @@ export function ProUpgradeCard({
           openPaywall(feature);
         }}
       >
-        <Text style={styles.upgradeBtnText}>Passa a Pro</Text>
+        <Text style={styles.upgradeBtnText}>{t("entitlements.goPro")}</Text>
       </Pressable>
     </View>
   );

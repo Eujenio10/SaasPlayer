@@ -165,7 +165,8 @@ export function PlayerPerformancePanel({
               })}`
             : "";
         const res = await fetch(`/api/match-player-performance/${eventId}${query}`, {
-          cache: "no-store"
+          cache: "no-store",
+          credentials: "include"
         });
         if (res.status === 410) {
           if (!cancelled) {

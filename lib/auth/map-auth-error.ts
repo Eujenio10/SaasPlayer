@@ -41,11 +41,14 @@ export function mapAuthError(error: AuthError | Error): string {
   }
 
   if (
+    code === "unexpected_failure" ||
     message.includes("error sending") ||
     message.includes("confirmation email") ||
-    message.includes("smtp")
+    message.includes("smtp") ||
+    message.includes("mail") ||
+    message.includes("hook")
   ) {
-    return "Invio email non riuscito. Verifica SMTP Aruba in Supabase.";
+    return "Invio email non riuscito. Controlla SMTP Aruba (no-reply@pitchbrain.it) e che l'hook Send Email sia spento.";
   }
 
   return "Operazione non riuscita. Riprova tra qualche istante.";

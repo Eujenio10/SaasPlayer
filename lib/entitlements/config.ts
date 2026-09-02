@@ -80,6 +80,15 @@ export function allowOnDemandProviderCompute(request?: Request | null): boolean 
 }
 
 /**
+ * Calcolo on-demand di uno snapshot (Player Performance, insight, …).
+ * Sul kiosk web è il percorso normale; sull'app è consentito se lo snapshot manca,
+ * altrimenti il tab resta vuoto (l'app non può rifare il refresh admin).
+ */
+export function allowSnapshotComputeIfMissing(request?: Request | null): boolean {
+  return allowOnDemandProviderCompute(request) || isConsumerMobileRequest(request);
+}
+
+/**
  * true sulle richieste dell'app (anche build vecchie senza header) quando i piani Pro
  * sono disattivati. Mai sul kiosk web (cookie, path /api/tactical senza Bearer).
  */

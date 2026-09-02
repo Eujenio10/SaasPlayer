@@ -17,6 +17,7 @@ import { consumeMemberMatch, fetchMatchInsights } from "@/lib/api";
 import { useMatchRouteParams } from "@/lib/matches/use-match-route-params";
 import type { TacticalMetrics } from "@/lib/types";
 import { spacing } from "@/lib/theme";
+import { useLocale } from "@/contexts/LocaleContext";
 
 function resolveHomeTeamId(metrics: TacticalMetrics[], homeName?: string): number | undefined {
   if (!homeName?.trim() || !metrics.length) return undefined;
@@ -27,6 +28,7 @@ function resolveHomeTeamId(metrics: TacticalMetrics[], homeName?: string): numbe
 
 export default function MatchFoulsScreen() {
   const match = useMatchRouteParams();
+  const { t } = useLocale();
   const { access, userStatus, refreshAccess } = useAuth();
   const { openPaywall } = useAccessFlow();
   const { featuresPreviewActive, openAdModal } = useGuestPreview();
@@ -62,7 +64,7 @@ export default function MatchFoulsScreen() {
 
   const load = useCallback(async () => {
     if (!Number.isFinite(eventId)) {
-      setError("Partita non valida.");
+      setError(t("prematch.invalidMatch"));
       setLoading(false);
       return;
     }
@@ -148,8 +150,8 @@ export default function MatchFoulsScreen() {
     <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
       <View style={styles.headerPad}>
         <AnalysisNavHeader
-          backLabel="Match"
-          title="Scontri & Falli"
+          backLabel={t("matchHub.backMatch")}
+          title={t("fouls.title")}
           subtitle={match.kickoffLongLabel}
         />
       </View>
@@ -161,7 +163,7 @@ export default function MatchFoulsScreen() {
               <>
                 <Text style={styles.error}>{error}</Text>
                 <Pressable onPress={() => void load()} style={styles.retryBtn}>
-                  <Text style={styles.retryText}>Riprova</Text>
+                  <Text style={styles.retryText}>{t("common.retry")}</Text>
                 </Pressable>
               </>
             ) : null}
@@ -169,8 +171,8 @@ export default function MatchFoulsScreen() {
             {analysisLocked ? (
               <View style={styles.lockWrap}>
                 <LockedContentPreview
-                  title="Analisi completa della partita"
-                  description="Anteprima Free: un duello principale, un giocatore pericoloso e un'indicazione sul gioco delle due squadre. Sblocca con un video l'analisi completa di questa sola partita."
+                  title={t("entitlements.lockTitle")}
+                  description={t("entitlements.lockBody")}
                   matchId={eventId}
                   sourceScreen="match_detail"
                 />
@@ -188,7 +190,7 @@ export default function MatchFoulsScreen() {
             />
           </>
         ) : null}
-        <PitchBrainLoading visible={loading} message="Analisi in corso…" />
+        <PitchBrainLoading visible={loading} />
       </View>
     </SafeAreaView>
   );

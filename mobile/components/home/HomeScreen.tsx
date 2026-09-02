@@ -20,13 +20,15 @@ import type { HomeUpcomingMatch } from "@/lib/home-dashboard/types";
 import { useHomeDashboard } from "@/lib/home-dashboard/useHomeDashboard";
 import { useAdminMatchesRefresh } from "@/lib/matches/useAdminMatchesRefresh";
 import { useDeferredLoading } from "@/lib/use-deferred-loading";
+import { useLocale } from "@/contexts/LocaleContext";
+import { LOCALE_BCP47 } from "@/lib/i18n";
 import { spacing } from "@/lib/theme";
 
-function formatLastRefreshClock(iso: string | null | undefined): string | null {
+function formatLastRefreshClock(iso: string | null | undefined, locale: string): string | null {
   if (!iso) return null;
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return null;
-  return new Intl.DateTimeFormat("it-IT", {
+  return new Intl.DateTimeFormat(locale, {
     timeZone: "Europe/Rome",
     hour: "2-digit",
     minute: "2-digit"
@@ -35,6 +37,7 @@ function formatLastRefreshClock(iso: string | null | undefined): string | null {
 
 export function HomeScreen() {
   const router = useRouter();
+  const { t, locale } = useLocale();
   const { access, userStatus } = useAuth();
   const { previewActive } = useGuestPreview();
   const { data, loading, error, refetch } = useHomeDashboard();
@@ -46,7 +49,7 @@ export function HomeScreen() {
 
   const isGuest = userStatus === "guest";
   const obscureStats = shouldObscureGuestStats(userStatus, previewActive);
-  const lastRefreshClock = formatLastRefreshClock(data?.dataRefresh.lastRefreshAt);
+  const lastRefreshClock = formatLastRefreshClock(data?.dataRefresh.lastRefreshAt, LOCALE_BCP47[locale]);
   const upcomingMatches = data?.upcomingMatches ?? [];
 
   const openMatch = (
@@ -123,7 +126,7 @@ export function HomeScreen() {
 
           {data && !data.featuredMatch && !loading ? (
             <View style={styles.emptyBox}>
-              <Text style={styles.emptyText}>Nessuna partita disponibile.</Text>
+              <Text style={styles.emptyText}>{t("home.noMatches")}</Text>
             </View>
           ) : null}
 
@@ -156,12 +159,12 @@ export function HomeScreen() {
           {lastRefreshClock ? (
             <View style={styles.lastRefresh}>
               <Ionicons name="refresh-outline" size={12} color={homeColors.green} />
-              <Text style={styles.lastRefreshText}>DATI AGGIORNATI ALLE {lastRefreshClock}</Text>
+              <Text style={styles.lastRefreshText}>{t("common.updatedAt", { time: lastRefreshClock })}</Text>
             </View>
           ) : null}
         </View>
       </ScrollView>
-      <PitchBrainLoading visible={firstLoad} message="Analisi in corso…" />
+      <PitchBrainLoading visible={firstLoad} />
     </SafeAreaView>
   );
 }

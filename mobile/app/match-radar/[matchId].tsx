@@ -8,6 +8,7 @@ import { useAccessFlow } from "@/contexts/AccessFlowContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { canAccessFeatureId } from "@/lib/access/features";
 import { useMatchRadarDetail } from "@/lib/match-radar/useMatchRadarDetail";
+import { useLocale } from "@/contexts/LocaleContext";
 import {
   MATCH_RADAR_UI_TEXT,
   translateMatchRadarReason,
@@ -38,8 +39,8 @@ export default function MatchRadarDetailScreen() {
   const { userStatus } = useAuth();
   const { openAuthFromPaywall } = useAccessFlow();
   const isPro = canAccessFeatureId(userStatus, "proFilters");
-  const { detail, loading, error } = useMatchRadarDetail(isPro ? matchId : undefined);
-  const locale: "it" | "en" = "it";
+  const { locale } = useLocale();
+  const { detail, loading, error } = useMatchRadarDetail(isPro ? matchId : undefined, locale);
   const ui = MATCH_RADAR_UI_TEXT[locale];
   const disciplinaryLabel = detail
     ? matchRadarDisciplinaryPotentialLabel(detail.reasons, locale)
@@ -167,7 +168,7 @@ export default function MatchRadarDetailScreen() {
             ) : null}
           </ScrollView>
         ) : null}
-        <PitchBrainLoading visible={loading} message="Analisi in corso…" />
+        <PitchBrainLoading visible={loading} />
         </View>
       </SafeAreaView>
     </>

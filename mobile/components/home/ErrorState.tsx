@@ -1,5 +1,6 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { homeColors } from "@/components/home/home-theme";
+import { useLocale } from "@/contexts/LocaleContext";
 import { radii, spacing } from "@/lib/theme";
 
 interface ErrorStateProps {
@@ -8,12 +9,13 @@ interface ErrorStateProps {
 }
 
 export function ErrorState({ message, onRetry }: ErrorStateProps) {
+  const { t } = useLocale();
   return (
     <View style={styles.wrap}>
-      <Text style={styles.title}>Impossibile caricare i dati.</Text>
+      <Text style={styles.title}>{t("common.loadFailed")}</Text>
       <Text style={styles.message}>{message}</Text>
       <Pressable onPress={onRetry} style={({ pressed }) => [styles.btn, pressed && { opacity: 0.9 }]}>
-        <Text style={styles.btnText}>Riprova</Text>
+        <Text style={styles.btnText}>{t("common.retry")}</Text>
       </Pressable>
     </View>
   );

@@ -14,7 +14,7 @@ export function useCompetitionsWithMatches() {
       const data = await fetchMatches();
       setAvailableIds(competitionIdsWithMatches(data.matches ?? []));
     } catch {
-      setAvailableIds([]);
+      setAvailableIds((current) => current ?? []);
     } finally {
       setLoading(false);
     }

@@ -3,31 +3,25 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { filterCompetitionsByAvailableIds } from "@/lib/competitions-with-matches";
 import type { MatchFilterId, MatchModeFilterId } from "@/lib/matches/filters";
 import { analysisColors } from "@/components/analysis/analysis-theme";
-import { spacing } from "@/lib/theme";
+import { useLocale } from "@/contexts/LocaleContext";
+import { localizedCompetitionLabel } from "@/lib/i18n";
 
-const modeFilters: Array<{ id: MatchModeFilterId; label: string }> = [
-  { id: "all", label: "Tutte" },
-  { id: "today", label: "Oggi" }
-];
+const modeFilterIds: MatchModeFilterId[] = ["all", "today", "intensity"];
 
 export function MatchFilterBar({
   active,
   onChange,
   hasWorldCupMatches = true,
-  hasTodayMatches = true,
   availableCompetitionIds = null
 }: {
   active: MatchFilterId;
   onChange: (id: MatchFilterId) => void;
   hasWorldCupMatches?: boolean;
   hasTodayMatches?: boolean;
+  hasIntensityMatches?: boolean;
   availableCompetitionIds?: string[] | null;
 }) {
-  const modes = modeFilters.filter((filter) => {
-    if (filter.id === "today") return hasTodayMatches;
-    return true;
-  });
-
+  const { t } = useLocale();
   const competitions = useMemo(
     () =>
       filterCompetitionsByAvailableIds(availableCompetitionIds).filter((competition) => {
@@ -39,62 +33,62 @@ export function MatchFilterBar({
 
   return (
     <View style={styles.wrap}>
-      <View style={styles.modeRow}>
-        {modes.map((filter) => {
-          const selected = active === filter.id;
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.row}
+      >
+        {modeFilterIds.map((id) => {
+          const selected = active === id;
+          const label =
+            id === "all" ? t("common.all") : id === "today" ? t("common.today") : t("common.intensity");
           return (
             <Pressable
-              key={filter.id}
-              onPress={() => onChange(filter.id)}
+              key={id}
+              onPress={() => onChange(id)}
               style={[styles.modeChip, selected && styles.chipActive]}
             >
-              <Text style={[styles.chipText, selected && styles.chipTextActive]}>{filter.label}</Text>
+              <Text style={[styles.chipText, selected && styles.chipTextActive]}>{label}</Text>
             </Pressable>
           );
         })}
-      </View>
-
-      {competitions.length > 0 ? (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.compRow}>
-          {competitions.map((competition) => {
-            const selected = active === competition.id;
-            return (
-              <Pressable
-                key={competition.id}
-                onPress={() => onChange(competition.id)}
-                style={[styles.compChip, selected && styles.chipActive]}
-              >
-                <Text style={[styles.chipText, selected && styles.chipTextActive]} numberOfLines={1}>
-                  {competition.label}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
-      ) : null}
+        {competitions.map((competition) => {
+          const selected = active === competition.id;
+          return (
+            <Pressable
+              key={competition.id}
+              onPress={() => onChange(competition.id)}
+              style={[styles.compChip, selected && styles.chipActive]}
+            >
+              <Text style={[styles.chipText, selected && styles.chipTextActive]} numberOfLines={1}>
+                {localizedCompetitionLabel(competition.id, competition.label)}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   wrap: {
-    gap: 8
+    marginTop: 4
   },
-  modeRow: {
+  row: {
     flexDirection: "row",
-    gap: 8
-  },
-  compRow: {
+    alignItems: "center",
     gap: 8,
+    paddingRight: 12,
     paddingBottom: 2
   },
   modeChip: {
-    minHeight: 44,
-    paddingHorizontal: 18,
-    paddingVertical: 10,
+    minHeight: 40,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: analysisColors.border,
+    borderColor: analysisColors.borderStrong,
     backgroundColor: analysisColors.card,
     alignItems: "center",
     justifyContent: "center"

@@ -1,8 +1,16 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { analysisColors } from "@/components/analysis/analysis-theme";
-import { formatMatchDateParts, genericTeamColor, teamInitialsFromName } from "@/lib/match-display";
+import {
+  formatMatchDateParts,
+  genericTeamColor,
+  intensityUiLevel,
+  intensityVisualStyle,
+  teamInitialsFromName
+} from "@/lib/match-display";
 import type { UpcomingMatchItem } from "@/lib/types";
+import { useLocale } from "@/contexts/LocaleContext";
+import { translateCompetitionName, translateIntensityPreviewLabel } from "@/lib/i18n";
 
 export function MatchRow({
   match,
@@ -12,22 +20,36 @@ export function MatchRow({
   onPress: () => void;
   obscureStats?: boolean;
 }) {
+  const { t, locale } = useLocale();
   const date = formatMatchDateParts(match.startTimestamp);
   const homeColor = genericTeamColor(match.homeTeam.name);
   const awayColor = genericTeamColor(match.awayTeam.name);
   const homeInitials = teamInitialsFromName(match.homeTeam.name);
   const awayInitials = teamInitialsFromName(match.awayTeam.name);
+  const intensity = match.intensityPreview;
+  const intensityStyle = intensity
+    ? intensityVisualStyle(intensity.uiLevel ?? intensityUiLevel(intensity.level))
+    : null;
+
+  const intensityLabel =
+    intensity && intensityStyle
+      ? intensity.value != null
+        ? `${translateIntensityPreviewLabel(intensity.label, locale)} · ${intensity.value.toFixed(1)}`
+        : translateIntensityPreviewLabel(intensity.label, locale)
+      : null;
 
   return (
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
-      accessibilityLabel={`${match.homeTeam.name} contro ${match.awayTeam.name}`}
+      accessibilityLabel={`${match.homeTeam.name} ${t("common.against")} ${match.awayTeam.name}${
+        intensityLabel ? `. ${intensityLabel}` : ""
+      }`}
       style={({ pressed }) => [styles.card, pressed && styles.pressed]}
     >
       <View style={styles.topRow}>
         <Text style={styles.competition} numberOfLines={1}>
-          {match.competitionName.toUpperCase()}
+          {translateCompetitionName(match.competitionName).toUpperCase()}
         </Text>
         <Text style={styles.time}>{date.time}</Text>
       </View>
@@ -59,6 +81,20 @@ export function MatchRow({
 
         <Ionicons name="chevron-forward" size={18} color={analysisColors.green} />
       </View>
+
+      {intensityLabel && intensityStyle ? (
+        <View
+          style={[
+            styles.intensityBadge,
+            { borderColor: intensityStyle.border, backgroundColor: intensityStyle.background }
+          ]}
+        >
+          <View style={[styles.intensityDot, { backgroundColor: intensityStyle.dot }]} />
+          <Text style={[styles.intensityLabel, { color: intensityStyle.text }]} numberOfLines={1}>
+            {intensityLabel}
+          </Text>
+        </View>
+      ) : null}
     </Pressable>
   );
 }
@@ -132,5 +168,26 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "800",
     letterSpacing: 0.8
+  },
+  intensityBadge: {
+    marginTop: 10,
+    alignSelf: "stretch",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 10,
+    borderWidth: 1
+  },
+  intensityDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4
+  },
+  intensityLabel: {
+    fontSize: 11,
+    fontWeight: "800"
   }
 });

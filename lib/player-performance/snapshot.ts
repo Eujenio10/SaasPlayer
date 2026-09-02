@@ -27,7 +27,8 @@ export async function arePlayerPerformanceSnapshotTablesAvailable(): Promise<boo
   if (!error) cachedTablesAvailable = true;
   else if (isMissingTableError(error.message)) cachedTablesAvailable = false;
   else {
-    cachedTablesAvailable = false;
+    /** Errore transitorio (rete, RLS, timeout): non bloccare lettura/calcolo per 60s. */
+    cachedTablesAvailable = true;
     console.warn("[player-performance] snapshot_tables_probe_failed", { message: error.message });
   }
   cachedTablesAt = now;

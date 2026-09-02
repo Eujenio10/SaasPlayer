@@ -17,10 +17,15 @@ import {
   difficultMarkingZonePressureLineIt
 } from "@/lib/difficult-markings/text";
 import type { DifficultMarkingMatchup } from "@/lib/difficult-markings/types";
-import type { DifficultMarkingFilterKey, DifficultMarkingSortKey } from "@/lib/difficult-markings/publish";
+import {
+  filterDifficultMarkings,
+  type DifficultMarkingFilterKey,
+  type DifficultMarkingSortKey
+} from "@/lib/difficult-markings/publish";
 import { useWebCompetitionsWithMatches } from "@/components/competitions/use-web-competitions-with-matches";
 import { resolveCompetitionId } from "@/lib/competitions";
 import { DEFAULT_MENU_COMPETITION_ID } from "@/lib/competitions-with-matches";
+import { NO_DIFFICULT_MARKINGS_TODAY_MESSAGE } from "@/lib/match-calendar-day";
 import { KIOSK_ADMIN_INSIGHTS_REFRESH_EVENT } from "@/lib/kiosk-persisted-insights";
 import { translateTeamName } from "@/lib/italian-sports-display";
 import {
@@ -197,22 +202,26 @@ export function DifficultMarkingsPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   useEffect(() => {
+    if (filter === "today") return;
     if (!preferredId) return;
     if (!availableCompetitions.some((c) => c.id === competitionId)) {
       setCompetitionId(preferredId);
     }
-  }, [availableCompetitions, competitionId, preferredId]);
+  }, [availableCompetitions, competitionId, filter, preferredId]);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
+    if (filter === "today") {
+      setResults([]);
+    }
     try {
       const params = new URLSearchParams({
         competitionId,
         filter,
         sort
       });
-      if (round) params.set("round", round);
+      if (round && filter !== "today") params.set("round", round);
       const res = await fetch(`/api/difficult-markings?${params.toString()}`, {
         cache: "no-store",
         credentials: "include"
@@ -226,15 +235,18 @@ export function DifficultMarkingsPage() {
         officialLineupsUsed?: boolean;
         resolvedCompetitionId?: string;
       };
-      setResults(Array.isArray(json.results) ? json.results : []);
+      const incoming = Array.isArray(json.results) ? json.results : [];
+      const nextResults =
+        filter === "today" ? filterDifficultMarkings(incoming, "today") : incoming;
+      setResults(nextResults);
       setAvailableRounds(Array.isArray(json.availableRounds) ? json.availableRounds : []);
-      setUpdatedAt(json.updatedAt ?? null);
+      setUpdatedAt(filter === "today" && !nextResults.length ? null : json.updatedAt ?? null);
       setOfficialLineupsUsed(Boolean(json.officialLineupsUsed));
       const resolved = resolveCompetitionId(json.resolvedCompetitionId);
-      if (resolved && resolved !== competitionId) {
+      if (filter !== "today" && resolved && resolved !== competitionId) {
         setCompetitionId(resolved);
         setRound("");
-      } else if (!round && json.round) {
+      } else if (filter !== "today" && !round && json.round) {
         setRound(String(json.round));
       }
     } catch {
@@ -300,7 +312,8 @@ export function DifficultMarkingsPage() {
             <select
               value={round}
               onChange={(e) => setRound(e.target.value)}
-              className="w-full rounded-xl border border-white/10 bg-slate-950/70 px-3 py-2 text-sm text-white"
+              disabled={filter === "today"}
+              className="w-full rounded-xl border border-white/10 bg-slate-950/70 px-3 py-2 text-sm text-white disabled:opacity-50"
             >
               {(availableRounds.length ? availableRounds : round ? [round] : []).map((r) => (
                 <option key={r} value={r}>
@@ -318,6 +331,7 @@ export function DifficultMarkingsPage() {
               className="w-full rounded-xl border border-white/10 bg-slate-950/70 px-3 py-2 text-sm text-white"
             >
               <option value="all">Tutte le partite</option>
+              <option value="today">Oggi</option>
               <option value="winger_fullback">Ali contro terzini</option>
               <option value="striker_cb">Centravanti contro centrali</option>
               <option value="am_dm">Trequartisti contro mediani</option>
@@ -341,10 +355,12 @@ export function DifficultMarkingsPage() {
           </label>
         </div>
 
-        <div className="mt-4 flex flex-wrap gap-4 text-xs text-slate-400">
-          <span>Formazioni: {officialLineupsUsed ? "ufficiali" : "probabili"}</span>
-          <span>Ultimo aggiornamento: {formatUpdatedAt(updatedAt)}</span>
-        </div>
+        {filter === "today" && !results.length ? null : (
+          <div className="mt-4 flex flex-wrap gap-4 text-xs text-slate-400">
+            <span>Formazioni: {officialLineupsUsed ? "ufficiali" : "probabili"}</span>
+            <span>Ultimo aggiornamento: {formatUpdatedAt(updatedAt)}</span>
+          </div>
+        )}
       </header>
 
       {loading ? (
@@ -357,7 +373,9 @@ export function DifficultMarkingsPage() {
         <div className="rounded-2xl border border-rose-400/20 bg-rose-950/20 p-6 text-rose-100">{error}</div>
       ) : !results.length ? (
         <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-8 text-center text-slate-300">
-          Nessuna marcatura sufficientemente rilevante è stata individuata per questa giornata.
+          {filter === "today"
+            ? NO_DIFFICULT_MARKINGS_TODAY_MESSAGE
+            : "Nessuna marcatura sufficientemente rilevante è stata individuata per questa giornata."}
         </div>
       ) : (
         <>

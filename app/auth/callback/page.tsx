@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { AuthLocaleToggle, useAuthWebLocale } from "@/components/account/auth-web-locale";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 
 function safeNextPath(raw: string | null): string {
@@ -10,36 +11,38 @@ function safeNextPath(raw: string | null): string {
   return value;
 }
 
-function errorMessage(code: string | null): string | null {
-  switch (code) {
-    case "exchange_failed":
-    case "verify_failed":
-      return "Link scaduto o già usato. Richiedi un nuovo invio dall'app PitchBrain.";
-    case "missing_token":
-      return "Non riusciamo a confermare l'account. Riprova a premere il link nell'email, oppure richiedi un nuovo invio.";
-    default:
-      return code ? "Link non valido o scaduto. Richiedi un nuovo invio dall'app." : null;
-  }
-}
+type CallbackStatus =
+  | "confirming"
+  | "linkExpired"
+  | "missingToken"
+  | "invalidLink"
+  | "confirmFailed";
 
 function AuthCallbackInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [message, setMessage] = useState("Stiamo confermando il tuo account…");
+  const { locale, setLocale, copy } = useAuthWebLocale();
+  const [status, setStatus] = useState<CallbackStatus>("confirming");
 
   useEffect(() => {
     const next = safeNextPath(searchParams.get("next"));
     const urlError = searchParams.get("error");
-    const presetError = errorMessage(urlError);
-    if (presetError) {
-      setMessage(presetError);
+    if (urlError === "exchange_failed" || urlError === "verify_failed") {
+      setStatus("linkExpired");
+      return;
+    }
+    if (urlError === "missing_token") {
+      setStatus("missingToken");
+      return;
+    }
+    if (urlError) {
+      setStatus("invalidLink");
       return;
     }
 
     const supabase = createSupabaseBrowserClient();
 
     async function completeAuth() {
-      // 1) Token nel fragment (#access_token) — flusso più comune da email Supabase
       const hash = window.location.hash.replace(/^#/, "");
       if (hash) {
         const params = new URLSearchParams(hash);
@@ -51,7 +54,7 @@ function AuthCallbackInner() {
             refresh_token: refreshToken
           });
           if (error) {
-            setMessage("Non riusciamo a confermare l'account. Richiedi un nuovo invio dall'app.");
+            setStatus("confirmFailed");
             return;
           }
           window.history.replaceState({}, "", window.location.pathname + window.location.search);
@@ -60,27 +63,24 @@ function AuthCallbackInner() {
         }
       }
 
-      // 2) PKCE code in query
       const code = searchParams.get("code");
       if (code) {
         const { error } = await supabase.auth.exchangeCodeForSession(code);
         if (error) {
-          setMessage("Link scaduto o già usato. Richiedi un nuovo invio dall'app PitchBrain.");
+          setStatus("linkExpired");
           return;
         }
         router.replace(next);
         return;
       }
 
-      // 3) token_hash → verifica server-side
       const tokenHash = searchParams.get("token_hash") ?? searchParams.get("token");
       if (tokenHash) {
-        const type = searchParams.get("type") ?? (next === "/set-password" ? "recovery" : "signup");
+        const type = searchParams.get("type") ?? (next.startsWith("/set-password") ? "recovery" : "signup");
         window.location.href = `/auth/confirm?token_hash=${encodeURIComponent(tokenHash)}&type=${encodeURIComponent(type)}&next=${encodeURIComponent(next)}`;
         return;
       }
 
-      // 4) Sessione già presente (cookie)
       const {
         data: { session }
       } = await supabase.auth.getSession();
@@ -89,19 +89,29 @@ function AuthCallbackInner() {
         return;
       }
 
-      setMessage(
-        "Non riusciamo a confermare l'account. Riprova a premere il link nell'email, oppure richiedi un nuovo invio dall'app."
-      );
+      setStatus("missingToken");
     }
 
     void completeAuth();
   }, [router, searchParams]);
 
+  const message =
+    status === "confirming"
+      ? copy.confirmingBody
+      : status === "linkExpired"
+        ? copy.linkExpired
+        : status === "missingToken"
+          ? copy.missingToken
+          : status === "confirmFailed"
+            ? copy.confirmFailed
+            : copy.invalidLink;
+
   return (
     <section className="mx-auto flex min-h-[70vh] max-w-lg items-center px-4">
       <div className="w-full rounded-2xl border border-cyan-300/30 bg-graphite/80 p-8 shadow-broadcast">
+        <AuthLocaleToggle locale={locale} onChange={setLocale} />
         <p className="text-xs font-bold uppercase tracking-widest text-cyan-300/80">PitchBrain</p>
-        <h1 className="mt-2 text-2xl font-bold text-cyan-300">Conferma account</h1>
+        <h1 className="mt-2 text-2xl font-bold text-cyan-300">{copy.confirmingTitle}</h1>
         <p className="mt-4 text-sm leading-relaxed text-slate-300">{message}</p>
       </div>
     </section>
@@ -113,7 +123,7 @@ export default function AuthCallbackPage() {
     <Suspense
       fallback={
         <section className="mx-auto flex min-h-[70vh] max-w-lg items-center px-4">
-          <p className="text-slate-300">Caricamento…</p>
+          <p className="text-slate-300">Loading…</p>
         </section>
       }
     >

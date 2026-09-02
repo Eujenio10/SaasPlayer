@@ -29,6 +29,7 @@ import {
   KIOSK_INSIGHTS_LOCAL_WRITE_EVENT,
   YELLOW_CARD_SNAPSHOT_UPDATED_EVENT
 } from "@/lib/kiosk-persisted-insights";
+import { MATCH_SIMULATOR_ENABLED } from "@/lib/match-simulator/feature-flag";
 import { ProfileDropdown } from "@/components/profile/profile-dropdown";
 import { MatchRadarHomeCta } from "@/components/match-radar/match-radar-home-cta";
 import { DataRefreshScheduleBanner } from "@/components/data-refresh/data-refresh-schedule-banner";
@@ -105,9 +106,16 @@ const navigationItems = [
   }
 ] as const;
 
+const SIMULATOR_HREF = "/kiosk/simulatore-match";
+
+/** Simulatore sospeso: resta fuori da menu, accesso rapido e card finché il flag è off. */
+const visibleNavigationItems = navigationItems.filter(
+  (item) => MATCH_SIMULATOR_ENABLED || item.href !== SIMULATOR_HREF
+);
+
 const menuItems = [
   { label: "Dashboard", href: "/", icon: Home },
-  ...navigationItems.map(({ label, href, icon }) => ({ label, href, icon })),
+  ...visibleNavigationItems.map(({ label, href, icon }) => ({ label, href, icon })),
   { label: "Il mio profilo", href: "/profilo", icon: UserRound },
   { label: "Impostazioni", href: "#settings", icon: Settings }
 ];
@@ -169,7 +177,7 @@ const featureCards = [
     color: "text-cyan-300",
     glow: "shadow-[0_0_28px_rgba(56,189,248,0.14)]"
   }
-];
+].filter((card) => MATCH_SIMULATOR_ENABLED || card.href !== SIMULATOR_HREF);
 
 function formatDashboardInsightLabel(iso: string | null): string {
   if (!iso) return "—";
@@ -374,7 +382,7 @@ function QuickAccessSection() {
         <p className="mt-2 text-sm text-slate-500">Apri subito le funzioni del menu analitico.</p>
       </div>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-        {navigationItems.map((item) => (
+        {visibleNavigationItems.map((item) => (
           <QuickAccessButton key={item.label} item={item} />
         ))}
       </div>

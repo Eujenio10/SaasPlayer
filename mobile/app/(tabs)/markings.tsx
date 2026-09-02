@@ -7,6 +7,7 @@ import { DifficultMarkingsList } from "@/components/difficult-markings/Difficult
 import { MarkingsCompetitionPicker } from "@/components/difficult-markings/MarkingsCompetitionPicker";
 import { markingsColors } from "@/components/difficult-markings/markings-theme";
 import { useAuth } from "@/contexts/AuthContext";
+import { useLocale } from "@/contexts/LocaleContext";
 import { subscribeAdminCatalogRefresh } from "@/lib/admin-catalog-refresh";
 import { DEFAULT_MENU_COMPETITION_ID } from "@/lib/competitions-with-matches";
 import { useCompetitionsWithMatches } from "@/lib/competitions/useCompetitionsWithMatches";
@@ -14,10 +15,13 @@ import { canViewDifficultMarkings } from "@/lib/difficult-markings/visibility";
 import { useAdminMatchesRefresh } from "@/lib/matches/useAdminMatchesRefresh";
 import { spacing } from "@/lib/theme";
 
+const MARKINGS_DAY_FILTER_ID = "today";
+
 export default function MarkingsScreen() {
+  const { t } = useLocale();
   const { access } = useAuth();
   const { availableIds, preferredId, refresh: refreshCompetitions } = useCompetitionsWithMatches();
-  const [competitionId, setCompetitionId] = useState(DEFAULT_MENU_COMPETITION_ID);
+  const [competitionId, setCompetitionId] = useState<string>(DEFAULT_MENU_COMPETITION_ID);
   const [refreshToken, setRefreshToken] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const adminRefresh = useAdminMatchesRefresh(() => {
@@ -26,6 +30,7 @@ export default function MarkingsScreen() {
   });
 
   useEffect(() => {
+    if (competitionId === "today") return;
     if (preferredId && (!availableIds?.includes(competitionId as never) || !competitionId)) {
       setCompetitionId(preferredId);
     }
@@ -67,11 +72,8 @@ export default function MarkingsScreen() {
             <Text style={styles.brandPitch}>Pitch</Text>
             <Text style={styles.brandBrain}>Brain</Text>
           </Text>
-          <Text style={styles.title}>Marcature difficili</Text>
-          <Text style={styles.subtitle}>
-            Per ogni duello: quale marcatore dovrà arginare un attaccante difficile, con indice basato su falli subiti e
-            dribbling.
-          </Text>
+          <Text style={styles.title}>{t("markings.title")}</Text>
+          <Text style={styles.subtitle}>{t("markings.subtitle")}</Text>
         </View>
 
         {access?.canRefreshData ? (
@@ -85,14 +87,15 @@ export default function MarkingsScreen() {
           />
         ) : null}
 
-        <Text style={styles.pickerLabel}>Campionato</Text>
+        <Text style={styles.pickerLabel}>{t("markings.competition")}</Text>
         <MarkingsCompetitionPicker
           variant="matrix"
           active={competitionId}
           onChange={setCompetitionId}
           availableIds={availableIds}
+          extraOptions={[{ id: MARKINGS_DAY_FILTER_ID, label: t("markings.today") }]}
         />
-        {availableIds && availableIds.length > 0 ? (
+        {competitionId === "today" || (availableIds && availableIds.length > 0) ? (
           <DifficultMarkingsList
             competitionId={competitionId}
             refreshToken={refreshToken}

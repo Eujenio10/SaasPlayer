@@ -6,6 +6,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { canAccessFeatureId } from "@/lib/access/features";
 import { useAccessFlow } from "@/contexts/AccessFlowContext";
 import { useMatchRadar } from "@/lib/match-radar/useMatchRadar";
+import { useLocale } from "@/contexts/LocaleContext";
 import type { MatchRadarMode } from "@/lib/match-radar/config";
 import {
   MATCH_RADAR_UI_TEXT,
@@ -114,8 +115,8 @@ export function MatchRadarScreen({ compact = false }: { compact?: boolean }) {
   const { userStatus } = useAuth();
   const { openPaywall } = useAccessFlow();
   const [mode, setMode] = useState<MatchRadarMode>("general");
-  const { data, loading, error } = useMatchRadar(mode);
-  const locale: "it" | "en" = "it";
+  const { locale } = useLocale();
+  const { data, loading, error } = useMatchRadar(mode, locale);
   const ui = MATCH_RADAR_UI_TEXT[locale];
   const isPro = canAccessFeatureId(userStatus, "proFilters");
   const matches = compact ? (data?.matches ?? []).slice(0, 1) : (data?.matches ?? []);
@@ -173,7 +174,7 @@ export function MatchRadarScreen({ compact = false }: { compact?: boolean }) {
         ) : null}
 
         {!compact ? (
-          <PitchBrainLoading visible={loading} message="Analisi in corso…" />
+          <PitchBrainLoading visible={loading} />
         ) : null}
       </View>
     </View>

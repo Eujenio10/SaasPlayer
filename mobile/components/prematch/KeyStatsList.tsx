@@ -1,6 +1,7 @@
 import { StyleSheet, Text, View } from "react-native";
 import type { PreMatchKeyStat } from "@/lib/prematch-report/types";
 import { colors, radii, spacing } from "@/lib/theme";
+import { t } from "@/lib/i18n";
 
 export function KeyStatsList({
   stats,
@@ -16,7 +17,7 @@ export function KeyStatsList({
   return (
     <View style={styles.wrap}>
       <View style={styles.headerRow}>
-        <Text style={[styles.headerCell, styles.labelCol]}>Metrica</Text>
+        <Text style={[styles.headerCell, styles.labelCol]}>{t("prematch.metric")}</Text>
         <Text style={styles.headerCell} numberOfLines={1}>
           {homeTeamName}
         </Text>

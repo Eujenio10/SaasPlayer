@@ -73,7 +73,12 @@ export function AuthPanel({ initialMode = "login", nextPath = "/", error }: Auth
       const { data, error: signUpError } = await supabase.auth.signUp({
         email: email.trim(),
         password,
-        options: { emailRedirectTo: webAuthRedirectTo(nextPath) }
+        options: {
+          emailRedirectTo: webAuthRedirectTo(
+            `/account/welcome?locale=${navigator.language.toLowerCase().startsWith("en") ? "en" : "it"}`
+          ),
+          data: { locale: navigator.language.toLowerCase().startsWith("en") ? "en" : "it" }
+        }
       });
       if (signUpError) {
         setFormError(mapAuthError(signUpError));
@@ -104,7 +109,9 @@ export function AuthPanel({ initialMode = "login", nextPath = "/", error }: Auth
     try {
       const supabase = createSupabaseBrowserClient();
       const { error: resetError } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-        redirectTo: webAuthRedirectTo("/set-password")
+        redirectTo: webAuthRedirectTo(
+          `/set-password?locale=${navigator.language.toLowerCase().startsWith("en") ? "en" : "it"}`
+        )
       });
       if (resetError) {
         setFormError(mapAuthError(resetError));
@@ -128,7 +135,11 @@ export function AuthPanel({ initialMode = "login", nextPath = "/", error }: Auth
       const { error: resendError } = await supabase.auth.resend({
         type: "signup",
         email: email.trim(),
-        options: { emailRedirectTo: webAuthRedirectTo(nextPath) }
+        options: {
+          emailRedirectTo: webAuthRedirectTo(
+            `/account/welcome?locale=${navigator.language.toLowerCase().startsWith("en") ? "en" : "it"}`
+          )
+        }
       });
       if (resendError) {
         setFormError(mapAuthError(resendError));

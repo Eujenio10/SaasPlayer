@@ -4,12 +4,15 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { notifyAdminCatalogRefresh } from "@/lib/admin-catalog-refresh";
 import { useAuth } from "@/contexts/AuthContext";
 import { canViewDifficultMarkings } from "@/lib/difficult-markings/visibility";
+import { MATCH_SIMULATOR_ENABLED } from "@/lib/match-simulator/feature-flag";
 import { colors } from "@/lib/theme";
 import { pitchbrainColors } from "@/lib/pitchbrain-theme";
 import { useRefetchOnAppActive } from "@/lib/use-refetch-on-app-active";
+import { useLocale } from "@/contexts/LocaleContext";
 
 export default function TabLayout() {
   const insets = useSafeAreaInsets();
+  const { t } = useLocale();
   const { access } = useAuth();
   const showMarkings = canViewDifficultMarkings(access);
   useRefetchOnAppActive(() => notifyAdminCatalogRefresh());
@@ -38,7 +41,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: "Home",
+          title: t("tabs.home"),
           headerShown: false,
           tabBarIcon: ({ color, size }) => <Ionicons name="home" size={size} color={color} />
         }}
@@ -46,7 +49,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="matches"
         options={{
-          title: "Analisi",
+          title: t("tabs.analysis"),
           headerShown: false,
           tabBarIcon: ({ color, size }) => <Ionicons name="football" size={size} color={color} />
         }}
@@ -54,7 +57,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="markings"
         options={{
-          title: "Marcature",
+          title: t("tabs.markings"),
           headerShown: false,
           href: showMarkings ? "/markings" : null,
           tabBarIcon: ({ color, size }) => <Ionicons name="shield-half-outline" size={size} color={color} />
@@ -63,7 +66,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="trends"
         options={{
-          title: "Trend",
+          title: t("tabs.trends"),
           headerShown: false,
           tabBarIcon: ({ color, size }) => <Ionicons name="trending-up" size={size} color={color} />
         }}
@@ -71,8 +74,9 @@ export default function TabLayout() {
       <Tabs.Screen
         name="simulator"
         options={{
-          title: "Simulatore",
+          title: t("tabs.simulator"),
           headerShown: false,
+          href: MATCH_SIMULATOR_ENABLED ? "/simulator" : null,
           tabBarIcon: ({ color, size }) => <Ionicons name="analytics" size={size} color={color} />
         }}
       />
@@ -85,7 +89,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="profile"
         options={{
-          title: "Profilo",
+          title: t("tabs.profile"),
           headerTitleAlign: "center",
           headerStyle: { backgroundColor: pitchbrainColors.bg },
           headerTintColor: pitchbrainColors.text,

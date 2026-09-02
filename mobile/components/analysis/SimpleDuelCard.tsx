@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { analysisColors, playerInitials } from "@/components/analysis/analysis-theme";
 import { MiniDuelHeatmap } from "@/components/intensity/MiniDuelHeatmap";
 import { findTacticalMetric, resolveDuelHeatmapPayload } from "@/lib/duel-heatmap";
+import { t } from "@/lib/i18n";
 import type { TacticalMetrics } from "@/lib/types";
 
 export function SimpleDuelCard({
@@ -39,7 +40,7 @@ export function SimpleDuelCard({
     <Pressable
       onPress={() => setHeatmapOpen((open) => !open)}
       accessibilityRole="button"
-      accessibilityLabel={`${playerA} contro ${playerB}. ${heatmapOpen ? "Nascondi" : "Mostra"} heatmap`}
+      accessibilityLabel={`${playerA} ${t("common.against")} ${playerB}. ${heatmapOpen ? t("intensity.hideHeatmapA11y") : t("intensity.showHeatmapA11y")}`}
       style={({ pressed }) => [styles.card, pressed && styles.pressed]}
     >
       <View style={styles.duelRow}>
@@ -58,13 +59,13 @@ export function SimpleDuelCard({
         </View>
       </View>
       <View style={styles.scoreRow}>
-        <Text style={styles.scoreLabel}>Indice scontro</Text>
+        <Text style={styles.scoreLabel}>{t("intensity.contestIndex")}</Text>
         <Text style={styles.scoreValue}>{intensityLabel}</Text>
       </View>
       {roles ? <Text style={styles.roles}>{roles}</Text> : null}
       {reading ? <Text style={styles.reading}>{reading}</Text> : null}
       {heatmapOpen ? <MiniDuelHeatmap payload={heatmap} /> : null}
-      <Text style={styles.hint}>{heatmapOpen ? "Nascondi approfondimento" : "Apri approfondimento heatmap"}</Text>
+      <Text style={styles.hint}>{heatmapOpen ? t("intensity.hideHeatmap") : t("intensity.openHeatmap")}</Text>
     </Pressable>
   );
 }

@@ -1,11 +1,12 @@
 import { useCallback, useState } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
-import { useFocusEffect, useLocalSearchParams } from "expo-router";
+import { Redirect, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { AnalysisNavHeader } from "@/components/analysis/AnalysisNavHeader";
 import { PitchBrainLoading } from "@/components/PitchBrainLoading";
 import { SimulationDetailView } from "@/components/match-simulator/SimulationDetailView";
 import { fetchMatchSimulatorDetail } from "@/lib/match-simulator/api";
+import { MATCH_SIMULATOR_ENABLED } from "@/lib/match-simulator/feature-flag";
 import { translateTeamName } from "@/lib/italian-display";
 import { pitchbrainColors } from "@/lib/pitchbrain-theme";
 import type {
@@ -14,6 +15,13 @@ import type {
 } from "@/lib/match-simulator/types";
 
 export default function SimulatorDetailScreen() {
+  /** Funzionalità sospesa: la tab è nascosta, questo copre i deep link residui. */
+  if (!MATCH_SIMULATOR_ENABLED) return <Redirect href="/" />;
+
+  return <SimulatorDetailScreenContent />;
+}
+
+function SimulatorDetailScreenContent() {
   const params = useLocalSearchParams<{ eventId?: string }>();
   const fixtureId = typeof params.eventId === "string" ? params.eventId : "";
   const [loading, setLoading] = useState(true);
@@ -80,7 +88,7 @@ export default function SimulatorDetailScreen() {
             <Text style={styles.error}>{error ?? "Simulazione non disponibile."}</Text>
           </View>
         ) : null}
-        <PitchBrainLoading visible={loading} message="Analisi in corso…" />
+        <PitchBrainLoading visible={loading} />
       </View>
     </SafeAreaView>
   );

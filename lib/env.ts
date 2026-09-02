@@ -63,5 +63,8 @@ export const env = {
   },
   get AUTH_EMAIL_FROM() {
     return process.env.AUTH_EMAIL_FROM?.trim() || "PitchBrain <onboarding@resend.dev>";
+  },
+  get SEND_EMAIL_HOOK_SECRET() {
+    return process.env.SEND_EMAIL_HOOK_SECRET?.trim() ?? "";
   }
 };

@@ -3,7 +3,8 @@ import type { Session, User } from "@supabase/supabase-js";
 import { deriveUserAccessStatus } from "@/lib/access/user-status";
 import type { SubscriptionEntitlement, UserAccessStatus } from "@/lib/access/types";
 import { ensureWebAuthRedirect, passwordResetRedirectUrl, signupEmailRedirectUrl } from "@/lib/auth-redirect";
-import { fetchUserAccess, deleteUserAccount } from "@/lib/api";
+import { getActiveLocale } from "@/lib/i18n";
+import { requestPasswordReset, fetchUserAccess, deleteUserAccount } from "@/lib/api";
 import {
   refreshUserEntitlements,
   restorePurchases as restorePurchasesFromStore,
@@ -128,13 +129,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signUp = useCallback(async (email: string, password: string): Promise<SignUpResult> => {
     signingOutRef.current = false;
     const normalizedEmail = email.trim();
-    const emailRedirectTo = ensureWebAuthRedirect(signupEmailRedirectUrl(), "/account/welcome");
+    const locale = getActiveLocale();
+    const welcomeNext = `/account/welcome?locale=${locale}`;
+    const emailRedirectTo = ensureWebAuthRedirect(signupEmailRedirectUrl(locale), welcomeNext);
     console.warn("[auth] signUp redirect", emailRedirectTo);
     let { data, error } = await withTimeout(
       supabase.auth.signUp({
         email: normalizedEmail,
         password,
-        options: { emailRedirectTo }
+        options: {
+          emailRedirectTo,
+          data: { locale }
+        }
       }),
       20_000,
       "auth_timeout"
@@ -182,18 +188,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const { error } = await supabase.auth.resend({
       type: "signup",
       email: email.trim(),
-      options: { emailRedirectTo: ensureWebAuthRedirect(signupEmailRedirectUrl(), "/account/welcome") }
+      options: {
+        emailRedirectTo: ensureWebAuthRedirect(
+          signupEmailRedirectUrl(getActiveLocale()),
+          `/account/welcome?locale=${getActiveLocale()}`
+        )
+      }
     });
     if (error) throw error;
   }, []);
 
   const resetPassword = useCallback(async (email: string) => {
-    const redirectTo = ensureWebAuthRedirect(passwordResetRedirectUrl(), "/set-password");
-    console.warn("[auth] reset redirect", redirectTo);
-    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-      redirectTo
-    });
-    if (error) throw error;
+    const locale = getActiveLocale();
+    try {
+      await requestPasswordReset(email.trim(), locale);
+      return;
+    } catch (apiError) {
+      console.warn("[auth] resetPassword api failed", apiError);
+      const redirectTo = ensureWebAuthRedirect(
+        passwordResetRedirectUrl(locale),
+        `/set-password?locale=${locale}`
+      );
+      const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+        redirectTo
+      });
+      if (error) {
+        console.warn("[auth] resetPassword fallback failed", error.code, error.message);
+        throw error;
+      }
+    }
   }, []);
 
   const updatePassword = useCallback(async (password: string) => {

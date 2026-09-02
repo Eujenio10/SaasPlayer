@@ -2,8 +2,8 @@ import { getOrCreateDeviceId } from "@/lib/device-id";
 import { supabase } from "@/lib/supabase";
 import { withTimeout } from "@/lib/with-timeout";
 
-/** Timeout letture UI. Il catalogo è già in DB: non deve restare in spinner, ma 20s copre un cold start Vercel. */
-export const USER_API_TIMEOUT_MS = 12_000;
+/** Timeout letture UI. 25s copre cold start Vercel + menu calendario da database. */
+export const USER_API_TIMEOUT_MS = 25_000;
 export const AUTH_BOOT_TIMEOUT_MS = 4_000;
 
 export async function getSessionSafely() {

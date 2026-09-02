@@ -2,16 +2,18 @@ import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { Stack } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { MatchRadarScreen } from "@/components/match-radar/MatchRadarScreen";
+import { useLocale } from "@/contexts/LocaleContext";
 import { MATCH_RADAR_UI_TEXT } from "@/lib/match-radar/text";
 import { pitchbrainColors } from "@/lib/pitchbrain-theme";
 import { spacing } from "@/lib/theme";
 
 export default function MatchRadarIndexScreen() {
+  const { locale } = useLocale();
   return (
     <>
       <Stack.Screen
         options={{
-          title: MATCH_RADAR_UI_TEXT.it.title,
+          title: MATCH_RADAR_UI_TEXT[locale].title,
           headerStyle: { backgroundColor: pitchbrainColors.bg },
           headerTintColor: pitchbrainColors.green,
           headerTitleStyle: { color: pitchbrainColors.text, fontWeight: "800" },

@@ -5,6 +5,7 @@ import { AdminCompetitionRefreshBar } from "@/components/AdminCompetitionRefresh
 import { MarkingsCompetitionPicker } from "@/components/difficult-markings/MarkingsCompetitionPicker";
 import { TrendsList } from "@/components/trends/TrendsList";
 import { useAuth } from "@/contexts/AuthContext";
+import { useLocale } from "@/contexts/LocaleContext";
 import { subscribeAdminCatalogRefresh } from "@/lib/admin-catalog-refresh";
 import { DEFAULT_MENU_COMPETITION_ID } from "@/lib/competitions-with-matches";
 import { useCompetitionsWithMatches } from "@/lib/competitions/useCompetitionsWithMatches";
@@ -13,6 +14,7 @@ import { pitchbrainColors } from "@/lib/pitchbrain-theme";
 import { spacing } from "@/lib/theme";
 
 export default function TrendsScreen() {
+  const { t } = useLocale();
   const { access } = useAuth();
   const { availableIds, preferredId, refresh: refreshCompetitions } = useCompetitionsWithMatches();
   const [competitionId, setCompetitionId] = useState(DEFAULT_MENU_COMPETITION_ID);
@@ -61,8 +63,8 @@ export default function TrendsScreen() {
             <Text style={styles.brandPitch}>Pitch</Text>
             <Text style={styles.brandBrain}>Brain</Text>
           </Text>
-          <Text style={styles.title}>Trend</Text>
-          <Text style={styles.subtitle}>Chi sta migliorando nelle ultime 5 presenze.</Text>
+          <Text style={styles.title}>{t("trends.title")}</Text>
+          <Text style={styles.subtitle}>{t("trends.subtitle")}</Text>
         </View>
 
         {access?.canRefreshData ? (
@@ -76,7 +78,7 @@ export default function TrendsScreen() {
           />
         ) : null}
 
-        <Text style={styles.pickerLabel}>Campionato</Text>
+        <Text style={styles.pickerLabel}>{t("trends.competition")}</Text>
         <MarkingsCompetitionPicker
           variant="matrix"
           active={competitionId}

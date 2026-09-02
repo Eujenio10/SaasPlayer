@@ -10,15 +10,15 @@ import type { PlayerTrend, TrendMetric } from "@/lib/trends/types";
 import { useAuth } from "@/contexts/AuthContext";
 import { translateTeamName } from "@/lib/italian-display";
 import { pitchbrainColors } from "@/lib/pitchbrain-theme";
-
-const USER_EMPTY_TRENDS = "Nessun trend disponibile per il campionato selezionato.";
+import { useLocale } from "@/contexts/LocaleContext";
+import { t } from "@/lib/i18n";
 
 type MetricFilter = "all" | TrendMetric;
 
 const METRIC_FILTERS: MetricFilter[] = ["all", "shots", "shots_on_target", "saves"];
 
 function metricFilterLabel(metric: MetricFilter): string {
-  if (metric === "all") return "Tutti";
+  if (metric === "all") return t("trendsExtra.all");
   return metricLabelIt(metric);
 }
 
@@ -34,7 +34,7 @@ function growthDisplay(relativeDelta: number): {
   if (pct < 0) {
     return { arrow: "↓", text: `${pct}%`, color: pitchbrainColors.danger };
   }
-  return { arrow: "→", text: "stabile", color: pitchbrainColors.textDim };
+  return { arrow: "→", text: t("trendsExtra.stable"), color: pitchbrainColors.textDim };
 }
 
 function FilterChip({
@@ -67,7 +67,9 @@ export function TrendsList({
   refreshToken?: number;
   onCompetitionChange?: (competitionId: string) => void;
 }) {
+  const { locale } = useLocale();
   const { access } = useAuth();
+  void locale;
   const isAdmin = Boolean(access?.isAdmin || access?.canRefreshData);
   const autoCompetitionAppliedRef = useRef<string | null>(null);
   const requestSeq = useRef(0);
@@ -122,11 +124,9 @@ export function TrendsList({
 
       if (!data.results?.length) {
         if (data.deferredUntilMatchdays && data.deferredUntilMatchdays > 0) {
-          setError(
-            `I Trend saranno disponibili dalla ${data.deferredUntilMatchdays}ª giornata di questa stagione.`
-          );
+          setError(t("trendsExtra.deferred", { n: data.deferredUntilMatchdays }));
         } else if (!isAdmin) {
-          setError(USER_EMPTY_TRENDS);
+          setError(t("trendsExtra.empty"));
         } else if (data.trendDatabaseReady === false) {
           setError(
             "Database Trend non configurato. Applica la migration Supabase, riavvia il server e usa Aggiorna dati."
@@ -143,7 +143,7 @@ export function TrendsList({
       }
     } catch {
       if (seq !== requestSeq.current) return;
-      setError("Impossibile caricare i Trend.");
+      setError(t("trendsExtra.loadFailed"));
       setResults([]);
     } finally {
       if (seq === requestSeq.current) {
@@ -175,9 +175,9 @@ export function TrendsList({
     <View style={styles.wrap}>
       {availableRounds.length > 1 ? (
         <View style={styles.filterGroup}>
-          <Text style={styles.filterLabel}>Giornata</Text>
+          <Text style={styles.filterLabel}>{t("trendsExtra.matchday")}</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filters}>
-            <FilterChip label="Tutte" selected={!round} onPress={() => setRound("")} />
+            <FilterChip label={t("trendsExtra.allRounds")} selected={!round} onPress={() => setRound("")} />
             {availableRounds.map((item) => (
               <FilterChip
                 key={item}
@@ -191,7 +191,7 @@ export function TrendsList({
       ) : null}
 
       <View style={styles.filterGroup}>
-        <Text style={styles.filterLabel}>Statistica</Text>
+        <Text style={styles.filterLabel}>{t("trendsExtra.statistic")}</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filters}>
           {METRIC_FILTERS.map((item) => (
             <FilterChip
@@ -213,8 +213,8 @@ export function TrendsList({
           <View style={styles.emptyWrap}>
             <Text style={styles.emptyText}>
               {metric === "all"
-                ? "Nessun trend disponibile per il campionato selezionato."
-                : `Nessun trend su ${metricFilterLabel(metric)} per la giornata selezionata. Prova un'altra statistica.`}
+                ? t("trendsExtra.empty")
+                : t("trendsExtra.emptyMetric", { metric: metricFilterLabel(metric) })}
             </Text>
           </View>
         ) : results.length ? (
@@ -223,7 +223,7 @@ export function TrendsList({
             <View style={styles.hero}>
               <View style={styles.heroTop}>
                 <View style={styles.heroTopCopy}>
-                  <Text style={styles.heroLabel}>#1 Miglior trend</Text>
+                  <Text style={styles.heroLabel}>{t("trendsExtra.best")}</Text>
                   <Text style={styles.heroMetric}>
                     {metricLabelIt(hero.metric)} · {metricUnitIt(hero.metric)}
                   </Text>
@@ -232,7 +232,7 @@ export function TrendsList({
                   style={styles.scoreBlock}
                   accessibilityLabel={`Trend Score ${hero.trendScore} su 100`}
                 >
-                  <Text style={styles.scoreLabel}>Trend Score</Text>
+                  <Text style={styles.scoreLabel}>{t("trendsExtra.score")}</Text>
                   <Text>
                     <Text style={styles.scoreValue}>{hero.trendScore}</Text>
                     <Text style={styles.scoreDenom}>/100</Text>
@@ -247,20 +247,23 @@ export function TrendsList({
 
               <Text
                 style={[styles.growth, { color: heroGrowth.color }]}
-                accessibilityLabel={`${heroGrowth.arrow} ${heroGrowth.text} nelle ultime 5 presenze`}
+                accessibilityLabel={t("trendsExtra.lastFiveA11y", {
+                  arrow: heroGrowth.arrow,
+                  text: heroGrowth.text
+                })}
               >
                 {heroGrowth.arrow} {heroGrowth.text}
               </Text>
-              <Text style={styles.growthHint}>nelle ultime 5 presenze</Text>
+              <Text style={styles.growthHint}>{t("trendsExtra.lastFiveHint")}</Text>
 
               <View style={styles.compareRow}>
                 <View style={styles.compareCol}>
-                  <Text style={styles.compareLabel}>Media precedente</Text>
+                  <Text style={styles.compareLabel}>{t("trendsExtra.previousAvg")}</Text>
                   <Text style={styles.comparePrev}>{hero.baseline.per90.toFixed(1)}</Text>
                 </View>
                 <Text style={styles.compareArrow}>→</Text>
                 <View style={styles.compareCol}>
-                  <Text style={styles.compareLabel}>Ultime 5</Text>
+                  <Text style={styles.compareLabel}>{t("trendsExtra.lastFive")}</Text>
                   <Text style={styles.compareRecent}>{hero.recent.per90.toFixed(1)}</Text>
                 </View>
               </View>
@@ -303,7 +306,7 @@ export function TrendsList({
           })}
         </>
       ) : null}
-        <PitchBrainLoading visible={loading} message="Analisi in corso…" />
+        <PitchBrainLoading visible={loading} />
       </View>
     </View>
   );

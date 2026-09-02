@@ -15,53 +15,40 @@ import { clearPreMatchReportCache, fetchPreMatchReport } from "@/lib/prematch-re
 import { subscribeAdminCatalogRefresh } from "@/lib/admin-catalog-refresh";
 import type { PreMatchReport } from "@/lib/prematch-report/types";
 import type { GuestPreviewMode } from "@/lib/access/guest-preview-mode";
-import { MATCH_DATA_UNAVAILABLE_MESSAGE } from "@/lib/analysis-unavailable";
 import { useAccessFlow } from "@/contexts/AccessFlowContext";
 import { PITCHBRAIN_MOBILE_PRO_PLANS_ENABLED } from "@/lib/access/pro-plans";
 import { useDeferredLoading } from "@/lib/use-deferred-loading";
 import { colors, radii, spacing } from "@/lib/theme";
-
-function resolveErrorMessage(error: unknown): string {
-  if (!(error instanceof Error)) return MATCH_DATA_UNAVAILABLE_MESSAGE;
-  const userMessage = (error as Error & { userMessage?: string }).userMessage;
-  if (userMessage) return userMessage;
-  switch (error.message) {
-    case "premium_required":
-      return "Il Report Pre-Partita è disponibile per gli account Pro e Admin.";
-    case "insufficient_data":
-      return MATCH_DATA_UNAVAILABLE_MESSAGE;
-    case "match_not_found":
-      return "Partita non trovata nel calendario organizzazione.";
-    case "not_authenticated":
-      return "Accedi per consultare il report.";
-    default:
-      return MATCH_DATA_UNAVAILABLE_MESSAGE;
-  }
-}
+import { useLocale } from "@/contexts/LocaleContext";
+import { LOCALE_BCP47, t, translatePrematchBadge, translatePrematchKeyFactor } from "@/lib/i18n";
+import {
+  localizePrematchKeyStats,
+  localizePrematchText,
+  localizeSetPieceWeight,
+  prematchSectionMeta
+} from "@/lib/prematch/localize";
 
 function isPremiumError(error: unknown): boolean {
   return error instanceof Error && error.message === "premium_required";
 }
 
-function setPieceWeightLabel(weight: PreMatchReport["setPieces"]["weight"]): string {
-  const map = {
-    basso: "Basso",
-    medio: "Medio",
-    medio_alto: "Medio-alto",
-    alto: "Alto"
-  } as const;
-  return map[weight];
+function resolveErrorMessageLocalized(error: unknown): string {
+  if (!(error instanceof Error)) return t("common.noData");
+  const userMessage = (error as Error & { userMessage?: string }).userMessage;
+  if (userMessage) return userMessage;
+  switch (error.message) {
+    case "premium_required":
+      return t("prematch.premiumReservedBody");
+    case "insufficient_data":
+      return t("common.noData");
+    case "match_not_found":
+      return t("prematch.invalidMatch");
+    case "not_authenticated":
+      return t("login.signIn");
+    default:
+      return t("common.noData");
+  }
 }
-
-const SECTION_COPY: Record<ReportSectionId, string> = {
-  summary: "Lettura generale del match",
-  realForm: "Stato di forma delle due squadre",
-  offensive: "Produzione offensiva e pericolosità",
-  defensive: "Solidità e vulnerabilità",
-  keyZone: "Zona o fase di gioco decisiva",
-  tempo: "Possesso atteso, verticalità e gestione",
-  setPieces: "Corner, punizioni e situazioni da fermo"
-};
 
 export function PreMatchReportView({
   eventId,
@@ -87,12 +74,13 @@ export function PreMatchReportView({
   const [premiumLocked, setPremiumLocked] = useState(false);
   const [activeSection, setActiveSection] = useState<ReportSectionId>("summary");
   const { openPaywall } = useAccessFlow();
+  const { locale } = useLocale();
   const showOverlay = useDeferredLoading(loading);
 
   const load = useCallback(
     async (refresh = false) => {
       if (!Number.isFinite(eventId)) {
-        setError("Partita non valida.");
+        setError(t("prematch.invalidMatch"));
         setLoading(false);
         return;
       }
@@ -124,7 +112,7 @@ export function PreMatchReportView({
         if (PITCHBRAIN_MOBILE_PRO_PLANS_ENABLED && isPremiumError(e)) {
           setPremiumLocked(true);
         } else {
-          setError(resolveErrorMessage(e));
+          setError(resolveErrorMessageLocalized(e));
         }
         setReport(null);
       } finally {
@@ -148,9 +136,9 @@ export function PreMatchReportView({
     [eventId, load]
   );
 
-  const homeDisplay = homeName ?? report?.homeTeamName ?? "Casa";
-  const awayDisplay = awayName ?? report?.awayTeamName ?? "Trasferta";
-  const competitionDisplay = competition ?? report?.competitionName ?? "Competizione";
+  const homeDisplay = homeName ?? report?.homeTeamName ?? t("prematch.home");
+  const awayDisplay = awayName ?? report?.awayTeamName ?? t("prematch.away");
+  const competitionDisplay = competition ?? report?.competitionName ?? t("prematch.competition");
 
   const activeSectionContent = useMemo(() => {
     if (!report) return null;
@@ -160,31 +148,31 @@ export function PreMatchReportView({
         return (
           <ReportSectionCard
             hideTitle
-            title="Sintesi iniziale"
-            description="Lettura generale della partita attesa"
-            text={report.summary.text}
+            title={t("prematch.summary")}
+            description={t("prematch.summaryDesc")}
+            text={localizePrematchText(report.summary.text, locale)}
             homeTeamName={homeDisplay}
             awayTeamName={awayDisplay}
             highlight={
               <View style={styles.badgeGrid}>
-                <ReportMetricBadge label="Tipo partita" value={report.summary.matchTypeLabel} tone="cyan" />
-                <ReportMetricBadge label="Ritmo atteso" value={report.summary.expectedTempoLabel} tone="amber" />
+                <ReportMetricBadge label={t("prematch.matchType")} value={translatePrematchBadge(report.summary.matchTypeLabel)} tone="cyan" />
+                <ReportMetricBadge label={t("prematch.expectedTempo")} value={translatePrematchBadge(report.summary.expectedTempoLabel)} tone="amber" />
                 <ReportMetricBadge
-                  label="Controllo atteso"
-                  value={report.summary.expectedControlTeamName}
+                  label={t("prematch.expectedControl")}
+                  value={translatePrematchBadge(report.summary.expectedControlTeamName)}
                   tone="emerald"
                 />
-                <ReportMetricBadge label="Fase chiave" value={report.summary.keyZoneLabel} tone="rose" />
+                <ReportMetricBadge label={t("prematch.keyPhase")} value={translatePrematchBadge(report.summary.keyZoneLabel)} tone="rose" />
               </View>
             }
           >
             <View style={styles.factorRow}>
-              <Text style={styles.factorLabel}>Fattore principale</Text>
-              <Text style={styles.factorValue}>{report.summary.keyFactor}</Text>
+              <Text style={styles.factorLabel}>{t("prematch.keyFactor")}</Text>
+              <Text style={styles.factorValue}>{translatePrematchKeyFactor(report.summary.keyFactor)}</Text>
             </View>
             <View style={styles.indexRow}>
-              <ReportProgressBar label="Ritmo partita" value={report.indices.matchTempo} color={colors.amber} />
-              <ReportProgressBar label="Equilibrio match" value={report.indices.matchBalance} color="#A78BFA" />
+              <ReportProgressBar label={t("prematch.matchTempo")} value={report.indices.matchTempo} color={colors.amber} />
+              <ReportProgressBar label={t("prematch.matchBalance")} value={report.indices.matchBalance} color="#A78BFA" />
             </View>
           </ReportSectionCard>
         );
@@ -193,14 +181,14 @@ export function PreMatchReportView({
         return (
           <ReportSectionCard
             hideTitle
-            title="Stato di forma reale"
-            description="Forma apparente vs produzione realistica nelle ultime uscite"
-            text={report.realForm.text}
+            title={t("prematch.form")}
+            description={t("prematch.formDesc")}
+            text={localizePrematchText(report.realForm.text, locale)}
             homeTeamName={homeDisplay}
             awayTeamName={awayDisplay}
             homeScore={report.realForm.homeScore}
             awayScore={report.realForm.awayScore}
-            keyStats={report.realForm.keyStats}
+            keyStats={localizePrematchKeyStats(report.realForm.keyStats, locale)}
           />
         );
 
@@ -208,14 +196,14 @@ export function PreMatchReportView({
         return (
           <ReportSectionCard
             hideTitle
-            title="Profilo offensivo delle squadre"
-            description="Come le due squadre creano occasioni e volume d'attacco"
-            text={report.offensiveProfile.text}
+            title={t("prematch.offensive")}
+            description={t("prematch.offensiveDesc")}
+            text={localizePrematchText(report.offensiveProfile.text, locale)}
             homeTeamName={homeDisplay}
             awayTeamName={awayDisplay}
             homeScore={report.offensiveProfile.homeScore}
             awayScore={report.offensiveProfile.awayScore}
-            keyStats={report.offensiveProfile.keyStats}
+            keyStats={localizePrematchKeyStats(report.offensiveProfile.keyStats, locale)}
           />
         );
 
@@ -223,14 +211,14 @@ export function PreMatchReportView({
         return (
           <ReportSectionCard
             hideTitle
-            title="Profilo difensivo delle squadre"
-            description="Volume e qualità delle occasioni concesse"
-            text={report.defensiveProfile.text}
+            title={t("prematch.defensive")}
+            description={t("prematch.defensiveDesc")}
+            text={localizePrematchText(report.defensiveProfile.text, locale)}
             homeTeamName={homeDisplay}
             awayTeamName={awayDisplay}
             homeScore={report.defensiveProfile.homeScore}
             awayScore={report.defensiveProfile.awayScore}
-            keyStats={report.defensiveProfile.keyStats}
+            keyStats={localizePrematchKeyStats(report.defensiveProfile.keyStats, locale)}
           />
         );
 
@@ -238,21 +226,21 @@ export function PreMatchReportView({
         return (
           <ReportSectionCard
             hideTitle
-            title="Dove può decidersi la partita"
-            description="Zona o fase di gioco con il mismatch tattico più rilevante"
-            text={report.keyZone.text}
+            title={t("prematch.keyZone")}
+            description={t("prematch.keyZoneDesc")}
+            text={localizePrematchText(report.keyZone.text, locale)}
             homeTeamName={homeDisplay}
             awayTeamName={awayDisplay}
-            keyStats={report.keyZone.keyStats}
+            keyStats={localizePrematchKeyStats(report.keyZone.keyStats, locale)}
             highlight={
               <View style={styles.badgeGrid}>
-                <ReportMetricBadge label="Zona chiave" value={report.keyZone.zoneLabel} tone="cyan" />
-                <ReportMetricBadge label="Vantaggio tattico" value={report.keyZone.advantagedTeamName} tone="emerald" />
-                <ReportMetricBadge label="Indice zona" value={`${report.keyZone.score}/100`} tone="amber" />
+                <ReportMetricBadge label={t("prematch.zone")} value={translatePrematchBadge(report.keyZone.zoneLabel)} tone="cyan" />
+                <ReportMetricBadge label={t("prematch.tacticalEdge")} value={translatePrematchBadge(report.keyZone.advantagedTeamName)} tone="emerald" />
+                <ReportMetricBadge label={t("prematch.zoneIndex")} value={`${report.keyZone.score}/100`} tone="amber" />
               </View>
             }
           >
-            <ReportProgressBar label="Indice zona decisiva" value={report.keyZone.score} color={colors.cyan} />
+            <ReportProgressBar label={t("prematch.decisiveZone")} value={report.keyZone.score} color={colors.cyan} />
           </ReportSectionCard>
         );
 
@@ -260,27 +248,27 @@ export function PreMatchReportView({
         return (
           <ReportSectionCard
             hideTitle
-            title="Ritmo e controllo della partita"
-            description="Possesso atteso, verticalità e gestione del match"
-            text={report.tempoControl.text}
+            title={t("prematch.tempo")}
+            description={t("prematch.tempoDesc")}
+            text={localizePrematchText(report.tempoControl.text, locale)}
             homeTeamName={homeDisplay}
             awayTeamName={awayDisplay}
-            keyStats={report.tempoControl.keyStats}
+            keyStats={localizePrematchKeyStats(report.tempoControl.keyStats, locale)}
             highlight={
               <ReportMetricBadge
-                label="Ritmo previsto"
-                value={report.summary.expectedTempoLabel}
+                label={t("prematch.expectedPace")}
+                value={translatePrematchBadge(report.summary.expectedTempoLabel)}
                 tone="amber"
               />
             }
           >
             <ReportProgressBar
-              label={`Controllo ${homeDisplay}`}
+              label={t("prematch.controlOf", { team: homeDisplay })}
               value={report.tempoControl.controlHome}
               color={colors.cyan}
             />
             <ReportProgressBar
-              label={`Controllo ${awayDisplay}`}
+              label={t("prematch.controlOf", { team: awayDisplay })}
               value={report.tempoControl.controlAway}
               color={colors.amber}
             />
@@ -291,46 +279,45 @@ export function PreMatchReportView({
         return (
           <ReportSectionCard
             hideTitle
-            title="Palle inattive"
-            description="Corner, punizioni e peso potenziale delle situazioni da fermo"
-            text={report.setPieces.text}
+            title={t("prematch.setPieces")}
+            description={t("prematch.setPiecesDesc")}
+            text={localizePrematchText(report.setPieces.text, locale)}
             homeTeamName={homeDisplay}
             awayTeamName={awayDisplay}
-            keyStats={report.setPieces.keyStats}
+            keyStats={localizePrematchKeyStats(report.setPieces.keyStats, locale)}
             highlight={
               <View style={styles.badgeGrid}>
                 <ReportMetricBadge
-                  label="Peso palle inattive"
-                  value={setPieceWeightLabel(report.setPieces.weight)}
+                  label={t("prematch.setPiecesWeight")}
+                  value={localizeSetPieceWeight(report.setPieces.weight, locale)}
                   tone="amber"
                 />
                 <ReportMetricBadge
-                  label="Più pericolosa"
-                  value={report.setPieces.advantagedTeamName}
+                  label={t("prematch.moreDangerous")}
+                  value={translatePrematchBadge(report.setPieces.advantagedTeamName)}
                   tone="emerald"
                 />
                 <ReportMetricBadge
-                  label="Più vulnerabile"
-                  value={report.setPieces.vulnerableTeamName}
+                  label={t("prematch.moreVulnerable")}
+                  value={translatePrematchBadge(report.setPieces.vulnerableTeamName)}
                   tone="rose"
                 />
               </View>
             }
           >
-            <ReportProgressBar label="Indice peso situazioni" value={report.setPieces.weightScore} color={colors.amber} />
+            <ReportProgressBar label={t("prematch.situationsIndex")} value={report.setPieces.weightScore} color={colors.amber} />
           </ReportSectionCard>
         );
     }
-  }, [activeSection, awayDisplay, homeDisplay, report]);
+  }, [activeSection, awayDisplay, homeDisplay, locale, report]);
 
   if (PITCHBRAIN_MOBILE_PRO_PLANS_ENABLED && !loading && guestPreviewMode !== "full") {
     return (
       <View style={styles.premiumWrap}>
         <Ionicons name="lock-closed-outline" size={28} color={colors.amber} />
-        <Text style={styles.premiumTitle}>Report Pre-Partita riservato</Text>
+        <Text style={styles.premiumTitle}>{t("prematch.premiumReserved")}</Text>
         <Text style={styles.premiumText}>
-          Lettura tecnico-tattica pre-gara su forma, profili offensivi/difensivi, zone chiave, ritmo e palle
-          inattive. Disponibile con PitchBrain Pro.
+          {t("prematch.premiumReservedBody")}
         </Text>
         <Pressable
           onPress={() =>
@@ -343,7 +330,7 @@ export function PreMatchReportView({
           }
           style={({ pressed }) => [styles.retryBtn, pressed && { opacity: 0.9 }]}
         >
-          <Text style={styles.retryText}>Scopri PitchBrain Pro</Text>
+          <Text style={styles.retryText}>{t("prematch.discoverPro")}</Text>
         </Pressable>
       </View>
     );
@@ -353,10 +340,9 @@ export function PreMatchReportView({
     return (
       <View style={styles.premiumWrap}>
         <Ionicons name="star-outline" size={28} color={colors.amber} />
-        <Text style={styles.premiumTitle}>Funzione Premium</Text>
+        <Text style={styles.premiumTitle}>{t("prematch.premiumFeature")}</Text>
         <Text style={styles.premiumText}>
-          Il Report Pre-Partita analizza forma reale, profili di squadra, zone decisive, ritmo atteso e palle
-          inattive — senza pronostici o linguaggio betting.
+          {t("prematch.premiumFeatureBody")}
         </Text>
         <Pressable
           onPress={() =>
@@ -369,7 +355,7 @@ export function PreMatchReportView({
           }
           style={({ pressed }) => [styles.retryBtn, pressed && { opacity: 0.9 }]}
         >
-          <Text style={styles.retryText}>Scopri PitchBrain Pro</Text>
+          <Text style={styles.retryText}>{t("prematch.discoverPro")}</Text>
         </Pressable>
       </View>
     );
@@ -383,13 +369,13 @@ export function PreMatchReportView({
         <View style={styles.center}>
           <EmptyReportState message={error} />
           <Pressable onPress={() => void load(true)} style={styles.retryBtn}>
-            <Text style={styles.retryText}>Riprova</Text>
+            <Text style={styles.retryText}>{t("common.retry")}</Text>
           </Pressable>
         </View>
       ) : null}
 
       {!loading && !error && !report ? (
-        <EmptyReportState message={MATCH_DATA_UNAVAILABLE_MESSAGE} />
+        <EmptyReportState message={t("common.noData")} />
       ) : null}
 
       {report ? (
@@ -411,15 +397,15 @@ export function PreMatchReportView({
       {report.dataQualityNote ? (
         <View style={styles.qualityNote}>
           <Ionicons name="information-circle-outline" size={14} color={analysisColors.green} />
-          <Text style={styles.qualityNoteText}>{report.dataQualityNote}</Text>
+          <Text style={styles.qualityNoteText}>{localizePrematchText(report.dataQualityNote, locale)}</Text>
         </View>
       ) : null}
 
       {PREMATCH_SECTIONS.map((section) => (
         <SectionRow
           key={section.id}
-          title={section.title}
-          description={SECTION_COPY[section.id]}
+          title={prematchSectionMeta(section.id, locale).title}
+          description={prematchSectionMeta(section.id, locale).desc}
           expanded={activeSection === section.id}
           onPress={() => setActiveSection(section.id)}
         >
@@ -428,18 +414,18 @@ export function PreMatchReportView({
       ))}
 
       <Text style={styles.footerHint}>
-        Report generato il{" "}
-        {new Date(report.generatedAt).toLocaleString("it-IT", {
-          day: "2-digit",
-          month: "short",
-          hour: "2-digit",
-          minute: "2-digit"
+        {t("prematch.generatedAt", {
+          date: new Date(report.generatedAt).toLocaleString(LOCALE_BCP47[locale], {
+            day: "2-digit",
+            month: "short",
+            hour: "2-digit",
+            minute: "2-digit"
+          })
         })}
-        . Trascina verso il basso per aggiornare.
       </Text>
     </ScrollView>
       ) : null}
-      <PitchBrainLoading visible={loading} message="Analisi in corso…" />
+      <PitchBrainLoading visible={loading} />
     </View>
   );
 }

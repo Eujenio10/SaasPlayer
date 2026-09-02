@@ -11,6 +11,7 @@ import {
   dedupeSquadPlayers,
   preferLongerPlayerName
 } from "@/lib/player-identity";
+import { t, translateSparkNarrative } from "@/lib/i18n";
 
 export type IntensityLevel = "low" | "medium" | "high" | "very_high";
 export type DataReliabilityLevel = "low" | "medium" | "good" | "high";
@@ -177,7 +178,7 @@ export function roundMetric(n: number, decimals = 2): number {
 }
 
 export function formatMetric(n: number | null, decimals = 2): string {
-  if (n == null || !Number.isFinite(n)) return "n.d.";
+  if (n == null || !Number.isFinite(n)) return t("common.na");
   return roundMetric(n, decimals).toFixed(decimals);
 }
 
@@ -316,19 +317,19 @@ export function foulsSufferedP90(m: IntensityPlayerInput): number | null {
 }
 
 export function aggressionProfileLabel(p90: number | null): string {
-  if (p90 == null) return "Dato non disponibile";
-  if (p90 <= 0.7) return "Basso coinvolgimento nei falli";
-  if (p90 <= 1.5) return "Profilo equilibrato";
-  if (p90 <= 2.3) return "Profilo aggressivo";
-  return "Alta intensità nei contrasti";
+  if (p90 == null) return t("intensity.noValue");
+  if (p90 <= 0.7) return t("intensity.aggLow");
+  if (p90 <= 1.5) return t("intensity.aggBalanced");
+  if (p90 <= 2.3) return t("intensity.aggAggressive");
+  return t("intensity.aggHigh");
 }
 
 export function contactExposureLabel(p90: number | null): string {
-  if (p90 == null) return "Dato non disponibile";
-  if (p90 <= 0.7) return "Bassa esposizione ai contatti";
-  if (p90 <= 1.5) return "Esposizione normale";
-  if (p90 <= 2.3) return "Giocatore spesso pressato";
-  return "Alta esposizione alla pressione avversaria";
+  if (p90 == null) return t("intensity.noValue");
+  if (p90 <= 0.7) return t("intensity.expLow");
+  if (p90 <= 1.5) return t("intensity.expNormal");
+  if (p90 <= 2.3) return t("intensity.expPressed");
+  return t("intensity.expHigh");
 }
 
 export function intensityLevelFromScore(score: number | null): {
@@ -361,37 +362,37 @@ export function tacticalZoneFromPosition(m: IntensityPlayerInput): { id: string;
   const icon = m.roleIcon ?? "";
 
   if (icon === "🧤" || /^(G|GK)/.test(code)) {
-    return { id: "def_area", label: "Area difensiva" };
+    return { id: "def_area", label: t("intensity.zoneDefArea") };
   }
   if (/^(DC|CB|SW)/.test(code) || (icon === "🛡️" && /C/.test(code))) {
-    return { id: "def_central", label: "Difesa centrale" };
+    return { id: "def_central", label: t("intensity.zoneDefCentral") };
   }
   if (/^(DR|RWB|RB|WR)/.test(code) || /\bDR\b/.test(code)) {
-    return { id: "def_right", label: "Fascia destra difensiva" };
+    return { id: "def_right", label: t("intensity.zoneDefRight") };
   }
   if (/^(DL|LWB|LB|WL)/.test(code) || /\bDL\b/.test(code)) {
-    return { id: "def_left", label: "Fascia sinistra difensiva" };
+    return { id: "def_left", label: t("intensity.zoneDefLeft") };
   }
   if (/^(DM|CDM|MD)/.test(code)) {
-    return { id: "mid_central_deep", label: "Centrocampo centrale" };
+    return { id: "mid_central_deep", label: t("intensity.zoneMidDeep") };
   }
   if (/^(MC|CM|MF)/.test(code) || icon === "⚡") {
-    return { id: "mid_central", label: "Centrocampo" };
+    return { id: "mid_central", label: t("intensity.zoneMid") };
   }
   if (/^(AM|CAM|OM|MP)/.test(code)) {
-    return { id: "mid_att", label: "Rifinitura centrale" };
+    return { id: "mid_att", label: t("intensity.zoneMidAtt") };
   }
   if (/^(MR|AMR|RW|WR)/.test(code)) {
-    return { id: "att_right", label: "Fascia destra offensiva" };
+    return { id: "att_right", label: t("intensity.zoneAttRight") };
   }
   if (/^(ML|AML|LW|WL)/.test(code)) {
-    return { id: "att_left", label: "Fascia sinistra offensiva" };
+    return { id: "att_left", label: t("intensity.zoneAttLeft") };
   }
   if (/^(F|FW|CF|ST|SS)/.test(code) || icon === "🎯") {
-    return { id: "att_central", label: "Ultimo terzo offensivo" };
+    return { id: "att_central", label: t("intensity.zoneAttCentral") };
   }
-  if (icon === "🛡️") return { id: "def_central", label: "Difesa centrale" };
-  return { id: "mid_central", label: "Centrocampo" };
+  if (icon === "🛡️") return { id: "def_central", label: t("intensity.zoneDefCentral") };
+  return { id: "mid_central", label: t("intensity.zoneMid") };
 }
 
 function positionLane(positionCode?: string): -1 | 0 | 1 {
@@ -436,12 +437,12 @@ function duelReading(a: IntensityPlayerInput, b: IntensityPlayerInput): string {
   const aLane = positionLane(a.positionCode);
   const bLane = positionLane(b.positionCode);
   if (aLane !== 0 && bLane !== 0 && aLane === -bLane) {
-    return "Duello laterale ad alta intensità";
+    return t("intensity.duelLateral");
   }
   if (roleBand(a) === "def" && roleBand(b) === "att") {
-    return "Incrocio tecnico con alto coinvolgimento nei contrasti";
+    return t("intensity.duelCrossing");
   }
-  return "Possibile zona di contatto frequente";
+  return t("intensity.duelContact");
 }
 
 function trendFromAvgs(
@@ -631,7 +632,7 @@ function buildHighIntensityDuels(
       duelScore,
       reading:
         narrative && narrative.length > 12
-          ? narrative
+          ? translateSparkNarrative(narrative)
           : duelReading(m, opponent ?? m)
     });
   }
@@ -950,6 +951,24 @@ export function mapIntensityLevelForPreview(level: IntensityLevel): "low" | "med
   return "low";
 }
 
+function intensityIndexFromPlayers(players: PlayerIntensityMetrics[]): MatchIntensityIndex {
+  const indexed = computeMatchIntensityIndex(players);
+  if (indexed.value != null) return indexed;
+  const withP90 = players.filter((p) => p.foulsCommittedP90 != null);
+  if (!withP90.length) return indexed;
+  const value = roundMetric(
+    withP90.reduce((sum, p) => sum + (p.foulsCommittedP90 ?? 0), 0) / withP90.length
+  );
+  const { level, label } = intensityLevelFromScore(value);
+  return {
+    value,
+    level,
+    label,
+    explanation: indexed.explanation,
+    playersUsed: withP90.length
+  };
+}
+
 /** Indice intensità partita per card home / lista partite (prima del dettaglio). */
 export function computeMatchIntensityPreview(metrics: IntensityPlayerInput[]): {
   value: number | null;
@@ -957,9 +976,14 @@ export function computeMatchIntensityPreview(metrics: IntensityPlayerInput[]): {
   level: IntensityLevel;
   uiLevel: "low" | "medium" | "high";
 } {
-  const idx = computeMatchIntensityIndex(
-    dedupeIntensityInputs(metrics).filter(includeInFoulsAnalysis).map(buildPlayerIntensityMetrics)
+  const inputs = dedupeIntensityInputs(metrics);
+  const preferred = intensityIndexFromPlayers(
+    inputs.filter(includeInFoulsAnalysis).map(buildPlayerIntensityMetrics)
   );
+  const idx =
+    preferred.value != null
+      ? preferred
+      : intensityIndexFromPlayers(inputs.map(buildPlayerIntensityMetrics));
   return {
     value: idx.value,
     label: idx.label,

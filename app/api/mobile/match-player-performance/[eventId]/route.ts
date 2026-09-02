@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 
 import { resolveApiAccessContext } from "@/lib/auth/resolve-api-access";
-import { allowOnDemandProviderCompute } from "@/lib/entitlements/config";
-import { requestHasMatchUnlock, resolveRequestEntitlements } from "@/lib/entitlements/request";
+import { allowSnapshotComputeIfMissing } from "@/lib/entitlements/config";
+import { parseMatchPlayerPerformanceHints } from "@/lib/player-performance/hints";
 import { getOrComputeMatchPlayerPerformance } from "@/lib/player-performance/api-handlers";
 
 export const dynamic = "force-dynamic";
@@ -23,33 +23,27 @@ export async function GET(
     return NextResponse.json({ error: "invalid_event_id" }, { status: 400 });
   }
 
-  const url = new URL(request.url);
-  const entitlements = await resolveRequestEntitlements(ctx, request);
-  const allowCompute =
-    allowOnDemandProviderCompute(request) &&
-    (ctx.role === "admin" ||
-      entitlements.subscriptionTier === "pro" ||
-      requestHasMatchUnlock(entitlements, eventId));
-
-  const homeTeamId = Number(url.searchParams.get("homeTeamId") ?? "");
-  const awayTeamId = Number(url.searchParams.get("awayTeamId") ?? "");
-  const startTimestamp = Number(url.searchParams.get("startTimestamp") ?? "");
+  const hints = parseMatchPlayerPerformanceHints(request);
 
   const loaded = await getOrComputeMatchPlayerPerformance({
     eventId,
     organizationId: ctx.organizationId,
-    allowCompute,
-    hints: {
-      homeTeamId: Number.isFinite(homeTeamId) && homeTeamId > 0 ? homeTeamId : undefined,
-      awayTeamId: Number.isFinite(awayTeamId) && awayTeamId > 0 ? awayTeamId : undefined,
-      homeTeamName: url.searchParams.get("homeTeamName") ?? undefined,
-      awayTeamName: url.searchParams.get("awayTeamName") ?? undefined,
-      startTimestamp:
-        Number.isFinite(startTimestamp) && startTimestamp > 0 ? startTimestamp : undefined
-    }
+    allowCompute: allowSnapshotComputeIfMissing(request),
+    hints: hints
+      ? {
+          homeTeamId: hints.homeTeam?.id,
+          awayTeamId: hints.awayTeam?.id,
+          homeTeamName: hints.homeTeam?.name,
+          awayTeamName: hints.awayTeam?.name,
+          startTimestamp: hints.startTimestamp
+        }
+      : undefined
   });
 
-  if (loaded.status === "tables_missing") {
+  if (loaded.status === "match_started") {
+    return NextResponse.json({ error: "player_performance_match_started" }, { status: 410 });
+  }
+  if (loaded.status === "tables_missing" && !loaded.payload) {
     return NextResponse.json(
       { error: "player_performance_snapshot_unavailable" },
       { status: 503 }

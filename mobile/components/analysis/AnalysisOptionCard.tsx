@@ -1,6 +1,7 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { analysisColors } from "@/components/analysis/analysis-theme";
+import { useLocale } from "@/contexts/LocaleContext";
 
 export function AnalysisOptionCard({
   title,
@@ -11,6 +12,7 @@ export function AnalysisOptionCard({
   description: string;
   onPress: () => void;
 }) {
+  const { t } = useLocale();
   return (
     <Pressable
       onPress={onPress}
@@ -23,7 +25,7 @@ export function AnalysisOptionCard({
         <Text style={styles.description}>{description}</Text>
       </View>
       <View style={styles.cta}>
-        <Text style={styles.ctaText}>Apri</Text>
+        <Text style={styles.ctaText}>{t("common.open")}</Text>
         <Ionicons name="chevron-forward" size={16} color={analysisColors.green} />
       </View>
     </Pressable>

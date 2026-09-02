@@ -21,10 +21,12 @@ export function webAuthCallbackUrl(nextPath: string): string {
   return `${webOrigin()}/auth/callback?next=${encodeURIComponent(nextPath)}`;
 }
 
-export function passwordResetRedirectUrl(): string {
-  return webAuthCallbackUrl("/set-password");
+export function passwordResetRedirectUrl(locale: string = "it"): string {
+  const loc = locale === "en" ? "en" : "it";
+  return webAuthCallbackUrl(`/set-password?locale=${loc}`);
 }
 
-export function signupEmailRedirectUrl(): string {
-  return webAuthCallbackUrl("/account/welcome");
+export function signupEmailRedirectUrl(locale: string = "it"): string {
+  const loc = locale === "en" ? "en" : "it";
+  return webAuthCallbackUrl(`/account/welcome?locale=${loc}`);
 }

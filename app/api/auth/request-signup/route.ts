@@ -16,14 +16,14 @@ function normalizeEmail(raw: unknown): string | null {
  * Se l'utente esiste ma non ha completato la registrazione, reinvia il link (recovery → set-password).
  */
 export async function POST(request: Request) {
-  const body = (await request.json().catch(() => null)) as { email?: string } | null;
+  const body = (await request.json().catch(() => null)) as { email?: string; locale?: string } | null;
   const email = normalizeEmail(body?.email);
   if (!email) {
     return NextResponse.json({ error: "invalid_email" }, { status: 400 });
   }
 
   const service = createSupabaseServiceClient();
-  const result = await sendSignupOrResendEmail(service, email);
+  const result = await sendSignupOrResendEmail(service, email, body?.locale);
 
   if (!result.ok) {
     const status = result.error === "rate_limit" ? 429 : 500;

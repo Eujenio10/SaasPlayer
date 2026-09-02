@@ -21,6 +21,7 @@ import {
 } from "@/lib/difficult-markings/percentiles";
 import {
   dedupeAndSelectMatchups,
+  filterDifficultMarkings,
   filterRoundLeaderboard
 } from "@/lib/difficult-markings/publish";
 import {
@@ -1438,6 +1439,26 @@ check(
   Object.values(twoMatchSnapshot.matchupIndex).some(
     (m) => m.defenderPlayerName === "Theo" && (m.markingLoadCount ?? 1) === 1
   )
+);
+
+const todayKickoff = Math.floor(Date.now() / 1000) + 3600;
+const laterKickoff = todayKickoff + 3 * 86400;
+check(
+  "filtro Oggi tiene solo le marcature con calcio d'inizio oggi",
+  filterDifficultMarkings(
+    [
+      { kickoffTimestamp: todayKickoff, difficultMarkingScore: 80 } as DifficultMarkingMatchup,
+      { kickoffTimestamp: laterKickoff, difficultMarkingScore: 99 } as DifficultMarkingMatchup
+    ],
+    "today"
+  ).length === 1
+);
+check(
+  "filtro Oggi esclude le marcature senza calcio d'inizio",
+  filterDifficultMarkings(
+    [{ difficultMarkingScore: 99 } as DifficultMarkingMatchup],
+    "today"
+  ).length === 0
 );
 
 const failed = results.filter((r) => !r.passed);

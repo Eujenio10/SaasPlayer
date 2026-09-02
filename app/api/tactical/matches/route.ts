@@ -10,21 +10,19 @@ import {
 } from "@/lib/tactical-matches-filters";
 import { localizeUpcomingMatches } from "@/lib/italian-sports-display";
 import { getOrRefreshTacticalMatchesMenuFull } from "@/lib/tactical-matches-menu-cache";
-import { attachIntensityPreviewsToMatches } from "@/lib/match-intensity-preview";
-import { isConsumerMobileRequest } from "@/lib/entitlements/config";
+import {
+  attachIntensityPreviewsToMatches,
+  parseStoredIntensityPreview
+} from "@/lib/match-intensity-preview";
 import { upsertMatchesMenuSnapshotForOrganization } from "@/lib/supabase/org-tactical-shared-writes";
 import type { UpcomingMatchItem } from "@/services/sportapi";
 
 async function withListIntensityPreviews(
-  request: Request,
+  _request: Request,
   supabase: SupabaseClient,
   organizationId: string,
   matches: UpcomingMatchItem[]
 ) {
-  /** App mobile: solo snapshot calendario. I badge intensità si calcolano in analisi partita. */
-  if (isConsumerMobileRequest(request)) {
-    return matches.map((match) => ({ ...match, intensityPreview: null }));
-  }
   return attachIntensityPreviewsToMatches(supabase, organizationId, matches);
 }
 
@@ -72,7 +70,8 @@ function normalizePersistedMenuRows(raw: unknown): UpcomingMatchItem[] {
         id: awayId,
         name: typeof away?.name === "string" ? away.name : "AWAY"
       },
-      round: parseOptionalMatchRound(row.round)
+      round: parseOptionalMatchRound(row.round),
+      intensityPreview: parseStoredIntensityPreview(row.intensityPreview)
     });
   }
   return out;

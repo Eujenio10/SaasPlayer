@@ -1,5 +1,6 @@
 import { PITCHBRAIN_MOBILE_PRO_PLANS_ENABLED } from "@/lib/access/pro-plans";
 import type { FeatureAccessLevel, FeatureId, UserAccessStatus } from "@/lib/access/types";
+import { t } from "@/lib/i18n";
 
 export const FEATURE_ACCESS: Record<FeatureId, FeatureAccessLevel> = {
   home: "free",
@@ -35,12 +36,12 @@ export function canAccessFeatureId(userStatus: UserAccessStatus, feature: Featur
 export function userStatusLabel(status: UserAccessStatus): string {
   switch (status) {
     case "guest":
-      return "Modalità Guest";
+      return t("profile.guestStatus");
     case "authenticated_free":
       return "Free";
     case "authenticated_pro":
       return "Pro";
     case "expired_pro":
-      return "Pro scaduto";
+      return t("profile.expiredPro");
   }
 }

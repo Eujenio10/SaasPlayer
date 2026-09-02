@@ -2,10 +2,12 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { AuthLocaleToggle, authWelcomePath, useAuthWebLocale } from "@/components/account/auth-web-locale";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 
 export function SetPasswordClient() {
   const router = useRouter();
+  const { locale, setLocale, copy } = useAuthWebLocale();
   const [loading, setLoading] = useState(true);
   const [ready, setReady] = useState(false);
   const [password, setPassword] = useState("");
@@ -27,7 +29,7 @@ export function SetPasswordClient() {
             access_token: accessToken,
             refresh_token: refreshToken
           });
-          window.history.replaceState({}, "", window.location.pathname);
+          window.history.replaceState({}, "", window.location.pathname + window.location.search);
         }
       }
 
@@ -36,7 +38,8 @@ export function SetPasswordClient() {
       } = await supabase.auth.getSession();
 
       if (!session) {
-        router.replace("/auth/callback?next=/set-password");
+        const current = `${window.location.pathname}${window.location.search}`;
+        router.replace(`/auth/callback?next=${encodeURIComponent(current || "/set-password")}`);
         return;
       }
 
@@ -52,11 +55,11 @@ export function SetPasswordClient() {
     setError(null);
 
     if (password.length < 8) {
-      setError("La password deve avere almeno 8 caratteri.");
+      setError(copy.passwordMin);
       return;
     }
     if (password !== confirm) {
-      setError("Le password non coincidono.");
+      setError(copy.passwordMismatch);
       return;
     }
 
@@ -65,10 +68,10 @@ export function SetPasswordClient() {
       const supabase = createSupabaseBrowserClient();
       const { error: updateError } = await supabase.auth.updateUser({ password });
       if (updateError) {
-        setError("Impossibile salvare la password. Riprova.");
+        setError(copy.passwordSaveFailed);
         return;
       }
-      router.replace("/account/welcome");
+      router.replace(authWelcomePath(locale));
     } finally {
       setSubmitting(false);
     }
@@ -77,7 +80,7 @@ export function SetPasswordClient() {
   if (loading) {
     return (
       <section className="mx-auto flex min-h-[70vh] max-w-lg items-center px-4">
-        <p className="text-slate-300">Preparazione account PitchBrain…</p>
+        <p className="text-slate-300">{copy.preparing}</p>
       </section>
     );
   }
@@ -89,11 +92,10 @@ export function SetPasswordClient() {
   return (
     <section className="mx-auto flex min-h-[70vh] max-w-lg items-center px-4">
       <div className="w-full rounded-2xl border border-cyan-300/30 bg-graphite/80 p-8 shadow-broadcast">
+        <AuthLocaleToggle locale={locale} onChange={setLocale} />
         <p className="text-xs font-bold uppercase tracking-widest text-cyan-300/80">PitchBrain</p>
-        <h1 className="mt-2 text-3xl font-bold text-cyan-300">Scegli la password</h1>
-        <p className="mt-3 text-slate-300">
-          Ultimo passo: imposta la password del tuo account. Poi torna sull&apos;app mobile e accedi.
-        </p>
+        <h1 className="mt-2 text-3xl font-bold text-cyan-300">{copy.setPasswordTitle}</h1>
+        <p className="mt-3 text-slate-300">{copy.setPasswordBody}</p>
 
         {error ? (
           <p className="mt-4 rounded-lg border border-rose-400/30 bg-darkGray/70 px-3 py-2 text-sm text-rose-200">
@@ -103,7 +105,7 @@ export function SetPasswordClient() {
 
         <form onSubmit={(event) => void handleSubmit(event)} className="mt-6 space-y-4">
           <label className="block space-y-2">
-            <span className="text-sm text-slate-300">Nuova password</span>
+            <span className="text-sm text-slate-300">{copy.newPassword}</span>
             <input
               type="password"
               value={password}
@@ -114,7 +116,7 @@ export function SetPasswordClient() {
             />
           </label>
           <label className="block space-y-2">
-            <span className="text-sm text-slate-300">Conferma password</span>
+            <span className="text-sm text-slate-300">{copy.confirmPassword}</span>
             <input
               type="password"
               value={confirm}
@@ -129,7 +131,7 @@ export function SetPasswordClient() {
             disabled={submitting}
             className="w-full rounded-xl bg-techBlue px-4 py-2 font-semibold text-darkGray transition hover:brightness-110 disabled:opacity-60"
           >
-            {submitting ? "Salvataggio…" : "Salva password"}
+            {submitting ? copy.saving : copy.savePassword}
           </button>
         </form>
       </div>

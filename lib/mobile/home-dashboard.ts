@@ -7,6 +7,7 @@ import {
   type MonitoredCompetitionId
 } from "@/lib/competitions";
 import { computeMatchIntensityPreview } from "@/lib/intensity-analysis";
+import { MATCH_SIMULATOR_ENABLED } from "@/lib/match-simulator/feature-flag";
 import {
   EARLY_SEASON_BANNER_MESSAGE,
   isEarlySeasonWindow
@@ -284,16 +285,20 @@ function buildModules(access: UserAccessSummary): HomeModule[] {
       enabled: true,
       badge: null
     },
-    {
-      id: "simulator",
-      title: "Simulatore match",
-      description: "Scenario statistico pre-partita con simulazioni Monte Carlo.",
-      icon: "stats-chart",
-      color: "#34D399",
-      route: "/simulator",
-      enabled: true,
-      badge: null
-    }
+    ...(MATCH_SIMULATOR_ENABLED
+      ? [
+          {
+            id: "simulator",
+            title: "Simulatore match",
+            description: "Scenario statistico pre-partita con simulazioni Monte Carlo.",
+            icon: "stats-chart",
+            color: "#34D399",
+            route: "/simulator",
+            enabled: true,
+            badge: null
+          } satisfies HomeModule
+        ]
+      : [])
   ];
 }
 
@@ -305,7 +310,17 @@ function buildQuickActions(access: UserAccessSummary): HomeQuickAction[] {
       ? [{ id: "markings", label: "Marcature", icon: "shield", route: "/markings", enabled: true } satisfies HomeQuickAction]
       : []),
     { id: "trends", label: "Trend", icon: "trending-up", route: "/trends", enabled: true },
-    { id: "simulator", label: "Simulatore", icon: "stats-chart", route: "/simulator", enabled: true }
+    ...(MATCH_SIMULATOR_ENABLED
+      ? [
+          {
+            id: "simulator",
+            label: "Simulatore",
+            icon: "stats-chart",
+            route: "/simulator",
+            enabled: true
+          } satisfies HomeQuickAction
+        ]
+      : [])
   ];
 }
 

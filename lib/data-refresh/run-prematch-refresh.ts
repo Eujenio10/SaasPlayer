@@ -7,6 +7,7 @@ import {
 } from "@/lib/difficult-markings/snapshot";
 import { invalidateDifficultMarkingsSnapshotMemory } from "@/lib/difficult-markings/snapshot-memory-cache";
 import { areMatchSimulatorDatabaseTablesAvailable } from "@/lib/match-simulator/db-tables";
+import { MATCH_SIMULATOR_ENABLED } from "@/lib/match-simulator/feature-flag";
 import {
   generateAndCacheSimulation,
   loadOrganizationMatchSimulatorSnapshot
@@ -113,11 +114,18 @@ export async function runPrematchRefreshTick(params: {
     return emptyTick(menu.length, 0, "no_match_in_window");
   }
 
-  if (!(await areMatchSimulatorDatabaseTablesAvailable())) {
+  if (MATCH_SIMULATOR_ENABLED && !(await areMatchSimulatorDatabaseTablesAvailable())) {
     return emptyTick(menu.length, due.length, "simulator_tables_missing", false);
   }
 
-  const simulatorSnapshot = await loadOrganizationMatchSimulatorSnapshot(params.organizationId);
+  /**
+   * Con il simulatore sospeso non c'è una simulazione da cui leggere l'orario di
+   * generazione: la deduplica non si applica e le marcature vengono riallineate
+   * a ogni giro dentro la finestra.
+   */
+  const simulatorSnapshot = MATCH_SIMULATOR_ENABLED
+    ? await loadOrganizationMatchSimulatorSnapshot(params.organizationId)
+    : null;
   const pending = due
     .filter(
       (match) =>
@@ -155,6 +163,14 @@ export async function runPrematchRefreshTick(params: {
       minutesToKickoff: Math.round((match.startTimestamp - nowSec) / SECONDS_PER_MINUTE),
       ok: false
     };
+
+    if (!MATCH_SIMULATOR_ENABLED) {
+      /** Simulatore sospeso: resta il riallineamento delle marcature con le formazioni ufficiali. */
+      outcome.ok = true;
+      refreshedCompetitions.add(canonicalCompetitionId(match.competitionSlug));
+      matches.push(outcome);
+      continue;
+    }
 
     try {
       const simulated = await generateAndCacheSimulation({

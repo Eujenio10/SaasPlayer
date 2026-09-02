@@ -33,6 +33,9 @@ import { invalidateTrendsSnapshotMemory } from "@/lib/trends/snapshot-memory-cac
 import { areTrendDatabaseTablesAvailable } from "@/lib/trends/db-tables";
 import { regenerateMatchSimulatorSnapshotForOrganization } from "@/lib/match-simulator/snapshot";
 import { areMatchSimulatorDatabaseTablesAvailable } from "@/lib/match-simulator/db-tables";
+import { MATCH_SIMULATOR_ENABLED } from "@/lib/match-simulator/feature-flag";
+import { attachIntensityPreviewsToMatches } from "@/lib/match-intensity-preview";
+import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import {
   arePlayerPerformanceSnapshotTablesAvailable,
   regeneratePlayerPerformanceSnapshotsForOrganization
@@ -42,7 +45,6 @@ import type { UpcomingMatchItem } from "@/services/sportapi";
 import type { DataRefreshTrigger } from "@/lib/data-refresh/config";
 import { recordDataRefreshCompletion } from "@/lib/data-refresh/state";
 import { fetchUpcomingInternationalTournamentMatches } from "@/services/sportapi";
-import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 
 export type AdminRefreshPhase = "start" | "insights" | "finalize";
 
@@ -579,7 +581,7 @@ async function runFinalizePhase(
     }
   }
 
-  if (await areMatchSimulatorDatabaseTablesAvailable()) {
+  if (MATCH_SIMULATOR_ENABLED && (await areMatchSimulatorDatabaseTablesAvailable())) {
     try {
       const simulator = await regenerateMatchSimulatorSnapshotForOrganization({
         organizationId,
@@ -606,6 +608,19 @@ async function runFinalizePhase(
       trigger,
       ok: true
     });
+  }
+
+  try {
+    await attachIntensityPreviewsToMatches(
+      createSupabaseServiceClient(),
+      organizationId,
+      allMenuMatches
+    );
+  } catch (error) {
+    console.warn(
+      "[admin-refresh] intensity_preview_stamp_failed:",
+      error instanceof Error ? error.message : String(error)
+    );
   }
 
   return {

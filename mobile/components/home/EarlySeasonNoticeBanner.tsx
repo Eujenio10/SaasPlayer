@@ -1,18 +1,20 @@
 import { StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { homeColors } from "@/components/home/home-theme";
+import { useLocale } from "@/contexts/LocaleContext";
 import { spacing } from "@/lib/theme";
 
 export function EarlySeasonNoticeBanner({ message }: { message?: string | null }) {
+  const { t } = useLocale();
   if (!message) return null;
 
   return (
     <View style={styles.wrap}>
       <Ionicons name="information-circle-outline" size={16} color={homeColors.green} />
       <Text style={styles.text}>
-        <Text style={styles.title}>INIZIO STAGIONE</Text>
+        <Text style={styles.title}>{t("home.earlySeason")}</Text>
         <Text style={styles.sep}> · </Text>
-        <Text style={styles.body}>{message}</Text>
+        <Text style={styles.body}>{t("home.earlySeasonBody")}</Text>
       </Text>
     </View>
   );

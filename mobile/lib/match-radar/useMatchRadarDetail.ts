@@ -2,8 +2,9 @@ import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { fetchMatchRadarDetail } from "@/lib/match-radar/api";
 import type { MatchRadarDetailResponse } from "@/lib/match-radar/types";
+import type { AppLocale } from "@/lib/i18n";
 
-export function useMatchRadarDetail(matchId: string | undefined) {
+export function useMatchRadarDetail(matchId: string | undefined, locale: AppLocale = "it") {
   const { session } = useAuth();
   const [detail, setDetail] = useState<MatchRadarDetailResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -20,7 +21,7 @@ export function useMatchRadarDetail(matchId: string | undefined) {
     try {
       const payload = await fetchMatchRadarDetail({
         matchId,
-        locale: "it",
+        locale,
         token: session?.access_token ?? null
       });
       setDetail(payload.detail);
@@ -30,7 +31,7 @@ export function useMatchRadarDetail(matchId: string | undefined) {
     } finally {
       setLoading(false);
     }
-  }, [matchId, session?.access_token]);
+  }, [matchId, locale, session?.access_token]);
 
   useEffect(() => {
     void refetch();

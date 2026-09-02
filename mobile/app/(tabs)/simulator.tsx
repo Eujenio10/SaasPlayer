@@ -1,18 +1,29 @@
 import { useCallback, useEffect, useState } from "react";
 import { RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Redirect } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { AdminCompetitionRefreshBar } from "@/components/AdminCompetitionRefreshBar";
 import { MarkingsCompetitionPicker } from "@/components/difficult-markings/MarkingsCompetitionPicker";
 import { MatchSimulatorList } from "@/components/match-simulator/MatchSimulatorList";
 import { useAuth } from "@/contexts/AuthContext";
+import { useLocale } from "@/contexts/LocaleContext";
 import { subscribeAdminCatalogRefresh } from "@/lib/admin-catalog-refresh";
 import { DEFAULT_MENU_COMPETITION_ID } from "@/lib/competitions-with-matches";
 import { useCompetitionsWithMatches } from "@/lib/competitions/useCompetitionsWithMatches";
+import { MATCH_SIMULATOR_ENABLED } from "@/lib/match-simulator/feature-flag";
 import { useAdminMatchesRefresh } from "@/lib/matches/useAdminMatchesRefresh";
 import { pitchbrainColors } from "@/lib/pitchbrain-theme";
 import { spacing } from "@/lib/theme";
 
 export default function SimulatorScreen() {
+  /** Funzionalità sospesa: la tab è nascosta, questo copre i deep link residui. */
+  if (!MATCH_SIMULATOR_ENABLED) return <Redirect href="/" />;
+
+  return <SimulatorScreenContent />;
+}
+
+function SimulatorScreenContent() {
+  const { t } = useLocale();
   const { access } = useAuth();
   const { availableIds, preferredId, refresh: refreshCompetitions } = useCompetitionsWithMatches();
   const [competitionId, setCompetitionId] = useState(DEFAULT_MENU_COMPETITION_ID);
@@ -57,11 +68,8 @@ export default function SimulatorScreen() {
             <Text style={styles.brandPitch}>Pitch</Text>
             <Text style={styles.brandBrain}>Brain</Text>
           </Text>
-          <Text style={styles.title}>Simulatore match</Text>
-          <Text style={styles.subtitle}>
-            Scenario statistico pre-partita: distribuzione di gol, tiri, corner e cartellini da
-            simulazioni ripetute.
-          </Text>
+          <Text style={styles.title}>{t("simulator.title")}</Text>
+          <Text style={styles.subtitle}>{t("simulator.subtitle")}</Text>
         </View>
 
         {access?.canRefreshData ? (
@@ -75,7 +83,7 @@ export default function SimulatorScreen() {
           />
         ) : null}
 
-        <Text style={styles.pickerLabel}>Campionato</Text>
+        <Text style={styles.pickerLabel}>{t("markings.competition")}</Text>
         <MarkingsCompetitionPicker
           variant="matrix"
           active={competitionId}

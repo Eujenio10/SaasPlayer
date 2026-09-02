@@ -1,4 +1,3 @@
-import { FOULS_ANALYSIS_UI } from "@/lib/fouls-analysis-ui-text";
 import { useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { AnalysisMetricStrip } from "@/components/analysis/AnalysisMetricStrip";
@@ -21,26 +20,29 @@ import {
 } from "@/lib/intensity-analysis";
 import { findTacticalMetric } from "@/lib/duel-heatmap";
 import type { GuestPreviewMode } from "@/lib/access/guest-preview-mode";
-import { roleLabelSingular } from "@/lib/italian-display";
+import { localizedRoleLabel } from "@/lib/i18n";
 import type { TacticalMetrics } from "@/lib/types";
 import { spacing } from "@/lib/theme";
 import { PITCHBRAIN_MOBILE_PRO_PLANS_ENABLED } from "@/lib/access/pro-plans";
+import { useLocale } from "@/contexts/LocaleContext";
+import { t } from "@/lib/i18n";
 
-const reliabilityLabels = {
-  low: "Bassa",
-  medium: "Media",
-  good: "Buona",
-  high: "Alta"
-} as const;
+const reliabilityLabels = () =>
+  ({
+    low: t("fouls.reliabilityLow"),
+    medium: t("fouls.reliabilityMedium"),
+    good: t("fouls.reliabilityGood"),
+    high: t("fouls.reliabilityHigh")
+  }) as const;
 
 const GUEST_VISIBLE_DUELS_WITH_AD = 2;
 const PREVIEW_PLAYERS = 3;
 const PREVIEW_DUELS = 2;
 
 function intensityLevelLabel(level: IntensityLevel): string {
-  if (level === "very_high" || level === "high") return "Alta";
-  if (level === "medium") return "Media";
-  return "Bassa";
+  if (level === "very_high" || level === "high") return t("fouls.reliabilityHigh");
+  if (level === "medium") return t("fouls.reliabilityMedium");
+  return t("fouls.reliabilityLow");
 }
 
 function renderPlayerCards(
@@ -50,7 +52,7 @@ function renderPlayerCards(
   badgeText: string
 ) {
   if (!players.length) {
-    return <Text style={styles.muted}>Nessun profilo sopra {FOULS_PROFILE_MIN_AVG} di media.</Text>;
+    return <Text style={styles.muted}>{t("intensity.noProfile", { avg: FOULS_PROFILE_MIN_AVG })}</Text>;
   }
 
   return players.map((player) => (
@@ -58,13 +60,13 @@ function renderPlayerCards(
       key={`${metricKey}-${player.playerName}-${player.teamId}`}
       playerName={player.playerName}
       team={player.team}
-      roleLabel={roleLabelSingular(player.roleLabel)}
+      roleLabel={localizedRoleLabel(player.roleLabel)}
       description={metricKey === "committed" ? player.aggressionProfile : player.contactExposure}
       metricValue={formatMetric(
         metricKey === "committed" ? player.foulsCommittedP90 : player.foulsSufferedP90
       )}
-      metricLabel="falli p90"
-      reliabilityLabel={reliabilityLabels[player.reliability]}
+      metricLabel={t("common.foulsP90")}
+      reliabilityLabel={reliabilityLabels()[player.reliability]}
       badgeText={badgeText}
       tacticalMetric={findTacticalMetric(
         metrics,
@@ -133,9 +135,10 @@ export function IntensityAnalysisView({
   onWatchAd?: () => void;
   onDiscoverPro?: () => void;
 }) {
+  const { t, locale } = useLocale();
   const analysis = useMemo(
     () => buildMatchIntensityAnalysis(metrics, { homeTeamId }),
-    [metrics, homeTeamId]
+    [metrics, homeTeamId, locale]
   );
   const [showAllAggressive, setShowAllAggressive] = useState(false);
   const [showAllExposed, setShowAllExposed] = useState(false);
@@ -161,26 +164,26 @@ export function IntensityAnalysisView({
       {monitorDuels.length > PREVIEW_DUELS ? (
         <ExpandCta
           expanded={showAllDuels}
-          expandLabel="Vedi duelli >"
-          collapseLabel="Mostra meno"
+          expandLabel={t("common.seeDuels")}
+          collapseLabel={t("common.collapse")}
           onPress={() => setShowAllDuels((open) => !open)}
         />
       ) : null}
     </View>
   ) : (
-    <Text style={styles.muted}>Nessun duello rilevante con i dati attuali.</Text>
+    <Text style={styles.muted}>{t("intensity.noDuels")}</Text>
   );
 
   const duelsContentGuest = (() => {
     if (!monitorDuels.length) {
-      return <Text style={styles.muted}>Nessun duello rilevante con i dati attuali.</Text>;
+      return <Text style={styles.muted}>{t("intensity.noDuels")}</Text>;
     }
     if (foulLock) {
       if (guestFeaturesPreviewActive) {
         return (
           <View style={styles.stack}>
             <Text style={styles.sectionHint}>
-              Sblocco attivo — Duelli da monitorare disponibili per 15 minuti.
+              {t("intensity.unlockActive")}
             </Text>
             {duelsContentFull}
           </View>
@@ -188,8 +191,8 @@ export function IntensityAnalysisView({
       }
       return (
         <GuestLockedSectionPanel
-          title="Duelli da monitorare"
-          description={`${MATCH_MONITOR_DUELS_COUNT} duelli fisici da monitorare per questa partita. Guarda una pubblicità per sbloccarli per 15 minuti.`}
+          title={t("intensity.monitorDuels")}
+          description={t("intensity.lockDescAd", { count: MATCH_MONITOR_DUELS_COUNT })}
           onWatchAd={onWatchAd}
           onDiscoverPro={onDiscoverPro}
           showAdCta
@@ -199,8 +202,8 @@ export function IntensityAnalysisView({
     if (!guestAdPreview) {
       return (
         <GuestLockedSectionPanel
-          title="Duelli da monitorare"
-          description={`${MATCH_MONITOR_DUELS_COUNT} duelli fisici da monitorare per questa partita. Disponibile con PitchBrain Pro.`}
+          title={t("intensity.monitorDuels")}
+          description={t("intensity.lockDescPro", { count: MATCH_MONITOR_DUELS_COUNT })}
           onDiscoverPro={onDiscoverPro}
           showAdCta={false}
         />
@@ -210,13 +213,16 @@ export function IntensityAnalysisView({
     return (
       <View style={styles.stack}>
         <Text style={styles.sectionHint}>
-          Anteprima — {GUEST_VISIBLE_DUELS_WITH_AD} di {MATCH_MONITOR_DUELS_COUNT} duelli
+          {t("intensity.previewHint", {
+            visible: GUEST_VISIBLE_DUELS_WITH_AD,
+            total: MATCH_MONITOR_DUELS_COUNT
+          })}
         </Text>
         {previewDuels.map((duel, index) => renderDuelCard(duel, index, metrics))}
         {monitorDuels.slice(GUEST_VISIBLE_DUELS_WITH_AD).map((_, index) => (
           <GuestObscuredDuelPlaceholder
             key={`obscured-duel-${index}`}
-            label={`Duello ${GUEST_VISIBLE_DUELS_WITH_AD + index + 1} riservato`}
+            label={t("intensity.reservedDuel", { n: GUEST_VISIBLE_DUELS_WITH_AD + index + 1 })}
           />
         ))}
         <GuestPartialPreviewBanner onDiscoverPro={onDiscoverPro} />
@@ -227,7 +233,7 @@ export function IntensityAnalysisView({
   if (!metrics.length) {
     return (
       <View style={styles.empty}>
-        <Text style={styles.emptyText}>{FOULS_ANALYSIS_UI.emptyState}</Text>
+        <Text style={styles.emptyText}>{t("common.noData")}</Text>
       </View>
     );
   }
@@ -239,12 +245,12 @@ export function IntensityAnalysisView({
       showsVerticalScrollIndicator={false}
     >
       <View style={styles.block}>
-        <Text style={styles.blockTitle}>Profili falli</Text>
+        <Text style={styles.blockTitle}>{t("intensity.profiles")}</Text>
         {!foulLock ? (
           <AnalysisMetricStrip
             items={[
               {
-                label: "Fisicità",
+                label: t("intensity.physicality"),
                 value: intensityLevelLabel(analysis.matchIntensity.level),
                 sublabel:
                   analysis.matchIntensity.value != null
@@ -252,14 +258,14 @@ export function IntensityAnalysisView({
                     : undefined
               },
               {
-                label: "Affidabilità",
-                value: reliabilityLabels[analysis.reliabilityOverview.level],
-                sublabel: analysis.reliabilityOverview.level === "low" ? "Dati parziali" : undefined
+                label: t("common.reliability"),
+                value: reliabilityLabels()[analysis.reliabilityOverview.level],
+                sublabel: analysis.reliabilityOverview.level === "low" ? t("intensity.partialData") : undefined
               },
               {
-                label: "Contesto",
-                value: analysis.matchIntensity.level === "low" ? "Contenuto" : "Elevato",
-                sublabel: analysis.matchIntensity.level === "low" ? "Zone mirate" : "Diffuso"
+                label: t("intensity.context"),
+                value: analysis.matchIntensity.level === "low" ? t("intensity.contained") : t("intensity.elevated"),
+                sublabel: analysis.matchIntensity.level === "low" ? t("intensity.targetedZones") : t("intensity.widespread")
               }
             ]}
           />
@@ -267,39 +273,39 @@ export function IntensityAnalysisView({
       </View>
 
       <View style={styles.block}>
-        <Text style={styles.blockTitle}>Giocatori aggressivi</Text>
+        <Text style={styles.blockTitle}>{t("intensity.aggressivePlayers")}</Text>
         <Text style={styles.sectionHint}>
-          Giocatori con media falli commessi &gt; {formatMetric(FOULS_PROFILE_MIN_AVG)}
+          {t("intensity.committedHint", { avg: formatMetric(FOULS_PROFILE_MIN_AVG) })}
         </Text>
         {renderPlayerCards(
           visibleAggressive,
           "committed",
           metrics,
-          "Profilo falli commessi sopra soglia"
+          t("intensity.foulsCommitted")
         )}
         {analysis.aggressivePlayers.length > PREVIEW_PLAYERS ? (
           <ExpandCta
             expanded={showAllAggressive}
-            expandLabel="Vedi tutti >"
-            collapseLabel="Mostra meno"
+            expandLabel={t("common.expandAll")}
+            collapseLabel={t("common.collapse")}
             onPress={() => setShowAllAggressive((open) => !open)}
           />
         ) : null}
 
         <Text style={[styles.sectionHint, styles.sectionGap]}>
-          Giocatori con media falli subiti &gt; {formatMetric(FOULS_PROFILE_MIN_AVG)}
+          {t("intensity.sufferedHint", { avg: formatMetric(FOULS_PROFILE_MIN_AVG) })}
         </Text>
         {renderPlayerCards(
           visibleExposed,
           "suffered",
           metrics,
-          "Profilo esposizione ai falli sopra soglia"
+          t("intensity.foulsSuffered")
         )}
         {analysis.exposedPlayers.length > PREVIEW_PLAYERS ? (
           <ExpandCta
             expanded={showAllExposed}
-            expandLabel="Vedi tutti >"
-            collapseLabel="Mostra meno"
+            expandLabel={t("common.expandAll")}
+            collapseLabel={t("common.collapse")}
             onPress={() => setShowAllExposed((open) => !open)}
           />
         ) : null}
@@ -307,7 +313,7 @@ export function IntensityAnalysisView({
       </View>
 
       <View style={styles.block}>
-        <Text style={styles.blockTitle}>Duelli da monitorare</Text>
+        <Text style={styles.blockTitle}>{t("intensity.monitorDuels")}</Text>
         {isGuest ? duelsContentGuest : duelsContentFull}
       </View>
     </ScrollView>

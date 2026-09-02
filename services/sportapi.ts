@@ -47,7 +47,8 @@ import {
 import {
   extractUnavailablePlayerIds,
   extractUnavailablePlayers,
-  pickProbableLineupPlayers
+  pickProbableLineupPlayers,
+  type UnavailablePlayerRefs
 } from "@/lib/tactical-probable-lineup";
 import { FOULS_PROFILE_MIN_AVG } from "@/lib/intensity-analysis";
 import type {
@@ -1167,23 +1168,40 @@ export async function fetchEventSeasonContextForInsights(eventId: number): Promi
   return parseSeasonContextFromEventJson(payload);
 }
 
-/** Infortunati/squalificati da GET match lineups (`missingPlayers` home/away). */
+/**
+ * Infortunati e squalificati della partita, uniti dalle due fonti disponibili:
+ * `missingPlayers` dentro i lineups e l'endpoint dedicato. Le coppe pubblicano
+ * spesso solo una delle due, quindi vanno lette entrambe.
+ */
 export async function fetchMatchLineupUnavailablePlayers(eventId: number): Promise<{
   ids: Set<number>;
   names: Set<string>;
 }> {
   if (!eventId || eventId <= 0) return { ids: new Set(), names: new Set() };
-  try {
-    const response = await sportApiFetch(sportApiEventLineupsPath(eventId), {
-      requestType: "snapshot",
-      revalidateSeconds: 120
-    });
-    if (!response.ok) return { ids: new Set(), names: new Set() };
-    const payload = await readSportApiJson(response);
-    return extractUnavailablePlayers(payload);
-  } catch {
-    return { ids: new Set(), names: new Set() };
+
+  async function readUnavailable(path: string): Promise<UnavailablePlayerRefs> {
+    try {
+      const response = await sportApiFetch(path, {
+        requestType: "snapshot",
+        revalidateSeconds: 120
+      });
+      if (!response.ok) return { ids: new Set(), names: new Set() };
+      return extractUnavailablePlayers(await readSportApiJson(response));
+    } catch {
+      return { ids: new Set(), names: new Set() };
+    }
   }
+
+  const [fromLineups, fromMissing] = await Promise.all([
+    readUnavailable(sportApiEventLineupsPath(eventId)),
+    readUnavailable(sportApiEventMissingPlayersPath(eventId))
+  ]);
+
+  const ids = new Set<number>(fromLineups.ids);
+  const names = new Set<string>(fromLineups.names);
+  for (const id of fromMissing.ids) ids.add(id);
+  for (const name of fromMissing.names) names.add(name);
+  return { ids, names };
 }
 
 /**
@@ -1429,6 +1447,13 @@ export interface UpcomingMatchItem {
   statusType?: string;
   /** Giornata FootAPI (`roundInfo.round`), se presente. */
   round?: number;
+  /** Indice intensità (Scontri & Falli) calcolato dagli insight, se disponibili. */
+  intensityPreview?: {
+    value: number | null;
+    label: string;
+    level: "low" | "medium" | "high" | "very_high";
+    uiLevel: "low" | "medium" | "high";
+  } | null;
 }
 
 function isStrictTop5CompetitionSlug(slug: string): boolean {
@@ -3444,6 +3469,7 @@ export async function fetchSportPerformanceForTeams(params: {
     let baseTournamentId = cupTournamentId;
     let baseSeasonId = cupSeasonId;
     let competitionSlugNorm = normalizedCompetition;
+    let usesDomesticSource = false;
 
     if (isMonitoredInternationalCompetitionSlug(normalizedCompetition)) {
       /** Statistiche falli/heatmap nel torneo analizzato (es. Mondiali), non in qualificazioni/NL più recenti. */
@@ -3453,6 +3479,7 @@ export async function fetchSportPerformanceForTeams(params: {
         baseTournamentId = domestic.tournamentId;
         baseSeasonId = domestic.seasonId;
         competitionSlugNorm = normalizeCompetitionSlug(domestic.slug);
+        usesDomesticSource = true;
       }
     }
 
@@ -3460,6 +3487,8 @@ export async function fetchSportPerformanceForTeams(params: {
       teamId,
       current: { tournamentId: baseTournamentId, seasonId: baseSeasonId },
       bypassCache: params.bypassCache,
+      /** Fonte domestica: si resta sulla stagione attuale, mai sull'annata scorsa. */
+      switchThreshold: usesDomesticSource ? 0 : undefined,
       sportApiFetch: sportApiFetch as (
         endpoint: string,
         options?: Record<string, unknown>
@@ -5579,11 +5608,29 @@ export async function fetchTeamPerformanceBlueprint(params: {
 }): Promise<TeamPerformanceBlueprint> {
   const scopeCompetitions = COMPETITION_SCOPE_MAP[params.scope].map(normalizeCompetitionSlug);
   const requestedCompetitionSlug = normalizeCompetitionSlug(params.competitionSlug);
-  const allowedSlugs = requestedCompetitionSlug
-    ? new Set([requestedCompetitionSlug])
+
+  /**
+   * Champions, Europa e Conference contano poche gare e partono a stagione
+   * avviata: il profilo squadra viene dal campionato in corso, dove la squadra
+   * gioca quasi sempre. Risolto per squadra, perché in una gara UEFA le due
+   * avversarie vengono da paesi diversi.
+   */
+  const domestic = isUefaClubCompetitionSlug(requestedCompetitionSlug)
+    ? await getTeamDomesticLeagueContext(params.teamId, params.forceRefresh)
+    : null;
+  const domesticOverride =
+    domestic && domestic.tournamentId > 0 && domestic.seasonId > 0 ? domestic : null;
+
+  const effectiveCompetitionSlug = domesticOverride
+    ? normalizeCompetitionSlug(domesticOverride.slug)
+    : requestedCompetitionSlug;
+  const allowedSlugs = effectiveCompetitionSlug
+    ? new Set([effectiveCompetitionSlug])
     : new Set(scopeCompetitions);
   let leagueId: number | null = null;
-  const skipTop5Gate = shouldSkipTop5CheckForBlueprint(requestedCompetitionSlug);
+  /** Il gate resta quello della richiesta: una coppa UEFA ammette anche squadre fuori dai top 5. */
+  const skipTop5Gate =
+    Boolean(domesticOverride) || shouldSkipTop5CheckForBlueprint(requestedCompetitionSlug);
 
   if (!skipTop5Gate) {
     leagueId = await getTeamLeagueId(params.teamId);
@@ -5596,11 +5643,24 @@ export async function fetchTeamPerformanceBlueprint(params: {
     }
   }
 
-  let effectiveTournamentId =
-    params.tournamentId && params.tournamentId > 0 ? params.tournamentId : 0;
-  let effectiveSeasonId = params.seasonId && params.seasonId > 0 ? params.seasonId : 0;
+  let effectiveTournamentId = domesticOverride
+    ? domesticOverride.tournamentId
+    : params.tournamentId && params.tournamentId > 0
+      ? params.tournamentId
+      : 0;
+  let effectiveSeasonId = domesticOverride
+    ? domesticOverride.seasonId
+    : params.seasonId && params.seasonId > 0
+      ? params.seasonId
+      : 0;
 
-  if (effectiveTournamentId > 0 && effectiveSeasonId > 0 && !params.preferCurrentSeason) {
+  /** Con la fonte domestica si resta sulla stagione attuale: niente ripiego sull'annata scorsa. */
+  if (
+    !domesticOverride &&
+    effectiveTournamentId > 0 &&
+    effectiveSeasonId > 0 &&
+    !params.preferCurrentSeason
+  ) {
     const seasonFallback = await resolveTeamSeasonFallback({
       teamId: params.teamId,
       current: { tournamentId: effectiveTournamentId, seasonId: effectiveSeasonId },
@@ -5623,6 +5683,8 @@ export async function fetchTeamPerformanceBlueprint(params: {
   const cacheTournamentId = effectiveTournamentId;
   const cacheSeasonId = effectiveSeasonId;
   const hasDirectSeasonContext = Boolean(effectiveTournamentId > 0 && effectiveSeasonId > 0);
+  /** Vincola la ricerca eventi a torneo+stagione: obbligatorio quando la fonte è il campionato. */
+  const pinSeasonContext = Boolean(params.preferCurrentSeason || domesticOverride);
 
   const cached = await getCachedBlueprintRow(
     params.teamId,
@@ -5726,10 +5788,10 @@ export async function fetchTeamPerformanceBlueprint(params: {
     const primaryEvents = await listFinishedEventsForTeam({
       teamId: params.teamId,
       allowedCompetitionSlugs: allowedSlugs,
-      maxPages: params.preferCurrentSeason ? 3 : 1,
+      maxPages: pinSeasonContext ? 3 : 1,
       maxMatches: 1,
-      tournamentId: params.preferCurrentSeason ? effectiveTournamentId : undefined,
-      seasonId: params.preferCurrentSeason ? effectiveSeasonId : undefined
+      tournamentId: pinSeasonContext ? effectiveTournamentId : undefined,
+      seasonId: pinSeasonContext ? effectiveSeasonId : undefined
     });
 
     if (primaryEvents.length === 0) {
@@ -5741,7 +5803,7 @@ export async function fetchTeamPerformanceBlueprint(params: {
 
     events = primaryEvents;
     const contextEvent = primaryEvents.find((event) => Boolean(event.id)) ?? null;
-    if (contextEvent && !params.preferCurrentSeason) {
+    if (contextEvent && !pinSeasonContext) {
       const contextResult = await resolveSeasonContextFromEvent(contextEvent);
       if (contextResult.context) {
         const seasonOverall = await fetchTeamSeasonOverallStatistics({
@@ -5770,8 +5832,8 @@ export async function fetchTeamPerformanceBlueprint(params: {
       allowedCompetitionSlugs: allowedSlugs,
       maxPages: parsePositiveInt(process.env.TACTICAL_BLUEPRINT_SEASON_PAGES, 2),
       maxMatches: parsePositiveInt(process.env.TACTICAL_BLUEPRINT_SEASON_MATCHES, 8),
-      tournamentId: params.preferCurrentSeason ? effectiveTournamentId : undefined,
-      seasonId: params.preferCurrentSeason ? effectiveSeasonId : undefined
+      tournamentId: pinSeasonContext ? effectiveTournamentId : undefined,
+      seasonId: pinSeasonContext ? effectiveSeasonId : undefined
     });
 
     for (const event of events) {

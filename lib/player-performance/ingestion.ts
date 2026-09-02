@@ -4,7 +4,10 @@ function sleepMs(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export async function ensureFixturePlayerStatsCached(eventIds: number[]): Promise<{
+export async function ensureFixturePlayerStatsCached(
+  eventIds: number[],
+  options?: { budgetMs?: number }
+): Promise<{
   ingested: number;
   skipped: number;
   errors: number;
@@ -16,8 +19,17 @@ export async function ensureFixturePlayerStatsCached(eventIds: number[]): Promis
   let errors = 0;
   let rateLimited = false;
   let consecutiveBundleFailures = 0;
+  const startedAt = Date.now();
+  const budgetMs = options?.budgetMs;
 
   for (const eventId of unique) {
+    if (budgetMs != null && Date.now() - startedAt > budgetMs) {
+      console.warn("[player-performance] ingestion_budget_exhausted", {
+        processed: ingested + skipped + errors,
+        remaining: unique.length - ingested - skipped - errors
+      });
+      break;
+    }
     const result = await ingestMatchPlayerTrendStatsIfNeeded(eventId);
     if (result.skipped) {
       skipped += 1;

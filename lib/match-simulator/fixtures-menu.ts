@@ -8,6 +8,7 @@ import {
   sortMatchesChronologically
 } from "@/lib/tactical-matches-filters";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
+import { parseStoredIntensityPreview } from "@/lib/match-intensity-preview";
 import type { UpcomingMatchItem } from "@/services/sportapi";
 
 function parseOptionalMatchRound(value: unknown): number | undefined {
@@ -51,7 +52,8 @@ export function normalizePersistedMenuRows(raw: unknown): UpcomingMatchItem[] {
         id: awayId,
         name: typeof away?.name === "string" ? away.name : "AWAY"
       },
-      round: parseOptionalMatchRound(row.round)
+      round: parseOptionalMatchRound(row.round),
+      intensityPreview: parseStoredIntensityPreview(row.intensityPreview)
     });
   }
   return out;

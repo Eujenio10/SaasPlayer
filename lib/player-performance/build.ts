@@ -42,6 +42,7 @@ import type {
 } from "@/lib/player-performance/types";
 import {
   countDistinctPlayers,
+  filterRowsByAvailability,
   filterRowsByCurrentSeason,
   filterRowsByCurrentSquad
 } from "@/lib/player-performance/squad";
@@ -50,6 +51,7 @@ import type { PlayerMatchTrendStats } from "@/lib/trends/types";
 import {
   fetchCurrentTeamSquad,
   fetchEventMatchTeamsContext,
+  fetchMatchLineupUnavailablePlayers,
   type EventMatchTeamsContext
 } from "@/services/sportapi";
 
@@ -253,7 +255,8 @@ function buildTeamPerformance(params: BuildTeamParams & {
 
 export async function buildMatchPlayerPerformance(
   eventId: number,
-  hints?: MatchPlayerPerformanceHints
+  hints?: MatchPlayerPerformanceHints,
+  options?: { ingestionBudgetMs?: number }
 ): Promise<MatchPlayerPerformance | null> {
   const matchCtx = await resolveMatchContext(eventId, hints);
   if (!matchCtx) return null;
@@ -282,7 +285,7 @@ export async function buildMatchPlayerPerformance(
     })
   ]);
 
-  const [homeFixtureIds, awayFixtureIds, homeSquad, awaySquad] = await Promise.all([
+  const [homeFixtureIds, awayFixtureIds, homeSquad, awaySquad, unavailable] = await Promise.all([
     resolveTeamFixtureIds({
       teamId: matchCtx.homeTeam.id,
       anchorEventId: eventId,
@@ -298,14 +301,20 @@ export async function buildMatchPlayerPerformance(
       seasonId: awayScope.seasonId
     }),
     fetchCurrentTeamSquad(matchCtx.homeTeam.id),
-    fetchCurrentTeamSquad(matchCtx.awayTeam.id)
+    fetchCurrentTeamSquad(matchCtx.awayTeam.id),
+    fetchMatchLineupUnavailablePlayers(eventId).catch(() => ({
+      ids: new Set<number>(),
+      names: new Set<string>()
+    }))
   ]);
 
   const fixtureIds = [...homeFixtureIds, ...awayFixtureIds]
     .map((id) => Number(id))
     .filter((id) => id > 0);
 
-  const ingestion = await ensureFixturePlayerStatsCached(fixtureIds);
+  const ingestion = await ensureFixturePlayerStatsCached(fixtureIds, {
+    budgetMs: options?.ingestionBudgetMs
+  });
 
   const [homeRowsRaw, awayRowsRaw] = await Promise.all([
     loadTeamMatchPlayerStats({
@@ -318,13 +327,19 @@ export async function buildMatchPlayerPerformance(
     })
   ]);
 
-  const homeRows = filterRowsByCurrentSquad(
-    filterRowsByCurrentSeason(homeRowsRaw, homeScope.seasonId),
-    homeSquad
+  const homeRows = filterRowsByAvailability(
+    filterRowsByCurrentSquad(
+      filterRowsByCurrentSeason(homeRowsRaw, homeScope.seasonId),
+      homeSquad
+    ),
+    unavailable
   );
-  const awayRows = filterRowsByCurrentSquad(
-    filterRowsByCurrentSeason(awayRowsRaw, awayScope.seasonId),
-    awaySquad
+  const awayRows = filterRowsByAvailability(
+    filterRowsByCurrentSquad(
+      filterRowsByCurrentSeason(awayRowsRaw, awayScope.seasonId),
+      awaySquad
+    ),
+    unavailable
   );
 
   console.info("[player-performance] current_season_scope", {
@@ -419,28 +434,26 @@ async function resolveMatchContext(
   eventId: number,
   hints?: MatchPlayerPerformanceHints
 ): Promise<EventMatchTeamsContext | null> {
-  const fetched = await fetchEventMatchTeamsContext(eventId);
+  const fetched = await fetchEventMatchTeamsContext(eventId).catch(() => null);
 
-  if (hints?.homeTeam?.id && hints?.awayTeam?.id) {
-    const startTimestamp =
-      hints.startTimestamp && hints.startTimestamp > 0
-        ? hints.startTimestamp
-        : fetched?.startTimestamp;
-    if (!startTimestamp || startTimestamp <= 0) return null;
+  const homeTeam = hints?.homeTeam ?? fetched?.homeTeam;
+  const awayTeam = hints?.awayTeam ?? fetched?.awayTeam;
+  if (!homeTeam?.id || !awayTeam?.id) return fetched;
 
-    return {
-      eventId,
-      startTimestamp,
-      tournamentId: hints.tournamentId ?? fetched?.tournamentId ?? 0,
-      seasonId: hints.seasonId ?? fetched?.seasonId ?? 0,
-      /** Gli hint dei chiamanti non portano lo slug: arriva sempre dall'evento. */
-      competitionSlug: fetched?.competitionSlug ?? "",
-      homeTeam: hints.homeTeam,
-      awayTeam: hints.awayTeam
-    };
-  }
+  const startTimestamp =
+    (hints?.startTimestamp && hints.startTimestamp > 0 ? hints.startTimestamp : null) ??
+    (fetched?.startTimestamp && fetched.startTimestamp > 0 ? fetched.startTimestamp : null) ??
+    Math.floor(Date.now() / 1000) + 60;
 
-  return fetched;
+  return {
+    eventId,
+    startTimestamp,
+    tournamentId: hints?.tournamentId ?? fetched?.tournamentId ?? 0,
+    seasonId: hints?.seasonId ?? fetched?.seasonId ?? 0,
+    competitionSlug: fetched?.competitionSlug ?? "",
+    homeTeam,
+    awayTeam
+  };
 }
 
 export { roleGroupLabelIt, trendStatusLabelIt };

@@ -30,10 +30,14 @@ export async function fetchMatchPlayerPerformance(
         })}&_=${Date.now()}`
       : `?_${Date.now()}`;
 
-  const res = await fetchWithTimeout(`${env.apiUrl}/api/mobile/match-player-performance/${eventId}${query}`, {
-    headers: await buildHeaders(),
-    cache: "no-store"
-  });
+  const res = await fetchWithTimeout(
+    `${env.apiUrl}/api/mobile/match-player-performance/${eventId}${query}`,
+    {
+      headers: await buildHeaders(),
+      cache: "no-store"
+    },
+    90_000
+  );
 
   if (res.status === 410) {
     throw new Error("player_performance_match_started");

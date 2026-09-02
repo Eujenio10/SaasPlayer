@@ -1,3 +1,5 @@
+import { LOCALE_BCP47, getActiveLocale, t } from "@/lib/i18n";
+
 const TEAM_COLORS = [
   "#3B82F6",
   "#8B5CF6",
@@ -47,11 +49,12 @@ export function formatMatchDateParts(timestampSec: number): {
   full: string;
 } {
   const date = new Date(timestampSec * 1000);
-  const weekday = new Intl.DateTimeFormat("it-IT", {
+  const locale = LOCALE_BCP47[getActiveLocale()];
+  const weekday = new Intl.DateTimeFormat(locale, {
     timeZone: "Europe/Rome",
     weekday: "long"
   }).format(date);
-  const dayMonth = new Intl.DateTimeFormat("it-IT", {
+  const dayMonth = new Intl.DateTimeFormat(locale, {
     timeZone: "Europe/Rome",
     day: "2-digit",
     month: "short"
@@ -59,12 +62,12 @@ export function formatMatchDateParts(timestampSec: number): {
     .format(date)
     .replace(".", "")
     .toUpperCase();
-  const time = new Intl.DateTimeFormat("it-IT", {
+  const time = new Intl.DateTimeFormat(locale, {
     timeZone: "Europe/Rome",
     hour: "2-digit",
     minute: "2-digit"
   }).format(date);
-  const full = new Intl.DateTimeFormat("it-IT", {
+  const full = new Intl.DateTimeFormat(locale, {
     timeZone: "Europe/Rome",
     weekday: "short",
     day: "2-digit",
@@ -105,8 +108,8 @@ export function isMatchTodayRome(timestampSec: number, nowMs: number = Date.now(
 /** Etichetta sezione calendario: Oggi, Domani, oppure «Lunedì 01 set». */
 export function formatMatchDaySectionLabel(timestampSec: number, nowMs: number = Date.now()): string {
   const key = romeDateKey(timestampSec);
-  if (key === romeTodayKey(nowMs)) return "OGGI";
-  if (key === romeTomorrowKey(nowMs)) return "DOMANI";
+  if (key === romeTodayKey(nowMs)) return t("common.today").toUpperCase();
+  if (key === romeTomorrowKey(nowMs)) return t("common.tomorrow").toUpperCase();
   const parts = formatMatchDateParts(timestampSec);
   return `${parts.weekday.toUpperCase()} ${parts.dayMonth}`;
 }
@@ -153,7 +156,7 @@ export function intensityVisualStyle(level: IntensityUiLevel): {
 }
 
 export function intensityLevelLabel(level: IntensityUiLevel): string {
-  if (level === "high") return "alta";
-  if (level === "medium") return "media";
-  return "bassa";
+  if (level === "high") return t("home.intensityHigh").toLowerCase();
+  if (level === "medium") return t("home.intensityMedium").toLowerCase();
+  return t("home.intensityLow").toLowerCase();
 }

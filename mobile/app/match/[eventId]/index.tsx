@@ -9,9 +9,12 @@ import { useEntitlements } from "@/contexts/EntitlementsContext";
 import { genericTeamColor } from "@/lib/match-display";
 import { matchChildHref, useMatchRouteParams } from "@/lib/matches/use-match-route-params";
 import { spacing } from "@/lib/theme";
+import { useLocale } from "@/contexts/LocaleContext";
+import { translateCompetitionName } from "@/lib/i18n";
 
 export default function MatchHubScreen() {
   const router = useRouter();
+  const { t } = useLocale();
   const match = useMatchRouteParams();
   const { isPro } = useEntitlements();
   const homeColor = genericTeamColor(match.homeName);
@@ -24,9 +27,9 @@ export default function MatchHubScreen() {
   return (
     <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        <AnalysisNavHeader backLabel="Analisi Partita" />
+        <AnalysisNavHeader backLabel={t("matches.back")} />
 
-        <Text style={styles.competition}>{match.competitionName.toUpperCase()}</Text>
+        <Text style={styles.competition}>{translateCompetitionName(match.competitionName).toUpperCase()}</Text>
         {match.kickoffLabel ? <Text style={styles.kickoff}>{match.kickoffLabel}</Text> : null}
 
         <View style={styles.teams}>
@@ -53,18 +56,18 @@ export default function MatchHubScreen() {
 
         <View style={styles.cards}>
           <AnalysisOptionCard
-            title="Scontri & Falli"
-            description="Aggressività, falli e duelli individuali"
+            title={t("matchHub.foulsTitle")}
+            description={t("matchHub.foulsDesc")}
             onPress={() => open("fouls")}
           />
           <AnalysisOptionCard
-            title="Player Performance"
-            description="Pericolosità, tiro, creazione e rendimento"
+            title={t("matchHub.performanceTitle")}
+            description={t("matchHub.performanceDesc")}
             onPress={() => open("performance")}
           />
           <AnalysisOptionCard
-            title="Pre-Partita"
-            description="Ritmo, forma, equilibrio e chiavi tattiche"
+            title={t("matchHub.prematchTitle")}
+            description={t("matchHub.prematchDesc")}
             onPress={() => open("prematch")}
           />
         </View>

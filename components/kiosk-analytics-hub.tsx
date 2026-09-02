@@ -16,6 +16,7 @@ import {
 import type { FoulRiskAggressorBrief, FoulRiskEntry } from "@/lib/foul-risk-analysis";
 import type { UserAccessSummary } from "@/lib/auth/user-access";
 import type { CompetitionScope, TacticalMetrics } from "@/lib/types";
+import type { UpcomingMatchItem } from "@/services/sportapi";
 import {
   bumpAdminInsightsSnap,
   KIOSK_ADMIN_INSIGHTS_REFRESH_EVENT,
@@ -27,7 +28,7 @@ import {
   writeKioskInsightsLocal,
   writeKioskMatchesCache
 } from "@/lib/kiosk-persisted-insights";
-import type { UpcomingMatchItem } from "@/services/sportapi";
+import { computeMatchIntensityPreview } from "@/lib/intensity-analysis";
 import {
   committedFoulSignalForRisk,
   foulsSufferedPerMatchForDisplay,
@@ -40,7 +41,22 @@ import {
   isTop5DomesticCompetitionSlug,
   resolveCompetitionId
 } from "@/lib/competitions";
+import { isKickoffTodayRome, NO_MATCHES_TODAY_MESSAGE } from "@/lib/match-calendar-day";
 import type { MonitoredCompetitionId } from "@/lib/competitions";
+
+const MATCH_LIST_MODE_FILTERS = ["all", "today", "intensity"] as const;
+type MatchListModeFilter = (typeof MATCH_LIST_MODE_FILTERS)[number];
+
+function isMatchListModeFilter(value: string): value is MatchListModeFilter {
+  return MATCH_LIST_MODE_FILTERS.includes(value as MatchListModeFilter);
+}
+
+const intensityPreviewBadgeClass: Record<"low" | "medium" | "high" | "very_high", string> = {
+  low: "border-emerald-300/30 bg-emerald-400/10 text-emerald-100",
+  medium: "border-amber-300/30 bg-amber-400/10 text-amber-100",
+  high: "border-orange-300/30 bg-orange-400/10 text-orange-100",
+  very_high: "border-rose-300/30 bg-rose-400/10 text-rose-100"
+};
 
 type KioskView =
   | "PLAYER_FRICTION"
@@ -129,6 +145,66 @@ async function persistOrgKioskInsightsToApi(params: {
   } catch {
     return false;
   }
+}
+
+async function fetchIntensityPreviewsFromApi(
+  eventIds: number[]
+): Promise<{
+  previews: Map<number, NonNullable<UpcomingMatchItem["intensityPreview"]>>;
+  ok: boolean;
+}> {
+  const unique = [...new Set(eventIds.filter((id) => Number.isFinite(id) && id > 0))];
+  const previewByEvent = new Map<number, NonNullable<UpcomingMatchItem["intensityPreview"]>>();
+  if (!unique.length) return { previews: previewByEvent, ok: true };
+
+  let ok = false;
+  const chunkSize = 80;
+  for (let i = 0; i < unique.length; i += chunkSize) {
+    const chunk = unique.slice(i, i + chunkSize);
+    try {
+      const res = await fetch(
+        `/api/tactical/match-intensity-previews?eventIds=${encodeURIComponent(chunk.join(","))}`,
+        { cache: "no-store", credentials: "include" }
+      );
+      if (!res.ok) continue;
+      ok = true;
+      const json = (await res.json()) as {
+        previews?: Record<string, NonNullable<UpcomingMatchItem["intensityPreview"]>>;
+      };
+      for (const [key, preview] of Object.entries(json.previews ?? {})) {
+        const eventId = Number(key);
+        if (!Number.isFinite(eventId) || preview?.value == null) continue;
+        previewByEvent.set(eventId, preview);
+      }
+    } catch {
+      // una lettura batch fallita non deve svuotare il menu
+    }
+  }
+  return { previews: previewByEvent, ok };
+}
+
+async function withIntensityPreviewsOnMatches(
+  matches: UpcomingMatchItem[]
+): Promise<UpcomingMatchItem[]> {
+  const withLocal = applyLocalIntensityPreviews(matches);
+  const missing = withLocal.filter((match) => match.intensityPreview?.value == null);
+  if (!missing.length) return withLocal;
+
+  const batch = await fetchIntensityPreviewsFromApi(missing.map((match) => match.eventId));
+  return withLocal.map((match) => {
+    const preview = batch.previews.get(match.eventId);
+    return preview ? { ...match, intensityPreview: preview } : match;
+  });
+}
+
+function applyLocalIntensityPreviews(matches: UpcomingMatchItem[]): UpcomingMatchItem[] {
+  return matches.map((match) => {
+    if (match.intensityPreview?.value != null) return match;
+    const local = readKioskInsightsLocal(match.eventId);
+    if (!local?.metrics.length) return match;
+    const preview = computeMatchIntensityPreview(local.metrics);
+    return preview.value != null ? { ...match, intensityPreview: preview } : match;
+  });
 }
 
 async function consumeMemberMatchWeekSlotIfNeeded(params: {
@@ -420,8 +496,8 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
   const [matchesError, setMatchesError] = useState<string | null>(null);
   /** Aggiornato ogni minuto: ricalcola il filtro “solo future” senza nuove richieste API. */
   const [matchListTimeTick, setMatchListTimeTick] = useState(0);
-  // Nessun campionato selezionato al primo caricamento: l’utente deve scegliere.
-  const [selectedCompetition, setSelectedCompetition] = useState<string>("");
+  /** Filtro elenco: Tutte / Oggi / Intensità / campionato. */
+  const [selectedCompetition, setSelectedCompetition] = useState<string>("all");
   const [selectedMatchId, setSelectedMatchId] = useState<number>(0);
   const [loadingMatchInsights, setLoadingMatchInsights] = useState(false);
   const [matchInsightsError, setMatchInsightsError] = useState<string | null>(null);
@@ -554,8 +630,10 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
       return presetUpcoming;
     }
     {
-      const cached = readKioskMatchesCache(fixtureId);
-      if (cached.length > 0) {
+      const cached = applyLocalIntensityPreviews(readKioskMatchesCache(fixtureId));
+      const cacheHasIntensity =
+        cached.length > 0 && cached.every((match) => match.intensityPreview?.value != null);
+      if (cacheHasIntensity) {
         setMatches(cached);
         setSelectedMatchId(0);
         setMatchesError(null);
@@ -596,16 +674,18 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
         list = json.matches ?? [];
       }
     }
-    const normalized = dedupeMatchesByEventId(
-      list.map((m) => ({
-        ...m,
-        competitionSlug: normalizeKioskCompetitionSlug(m.competitionSlug)
-      }))
+    const normalized = applyLocalIntensityPreviews(
+      dedupeMatchesByEventId(
+        list.map((m) => ({
+          ...m,
+          competitionSlug: normalizeKioskCompetitionSlug(m.competitionSlug)
+        }))
+      )
     );
-    setMatches(normalized);
-    writeKioskMatchesCache(fixtureId, normalized);
-    setSelectedMatchId(0);
     if (normalized.length === 0 && !presetMatch && !testingMatch) {
+      setMatches(normalized);
+      writeKioskMatchesCache(fixtureId, normalized);
+      setSelectedMatchId(0);
       setMatchesError(
         json.persistedSnapshotMissing
           ? "Menù partite non ancora salvato dall’organizzazione. Un amministratore deve aprire il Tactical Hub una volta (caricamento menu completo) così anche i profili Pro usano solo i dati in database, senza consumare il piano API esterno."
@@ -614,7 +694,11 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
       return normalized;
     }
     setMatchesError(null);
-    return normalized;
+    const withIntensity = await withIntensityPreviewsOnMatches(normalized);
+    setMatches(withIntensity);
+    writeKioskMatchesCache(fixtureId, withIntensity);
+    setSelectedMatchId(0);
+    return withIntensity;
   }, [fixtureId, presetMatch, testingMatch]);
 
   useEffect(() => {
@@ -644,6 +728,19 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
 
   const visibleMatches = useMemo(() => {
     if (!selectedCompetition) return [];
+    if (selectedCompetition === "all") {
+      return [...upcomingMatches].sort((a, b) => a.startTimestamp - b.startTimestamp);
+    }
+    if (selectedCompetition === "today") {
+      return upcomingMatches
+        .filter((item) => isKickoffTodayRome(item.startTimestamp))
+        .sort((a, b) => a.startTimestamp - b.startTimestamp);
+    }
+    if (selectedCompetition === "intensity") {
+      return upcomingMatches
+        .filter((item) => item.intensityPreview?.value != null)
+        .sort((a, b) => (b.intensityPreview?.value ?? -1) - (a.intensityPreview?.value ?? -1));
+    }
     const want = normalizeKioskCompetitionSlug(selectedCompetition);
     return upcomingMatches.filter(
       (item) => normalizeKioskCompetitionSlug(item.competitionSlug) === want
@@ -663,6 +760,7 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
   useEffect(() => {
     if (leagueFilterSlugs.length === 0) return;
     setSelectedCompetition((prev) => {
+      if (isMatchListModeFilter(prev)) return prev;
       const prevNorm = prev ? normalizeKioskCompetitionSlug(prev) : "";
       if (prevNorm && leagueFilterSlugs.includes(prevNorm as MonitoredCompetitionId)) return prev;
       return leagueFilterSlugs[0] ?? "";
@@ -1702,6 +1800,27 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
           ) : null}
           <div className="space-y-4">
             <div className="flex flex-wrap gap-3">
+            {([
+              { id: "all" as const, label: "Tutte" },
+              { id: "today" as const, label: "Oggi" },
+              { id: "intensity" as const, label: "Intensità" }
+            ]).map((mode) => (
+              <button
+                key={mode.id}
+                type="button"
+                onClick={() => {
+                  setSelectedCompetition(mode.id);
+                  setSelectedMatchId(0);
+                }}
+                className={`rounded-full border px-6 py-3 text-sm font-bold transition hover:scale-[1.02] ${
+                  selectedCompetition === mode.id
+                    ? "border-cyan-200/70 bg-gradient-to-r from-cyan-400 to-blue-500 text-white shadow-lg shadow-cyan-950/25"
+                    : "border-white/10 bg-white/[0.055] text-slate-200 hover:border-cyan-300/40 hover:bg-cyan-300/12 hover:text-cyan-50"
+                }`}
+              >
+                {mode.label}
+              </button>
+            ))}
             {leagueFilterSlugs.map((slug) => {
               const count = upcomingMatches.filter(
                 (m) => normalizeKioskCompetitionSlug(m.competitionSlug) === slug
@@ -1746,16 +1865,37 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
                   {match.homeTeam.name} vs {match.awayTeam.name}
                 </p>
                   <p className="mt-2 text-sm text-slate-300">Calcio d&apos;inizio: {formatKickoff(match.startTimestamp)}</p>
+                  {match.intensityPreview ? (
+                    <p
+                      className={`mt-3 inline-flex rounded-full border px-3 py-1 text-[11px] font-bold uppercase tracking-wide ${
+                        intensityPreviewBadgeClass[match.intensityPreview.level] ??
+                        intensityPreviewBadgeClass.medium
+                      }`}
+                    >
+                      {match.intensityPreview.value != null
+                        ? `${match.intensityPreview.label} · ${match.intensityPreview.value.toFixed(1)}`
+                        : match.intensityPreview.label}
+                    </p>
+                  ) : null}
               </button>
             ))}
           </div>
+          {!matchesError && selectedCompetition === "today" && visibleMatches.length === 0 ? (
+            <p className={infoBoxClass}>{NO_MATCHES_TODAY_MESSAGE}</p>
+          ) : !matchesError && selectedCompetition && visibleMatches.length === 0 && upcomingMatches.length > 0 ? (
+            <p className={infoBoxClass}>
+              {selectedCompetition === "intensity"
+                ? "Nessuna partita con intensità calcolata al momento."
+                : "Nessuna partita per il campionato selezionato."}
+            </p>
+          ) : null}
 
           {presetMatch && !matchesError && matches.length === 0 ? (
             <p className={infoBoxClass}>
               La partita preimpostata ha già calcio d&apos;inizio passato: non viene mostrata nel menu.
             </p>
           ) : null}
-          {!presetMatch && !matchesError && matches.length === 0 ? (
+          {!presetMatch && !matchesError && matches.length === 0 && selectedCompetition !== "today" ? (
             <p className="rounded-2xl border border-amber-300/20 bg-amber-300/10 px-4 py-3 text-sm text-amber-100">
               Nessuna partita nel menu: controlla la chiave SportAPI, il budget e le variabili d&apos;ambiente del
               calendario (es. <code className="text-xs">TACTICAL_LOOKAHEAD_DAYS</code>). Senza partite non è possibile
@@ -1764,10 +1904,10 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
           ) : null}
           {!matchesError && matches.length > 0 && !selectedCompetition ? (
             <p className="rounded-2xl border border-cyan-300/20 bg-cyan-300/10 px-4 py-3 text-sm text-cyan-50">
-              Seleziona un <strong>campionato</strong> (pulsanti sopra) per vedere le partite e le statistiche.
+              Seleziona <strong>Tutte</strong>, <strong>Oggi</strong>, <strong>Intensità</strong> o un campionato per vedere le partite.
             </p>
           ) : null}
-          {!matchesError && matches.length > 0 && upcomingMatches.length === 0 ? (
+          {!matchesError && matches.length > 0 && upcomingMatches.length === 0 && selectedCompetition !== "today" ? (
             <p className={infoBoxClass}>
               Tutte le partite caricate hanno già il calcio d’inizio nel passato: in menu restano solo match non ancora
               giocati.
@@ -1879,7 +2019,13 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
                     selectedMetricsByRosterKey={selectedMetricsByRosterKey}
                     leagueFilterSlugs={leagueFilterSlugs}
                     selectedCompetitionNormalized={
-                      selectedCompetition ? normalizeKioskCompetitionSlug(selectedCompetition) : ""
+                      isMatchListModeFilter(selectedCompetition)
+                        ? selectedMatch
+                          ? normalizeKioskCompetitionSlug(selectedMatch.competitionSlug)
+                          : ""
+                        : selectedCompetition
+                          ? normalizeKioskCompetitionSlug(selectedCompetition)
+                          : ""
                     }
                     onSelectCompetitionSlug={(slug) => {
                       setSelectedCompetition(slug);
@@ -1906,7 +2052,13 @@ export function KioskAnalyticsHub(props: KioskAnalyticsHubProps) {
                     selectedMetricsByRosterKey={selectedMetricsByRosterKey}
                     leagueFilterSlugs={leagueFilterSlugs}
                     selectedCompetitionNormalized={
-                      selectedCompetition ? normalizeKioskCompetitionSlug(selectedCompetition) : ""
+                      isMatchListModeFilter(selectedCompetition)
+                        ? selectedMatch
+                          ? normalizeKioskCompetitionSlug(selectedMatch.competitionSlug)
+                          : ""
+                        : selectedCompetition
+                          ? normalizeKioskCompetitionSlug(selectedCompetition)
+                          : ""
                     }
                     onSelectCompetitionSlug={(slug) => {
                       setSelectedCompetition(slug);

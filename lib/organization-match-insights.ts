@@ -127,7 +127,7 @@ export async function findOrganizationMatchByEventId(
     ...(Array.isArray(intl?.matches) ? normalizePersistedMenuRows(intl.matches) : [])
   ];
 
-  return merged.find((match) => match.eventId === eventId) ?? null;
+  return merged.find((match) => Number(match.eventId) === Number(eventId)) ?? null;
 }
 
 export async function loadOrganizationMatchInsightsMetrics(

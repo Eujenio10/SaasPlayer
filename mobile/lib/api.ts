@@ -8,11 +8,22 @@ import {
 import { buildMobileHeaders, fetchWithTimeout, USER_API_TIMEOUT_MS } from "@/lib/mobile-http";
 import type { HomeDashboardData } from "@/lib/home-dashboard/types";
 import type {
+  MatchIntensityPreview,
   TacticalMetrics,
   UpcomingMatchItem,
   UserAccessSummary,
   YellowCardRiskPlayer
 } from "@/lib/types";
+
+const MATCHES_MENU_CACHE_MS = 25_000;
+let matchesMenuCache: {
+  at: number;
+  data: { matches: UpcomingMatchItem[]; total: number };
+} | null = null;
+
+export function invalidateMatchesCache(): void {
+  matchesMenuCache = null;
+}
 
 async function buildHeaders(requireAuth = false): Promise<HeadersInit> {
   return buildMobileHeaders(requireAuth);
@@ -34,7 +45,7 @@ async function parseJsonResponse<T>(res: Response): Promise<T> {
   }
 }
 
-async function apiFetch<T>(path: string, init?: RequestInit, requireAuth = false): Promise<T> {
+async function apiFetchOnce<T>(path: string, init?: RequestInit, requireAuth = false): Promise<T> {
   const headers = await buildHeaders(requireAuth);
 
   let res: Response;
@@ -51,10 +62,8 @@ async function apiFetch<T>(path: string, init?: RequestInit, requireAuth = false
       init?.signal != null ? 5 * 60 * 1000 : USER_API_TIMEOUT_MS
     );
   } catch (error) {
-    throw mapFetchTransportError(error);
+    throw mapFetchTransportError(error, path);
   }
-
-
 
   if (!res.ok) {
     const body = await parseJsonResponse<{ error?: string; message?: string }>(res).catch(
@@ -69,10 +78,42 @@ async function apiFetch<T>(path: string, init?: RequestInit, requireAuth = false
     throw new Error(message);
   }
 
-
-
   return parseJsonResponse<T>(res);
+}
 
+function isRetryableFetchError(error: unknown): boolean {
+  if (isAbortFetchError(error)) return true;
+  const msg = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+  return (
+    msg.includes("connessione lenta") ||
+    msg.includes("request_failed_503") ||
+    msg.includes("request_failed_429") ||
+    msg.includes("request_failed_502") ||
+    msg.includes("request_failed_504")
+  );
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function apiFetch<T>(path: string, init?: RequestInit, requireAuth = false): Promise<T> {
+  const method = String(init?.method ?? "GET").toUpperCase();
+  const attempts = method === "GET" && init?.signal == null ? 2 : 1;
+  let lastError: unknown;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      return await apiFetchOnce<T>(path, init, requireAuth);
+    } catch (error) {
+      lastError = error;
+      if (attempt + 1 < attempts && isRetryableFetchError(error)) {
+        await sleep(500);
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
 }
 
 function isAbortFetchError(error: unknown): boolean {
@@ -87,10 +128,17 @@ function isAbortFetchError(error: unknown): boolean {
   return false;
 }
 
-function mapFetchTransportError(error: unknown): Error {
+function mapFetchTransportError(error: unknown, path?: string): Error {
   if (isAbortFetchError(error)) {
+    const catalog =
+      !path ||
+      path.includes("/matches") ||
+      path.includes("home-dashboard") ||
+      path.includes("yellow-card");
     return new Error(
-      "Connessione lenta. Il calendario è già in archivio: riprova tra qualche secondo."
+      catalog
+        ? "Connessione lenta. Il calendario è già in archivio: riprova tra qualche secondo."
+        : "Connessione lenta. Riprova tra qualche secondo."
     );
   }
   return error instanceof Error ? error : new Error(String(error));
@@ -117,7 +165,10 @@ export async function deleteUserAccount(): Promise<void> {
 }
 
 /** Invito registrazione: email con link per impostare la password. */
-export async function requestSignUp(email: string): Promise<{
+export async function requestSignUp(
+  email: string,
+  locale?: string
+): Promise<{
   ok: boolean;
   alreadyRegistered: boolean;
   resent?: boolean;
@@ -125,7 +176,17 @@ export async function requestSignUp(email: string): Promise<{
 }> {
   return apiFetch("/api/mobile/auth/request-signup", {
     method: "POST",
-    body: JSON.stringify({ email })
+    body: JSON.stringify({ email, locale })
+  });
+}
+
+export async function requestPasswordReset(
+  email: string,
+  locale?: string
+): Promise<{ ok: boolean; message: string }> {
+  return apiFetch("/api/mobile/auth/reset-password", {
+    method: "POST",
+    body: JSON.stringify({ email, locale })
   });
 }
 
@@ -273,26 +334,48 @@ export async function refreshAdminMatches(
 
 
 export async function fetchMatches(): Promise<{
-
   matches: UpcomingMatchItem[];
-
   total: number;
-
 }> {
+  const now = Date.now();
+  if (matchesMenuCache && now - matchesMenuCache.at < MATCHES_MENU_CACHE_MS) {
+    return matchesMenuCache.data;
+  }
 
-  const data = await apiFetch<{ matches: UpcomingMatchItem[]; total: number }>("/api/tactical/matches");
-
-  return {
-
+  const data = await apiFetch<{ matches: UpcomingMatchItem[]; total: number }>(
+    "/api/tactical/matches"
+  );
+  const localized = {
     ...data,
-
     matches: localizeUpcomingMatches(data.matches ?? [])
-
   };
-
+  matchesMenuCache = { at: Date.now(), data: localized };
+  return localized;
 }
 
+export async function fetchIntensityPreviews(
+  eventIds: number[]
+): Promise<Record<string, MatchIntensityPreview>> {
+  const unique = [
+    ...new Set(eventIds.filter((id) => Number.isFinite(id) && id > 0).map((id) => Math.trunc(id)))
+  ];
+  if (!unique.length) return {};
 
+  const merged: Record<string, MatchIntensityPreview> = {};
+  const chunkSize = 80;
+  for (let i = 0; i < unique.length; i += chunkSize) {
+    const chunk = unique.slice(i, i + chunkSize);
+    try {
+      const data = await apiFetch<{ previews?: Record<string, MatchIntensityPreview> }>(
+        `/api/tactical/match-intensity-previews?eventIds=${encodeURIComponent(chunk.join(","))}`
+      );
+      Object.assign(merged, data.previews ?? {});
+    } catch {
+      // backend senza endpoint o rete: il menu resta visibile
+    }
+  }
+  return merged;
+}
 
 export async function fetchMatchInsights(
 

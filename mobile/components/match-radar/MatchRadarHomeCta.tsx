@@ -2,28 +2,28 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { homeColors } from "@/components/home/home-theme";
+import { useLocale } from "@/contexts/LocaleContext";
 import { spacing } from "@/lib/theme";
 
 export function MatchRadarHomeCta() {
   const router = useRouter();
+  const { t } = useLocale();
 
   return (
     <Pressable
       style={({ pressed }) => [styles.card, pressed && { opacity: 0.94 }]}
       onPress={() => router.push("/match-radar")}
       accessibilityRole="button"
-      accessibilityLabel="Apri Match Radar"
+      accessibilityLabel={t("home.radarA11y")}
     >
       <View style={styles.iconWrap}>
         <Ionicons name="radio-outline" size={22} color={homeColors.green} />
       </View>
       <View style={styles.copy}>
-        <Text style={styles.title}>MATCH RADAR</Text>
-        <Text style={styles.body}>
-          Scopri le partite con i segnali più interessanti da analizzare.
-        </Text>
+        <Text style={styles.title}>{t("home.radarTitle")}</Text>
+        <Text style={styles.body}>{t("home.radarBody")}</Text>
       </View>
-      <Text style={styles.link}>APRI RADAR →</Text>
+      <Text style={styles.link}>{t("home.radarOpen")}</Text>
     </Pressable>
   );
 }

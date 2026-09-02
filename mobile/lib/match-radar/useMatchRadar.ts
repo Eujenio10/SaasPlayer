@@ -3,8 +3,9 @@ import { useAuth } from "@/contexts/AuthContext";
 import { fetchMatchRadar } from "@/lib/match-radar/api";
 import type { MatchRadarApiResponse } from "@/lib/match-radar/api-handlers";
 import type { MatchRadarMode } from "@/lib/match-radar/config";
+import type { AppLocale } from "@/lib/i18n";
 
-export function useMatchRadar(mode: MatchRadarMode = "general") {
+export function useMatchRadar(mode: MatchRadarMode = "general", locale: AppLocale = "it") {
   const { session } = useAuth();
   const [data, setData] = useState<MatchRadarApiResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -16,7 +17,7 @@ export function useMatchRadar(mode: MatchRadarMode = "general") {
     try {
       const payload = await fetchMatchRadar({
         mode,
-        locale: "it",
+        locale,
         token: session?.access_token ?? null
       });
       setData(payload);
@@ -26,7 +27,7 @@ export function useMatchRadar(mode: MatchRadarMode = "general") {
     } finally {
       setLoading(false);
     }
-  }, [mode, session?.access_token]);
+  }, [mode, locale, session?.access_token]);
 
   useEffect(() => {
     void refetch();

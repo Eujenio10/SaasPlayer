@@ -1,3 +1,4 @@
+import { isKickoffTodayRome } from "@/lib/match-calendar-day";
 import type { DifficultMarkingMatchup } from "@/lib/difficult-markings/types";
 import { MARKINGS_TOP_N } from "@/lib/difficult-markings/threat-config";
 
@@ -98,6 +99,7 @@ export function sortDifficultMarkings(
 
 export type DifficultMarkingFilterKey =
   | "all"
+  | "today"
   | "winger_fullback"
   | "striker_cb"
   | "am_dm"
@@ -109,6 +111,9 @@ export function filterDifficultMarkings(
   filter: DifficultMarkingFilterKey
 ): DifficultMarkingMatchup[] {
   if (filter === "all") return matchups;
+  if (filter === "today") {
+    return matchups.filter((m) => isKickoffTodayRome(m.kickoffTimestamp));
+  }
   if (filter === "high_reliability") return matchups.filter((m) => m.reliabilityScore >= 0.8);
   if (filter === "official_lineup") return matchups.filter((m) => m.officialLineupsUsed);
   if (filter === "winger_fullback") {

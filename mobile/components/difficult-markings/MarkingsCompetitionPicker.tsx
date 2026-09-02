@@ -3,36 +3,46 @@ import { useEffect, useMemo } from "react";
 import { filterCompetitionsByAvailableIds } from "@/lib/competitions-with-matches";
 import { markingsColors } from "@/components/difficult-markings/markings-theme";
 import { colors, radii, spacing } from "@/lib/theme";
+import { useLocale } from "@/contexts/LocaleContext";
+import { localizedCompetitionLabel } from "@/lib/i18n";
 
 export function MarkingsCompetitionPicker({
   active,
   onChange,
   availableIds,
-  variant = "default"
+  variant = "default",
+  extraOptions = []
 }: {
   active: string;
   onChange: (competitionId: string) => void;
   /** Se valorizzato, mostra solo questi campionati (con almeno 1 partita). */
   availableIds?: string[] | null;
   variant?: "default" | "matrix";
+  extraOptions?: Array<{ id: string; label: string }>;
 }) {
-  const options = useMemo(
+  const { t } = useLocale();
+  const competitionOptions = useMemo(
     () => filterCompetitionsByAvailableIds(availableIds),
     [availableIds]
+  );
+  const options = useMemo(
+    () => [...extraOptions, ...competitionOptions],
+    [competitionOptions, extraOptions]
   );
   const matrix = variant === "matrix";
 
   useEffect(() => {
-    if (options.length === 0) return;
-    if (!options.some((c) => c.id === active)) {
-      onChange(options[0].id);
+    if (competitionOptions.length === 0) return;
+    if (extraOptions.some((option) => option.id === active)) return;
+    if (!competitionOptions.some((c) => c.id === active)) {
+      onChange(competitionOptions[0].id);
     }
-  }, [active, onChange, options]);
+  }, [active, competitionOptions, extraOptions, onChange]);
 
   if (options.length === 0) {
     return (
       <Text style={[styles.empty, matrix && styles.emptyMatrix]}>
-        Nessun campionato con partite da analizzare al momento.
+        {t("common.noCompetitions")}
       </Text>
     );
   }
@@ -60,7 +70,7 @@ export function MarkingsCompetitionPicker({
                 selected && (matrix ? styles.chipTextActiveMatrix : styles.chipTextActive)
               ]}
             >
-              {competition.label}
+              {localizedCompetitionLabel(competition.id, competition.label)}
             </Text>
           </Pressable>
         );

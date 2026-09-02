@@ -7,9 +7,12 @@ import { LockedContentPreview } from "@/components/entitlements/EntitlementGates
 import { useEntitlements } from "@/contexts/EntitlementsContext";
 import { useMatchRouteParams } from "@/lib/matches/use-match-route-params";
 import { spacing } from "@/lib/theme";
+import { useLocale } from "@/contexts/LocaleContext";
+import { translateCompetitionName } from "@/lib/i18n";
 
 export default function MatchPerformanceScreen() {
   const match = useMatchRouteParams();
+  const { t } = useLocale();
   const { isPro, isMatchUnlocked, canAccessFeature } = useEntitlements();
   const matchAnalysisUnlocked =
     isPro ||
@@ -20,9 +23,9 @@ export default function MatchPerformanceScreen() {
     <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
       <View style={styles.headerPad}>
         <AnalysisNavHeader
-          backLabel="Match"
-          title="Player Performance"
-          subtitle={`${match.homeInitials} vs ${match.awayInitials} · ${match.competitionName}`}
+          backLabel={t("matchHub.backMatch")}
+          title={t("matchHub.performanceTitle")}
+          subtitle={`${match.homeInitials} vs ${match.awayInitials} · ${translateCompetitionName(match.competitionName)}`}
         />
       </View>
       <View style={styles.body}>
@@ -37,8 +40,8 @@ export default function MatchPerformanceScreen() {
           />
         ) : (
           <LockedContentPreview
-            title="Player Performance"
-            description="Sblocca l'analisi completa per vedere i giocatori più pericolosi nei tiri e nell'uno contro uno."
+            title={t("matchHub.performanceTitle")}
+            description={t("entitlements.performanceLock")}
             matchId={match.eventId}
             sourceScreen="player_performance"
           />

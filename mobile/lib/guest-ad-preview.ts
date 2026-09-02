@@ -1,14 +1,16 @@
 import * as SecureStore from "expo-secure-store";
+import { MATCH_SIMULATOR_ENABLED } from "@/lib/match-simulator/feature-flag";
 
-/** Sblocco Guest condiviso: Simulatore match + Duelli da monitorare. */
+/** Sblocco Guest condiviso: Duelli da monitorare, più il Simulatore quando è attivo. */
 export type GuestAdPreviewScope = "features";
 
 export const GUEST_FEATURES_PREVIEW_TTL_MS = 15 * 60 * 1000;
 
 export const GUEST_FEATURES_UNLOCK_TITLE = "Funzioni sbloccate";
 
-export const GUEST_FEATURES_UNLOCK_MESSAGE =
-  "Simulatore match e Duelli da monitorare sono disponibili per i prossimi 15 minuti.";
+export const GUEST_FEATURES_UNLOCK_MESSAGE = MATCH_SIMULATOR_ENABLED
+  ? "Simulatore match e Duelli da monitorare sono disponibili per i prossimi 15 minuti."
+  : "Duelli da monitorare è disponibile per i prossimi 15 minuti.";
 
 const SCOPE_STORAGE_KEY = "pitchbrain_guest_ad_features_expires";
 

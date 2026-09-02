@@ -57,6 +57,29 @@ export function collectMarkingsForCompetition(
   );
 }
 
+/** Tutte le marcature pre-partita dello snapshot, indipendenti dal campionato. */
+export function collectAllPublishedMarkings(
+  snapshot: DifficultMarkingsSnapshot | null | undefined,
+  kickoffByFixtureId?: Map<string, number>
+): DifficultMarkingMatchup[] {
+  if (!snapshot) return [];
+
+  const fromIndex = Object.values(snapshot.matchupIndex ?? {});
+  if (fromIndex.length) {
+    return filterPreMatchDifficultMarkings(
+      fromIndex.sort((a, b) => b.difficultMarkingScore - a.difficultMarkingScore),
+      kickoffByFixtureId
+    );
+  }
+
+  return filterPreMatchDifficultMarkings(
+    (snapshot.rounds ?? [])
+      .flatMap((round) => round.results ?? [])
+      .sort((a, b) => b.difficultMarkingScore - a.difficultMarkingScore),
+    kickoffByFixtureId
+  );
+}
+
 export function snapshotCompetitionIds(snapshot: DifficultMarkingsSnapshot | null | undefined): string[] {
   if (!snapshot) return [];
   const ids = new Set<string>();

@@ -2,6 +2,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import type { HomeUpcomingMatch } from "@/lib/home-dashboard/types";
 import { homeColors } from "@/components/home/home-theme";
+import { useLocale } from "@/contexts/LocaleContext";
 import { spacing } from "@/lib/theme";
 
 export function UpcomingMatchesSection({
@@ -13,14 +14,15 @@ export function UpcomingMatchesSection({
   onSeeAll: () => void;
   onMatchPress: (match: HomeUpcomingMatch) => void;
 }) {
+  const { t } = useLocale();
   if (!matches.length) return null;
 
   return (
     <View style={styles.wrap}>
       <View style={styles.header}>
-        <Text style={styles.title}>PROSSIME PARTITE</Text>
+        <Text style={styles.title}>{t("home.upcoming")}</Text>
         <Pressable onPress={onSeeAll} hitSlop={8} style={({ pressed }) => pressed && { opacity: 0.8 }}>
-          <Text style={styles.seeAll}>VEDI TUTTE →</Text>
+          <Text style={styles.seeAll}>{t("home.seeAll")}</Text>
         </Pressable>
       </View>
 
@@ -31,7 +33,7 @@ export function UpcomingMatchesSection({
             onPress={() => onMatchPress(match)}
             style={({ pressed }) => [styles.row, pressed && { opacity: 0.88 }]}
             accessibilityRole="button"
-            accessibilityLabel={`${match.homeTeamName} contro ${match.awayTeamName}`}
+            accessibilityLabel={`${match.homeTeamName} ${t("common.against")} ${match.awayTeamName}`}
           >
             <View style={[styles.avatar, { borderColor: `${match.homeTeamColor}99` }]}>
               <Text style={[styles.avatarText, { color: match.homeTeamColor }]} numberOfLines={1}>

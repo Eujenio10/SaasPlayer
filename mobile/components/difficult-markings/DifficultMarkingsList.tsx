@@ -16,7 +16,17 @@ import { playerInitials } from "@/components/analysis/analysis-theme";
 import { fetchDifficultMarkings } from "@/lib/difficult-markings/api";
 import { difficultMarkingOpponents } from "@/lib/difficult-markings/text";
 import { formatMonitoredCompetitionLabel, formatMonitoredCompetitionList } from "@/lib/competitions";
+import { DEFAULT_MENU_COMPETITION_ID } from "@/lib/competitions-with-matches";
+import { filterDifficultMarkings } from "@/lib/difficult-markings/publish";
 import { translateTeamName } from "@/lib/italian-display";
+import { useLocale } from "@/contexts/LocaleContext";
+import {
+  LOCALE_BCP47,
+  getActiveLocale,
+  t,
+  translateMarkingReasonDetail,
+  translateMarkingReasonLabel
+} from "@/lib/i18n";
 
 function sortByDifficultyIndex(items: DifficultMarkingMatchup[]): DifficultMarkingMatchup[] {
   return [...items].sort((a, b) => b.difficultMarkingScore - a.difficultMarkingScore);
@@ -32,13 +42,13 @@ function formatKickoff(timestamp?: number): { date: string; time: string } | nul
   const date = new Date(timestamp * 1000);
   if (!Number.isFinite(date.getTime())) return null;
   return {
-    date: new Intl.DateTimeFormat("it-IT", {
+    date: new Intl.DateTimeFormat(LOCALE_BCP47[getActiveLocale()], {
       timeZone: "Europe/Rome",
       day: "2-digit",
       month: "2-digit",
       year: "numeric"
     }).format(date),
-    time: new Intl.DateTimeFormat("it-IT", {
+    time: new Intl.DateTimeFormat(LOCALE_BCP47[getActiveLocale()], {
       timeZone: "Europe/Rome",
       hour: "2-digit",
       minute: "2-digit"
@@ -90,12 +100,12 @@ function OpponentRow({
         {meta ? <Text style={styles.opponentMeta}>{meta}</Text> : null}
         <View style={styles.statRow}>
           <View style={styles.statCol}>
-            <Text style={styles.statLabel}>Falli subiti</Text>
+            <Text style={styles.statLabel}>{t("markings.foulsDrawn")}</Text>
             <Text style={styles.statValue}>{formatP90(fouls)}</Text>
             <Text style={styles.statUnit}>p90</Text>
           </View>
           <View style={styles.statCol}>
-            <Text style={styles.statLabel}>Dribbling riusciti</Text>
+            <Text style={styles.statLabel}>{t("markings.dribbles")}</Text>
             <Text style={styles.statValue}>{formatP90(dribbles)}</Text>
             <Text style={styles.statUnit}>p90</Text>
           </View>
@@ -146,7 +156,7 @@ function MarkingPlayerCard({
         onPress={onToggle}
         accessibilityRole="button"
         accessibilityState={{ expanded }}
-        accessibilityLabel={`${expanded ? "Chiudi" : "Apri"} analisi ${matchup.defenderPlayerName}`}
+        accessibilityLabel={`${expanded ? t("markings.closeAnalysis") : t("markings.openAnalysis")} ${matchup.defenderPlayerName}`}
         style={({ pressed }) => [styles.previewRow, pressed && { opacity: 0.88 }]}
       >
         <View style={styles.previewCopy}>
@@ -160,7 +170,7 @@ function MarkingPlayerCard({
               color={markingsColors.green}
             />
             <Text style={styles.previewCtaText}>
-              {expanded ? "Chiudi analisi" : "Apri per l'analisi"}
+              {expanded ? t("markings.closeAnalysis") : t("markings.openAnalysis")}
             </Text>
           </View>
         </View>
@@ -174,13 +184,12 @@ function MarkingPlayerCard({
         <View style={styles.expandedBody}>
           {featured ? (
             <>
-              <Text style={styles.heroKicker}>Marcatura più difficile</Text>
+              <Text style={styles.heroKicker}>{t("markings.hardest")}</Text>
               <Text style={styles.heroLead}>
-                Il marcatore che dovrà arginare gli avversari più difficili in questo match
+                {t("markings.hardestLead")}
               </Text>
               <Text style={styles.heroHint}>
-                Indice di difficoltà per il marcatore, calcolato su falli subiti e dribbling riusciti degli avversari da
-                marcare.
+                {t("markings.hardestHint")}
               </Text>
             </>
           ) : (
@@ -197,13 +206,13 @@ function MarkingPlayerCard({
               <Text style={styles.markerLoad}>
                 {opponentCount(matchup)}{" "}
                 {opponentCount(matchup) === 1
-                  ? "avversario difficile da contenere"
-                  : "avversari difficili da contenere"}
+                  ? t("markings.hardOpponent")
+                  : t("markings.hardOpponents")}
               </Text>
             </View>
             {featured ? (
               <View style={styles.scoreBlock}>
-                <Text style={styles.scoreLabel}>Difficoltà complessiva</Text>
+                <Text style={styles.scoreLabel}>{t("markings.overallDifficulty")}</Text>
                 <View style={styles.scoreLine}>
                   <Text style={styles.scoreValue}>{matchup.difficultMarkingScore}</Text>
                   <Text style={styles.scoreDenom}>/100</Text>
@@ -213,7 +222,7 @@ function MarkingPlayerCard({
             ) : null}
           </View>
 
-          {featured ? <Text style={styles.sectionTitle}>Avversari da marcare</Text> : null}
+          {featured ? <Text style={styles.sectionTitle}>{t("markings.opponentsToMark")}</Text> : null}
           {opponents.map((opponent) => (
             <OpponentRow
               key={`${matchup.id}-${opponent.playerId}-${opponent.playerName}`}
@@ -228,7 +237,9 @@ function MarkingPlayerCard({
           {featured
             ? matchup.reasons.slice(0, 2).map((reason) => (
                 <Text key={reason.type} style={styles.reasonLine}>
-                  {reason.label}
+                  {reason.detail
+                    ? translateMarkingReasonDetail(reason.detail)
+                    : translateMarkingReasonLabel(reason.label)}
                 </Text>
               ))
             : null}
@@ -243,8 +254,10 @@ function MarkingPlayerCard({
               <MarkingOverlapHeatmap compact matchup={matchup} />
               <MatchInfo matchup={matchup} />
               <Text style={styles.reliability}>
-                {difficultMarkingLevelLabelIt(matchup.difficultMarkingLevel)} · Affidabilità{" "}
-                {reliabilityLabelIt(matchup.reliabilityScore)}
+                {t("markings.reliabilityLine", {
+                  level: difficultMarkingLevelLabelIt(matchup.difficultMarkingLevel),
+                  reliability: reliabilityLabelIt(matchup.reliabilityScore)
+                })}
               </Text>
             </>
           )}
@@ -263,6 +276,9 @@ export function DifficultMarkingsList({
   refreshToken?: number;
   onCompetitionChange?: (competitionId: string) => void;
 }) {
+  const { locale } = useLocale();
+  const todayFilter = competitionId === "today";
+  const requestCompetitionId = todayFilter ? DEFAULT_MENU_COMPETITION_ID : competitionId;
   const autoSwitchDoneRef = useRef(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -276,15 +292,22 @@ export function DifficultMarkingsList({
     async (isRefresh = false) => {
       if (isRefresh) setRefreshing(true);
       else setLoading(true);
+      if (todayFilter || !isRefresh) {
+        setResults([]);
+      }
       setError(null);
       try {
-        const data = await fetchDifficultMarkings({ competitionId });
+        const data = await fetchDifficultMarkings({
+          competitionId: requestCompetitionId,
+          filter: todayFilter ? "today" : undefined
+        });
         const targetCompetitionId =
-          data.resolvedCompetitionId !== competitionId
+          data.resolvedCompetitionId !== requestCompetitionId
             ? data.resolvedCompetitionId
             : data.suggestedCompetitionId;
 
         if (
+          !todayFilter &&
           !data.results.length &&
           targetCompetitionId &&
           targetCompetitionId !== competitionId &&
@@ -296,12 +319,14 @@ export function DifficultMarkingsList({
           return;
         }
 
-        const sorted = sortByDifficultyIndex(data.results);
+        const filtered = todayFilter ? filterDifficultMarkings(data.results, "today") : data.results;
+        const sorted = sortByDifficultyIndex(filtered);
         setResults(sorted);
         setExpandedId(null);
-        setUpdatedAt(data.updatedAt);
+        setUpdatedAt(todayFilter && !sorted.length ? null : data.updatedAt);
         setOfficialLineupsUsed(data.officialLineupsUsed);
         if (
+          !todayFilter &&
           sorted.length > 0 &&
           data.resolvedCompetitionId !== competitionId &&
           onCompetitionChange &&
@@ -313,9 +338,13 @@ export function DifficultMarkingsList({
         if (!sorted.length) {
           const storedTotal = data.totalStoredMatchups;
           const upcomingTotal = data.totalUpcomingMatchups ?? storedTotal;
-          const requestedLabel = formatMonitoredCompetitionLabel(competitionId);
+          const requestedLabel = todayFilter
+            ? "Oggi"
+            : formatMonitoredCompetitionLabel(competitionId);
           const availableLabels = formatMonitoredCompetitionList(data.storedCompetitions);
-          if (upcomingTotal > 0 && data.storedCompetitions.length) {
+          if (todayFilter) {
+            setError(t("markings.emptyToday"));
+          } else if (upcomingTotal > 0 && data.storedCompetitions.length) {
             setError(
               `Snapshot marcature presente (${upcomingTotal} duelli pre-partita), ma nessuno per «${requestedLabel}». Campionati disponibili: ${availableLabels}.`
             );
@@ -330,27 +359,29 @@ export function DifficultMarkingsList({
               "Nessun dato marcature ancora generato. Da admin esegui Aggiorna dati partite, poi riapri questa scheda."
             );
           } else {
-            setError("Nessuna marcatura sufficientemente rilevante per questo campionato.");
+            setError(t("markings.noRelevant"));
           }
         }
       } catch {
-        setError("Impossibile caricare le marcature difficili.");
+        setError(t("markings.loadFailed"));
         setResults([]);
       } finally {
         setLoading(false);
         setRefreshing(false);
       }
     },
-    [competitionId, onCompetitionChange]
+    [competitionId, onCompetitionChange, requestCompetitionId, todayFilter]
   );
 
   const hasLoadedRef = useRef(false);
+  const lastCompetitionRef = useRef<string | null>(null);
   useFocusEffect(
     useCallback(() => {
-      const silent = hasLoadedRef.current;
+      const silent = hasLoadedRef.current && lastCompetitionRef.current === competitionId;
+      lastCompetitionRef.current = competitionId;
       hasLoadedRef.current = true;
       void load(silent);
-    }, [load])
+    }, [competitionId, load])
   );
 
   useEffect(() => {
@@ -361,11 +392,15 @@ export function DifficultMarkingsList({
   const metaLine = useMemo(() => {
     const parts: string[] = [];
     if (updatedAt) {
-      parts.push(`Aggiornato ${new Date(updatedAt).toLocaleString("it-IT")}`);
+      parts.push(
+        t("markings.updatedAt", {
+          date: new Date(updatedAt).toLocaleString(LOCALE_BCP47[getActiveLocale()])
+        })
+      );
     }
-    parts.push(officialLineupsUsed ? "Formazioni ufficiali" : "Formazioni probabili");
+    parts.push(officialLineupsUsed ? t("markings.officialLineups") : t("markings.probableLineups"));
     return parts.join(" · ");
-  }, [officialLineupsUsed, updatedAt]);
+  }, [locale, officialLineupsUsed, updatedAt]);
 
   return (
     <View style={[styles.wrap, loading && !results.length ? styles.loadingShell : null]}>
@@ -396,7 +431,7 @@ export function DifficultMarkingsList({
       {results.length ? (
         <View style={styles.noteBox}>
           <Text style={styles.noteText}>
-            Solo i 5 marcatori più sotto pressione: duello principale, avversari in zona e posizioni in campo.
+            {t("markings.note")}
           </Text>
         </View>
       ) : null}
@@ -406,7 +441,7 @@ export function DifficultMarkingsList({
           <ActivityIndicator color={markingsColors.green} />
         </View>
       ) : null}
-      <PitchBrainLoading visible={loading && !results.length} message="Analisi in corso…" />
+      <PitchBrainLoading visible={loading && !results.length} />
     </View>
   );
 }

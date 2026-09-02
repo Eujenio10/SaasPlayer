@@ -117,7 +117,7 @@ export function MatchSimulatorList({ competitionId }: { competitionId: string })
       })}
     </View>
       ) : null}
-      <PitchBrainLoading visible={loading} message="Analisi in corso…" />
+      <PitchBrainLoading visible={loading} />
     </View>
   );
 }

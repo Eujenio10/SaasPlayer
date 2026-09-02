@@ -1,5 +1,6 @@
 import { env } from "@/lib/env";
-import { buildMobileHeaders, fetchWithTimeout } from "@/lib/mobile-http";
+import { buildMobileHeaders } from "@/lib/mobile-http";
+import { filterDifficultMarkings } from "@/lib/difficult-markings/publish";
 import type { DifficultMarkingMatchup } from "./types";
 
 async function buildHeaders(): Promise<HeadersInit> {
@@ -10,6 +11,7 @@ export async function fetchDifficultMarkings(params: {
   competitionId: string;
   round?: string;
   eventId?: number;
+  filter?: string;
 }): Promise<{
   results: DifficultMarkingMatchup[];
   round: string;
@@ -25,6 +27,7 @@ export async function fetchDifficultMarkings(params: {
   const search = new URLSearchParams({ competitionId: params.competitionId });
   if (params.round) search.set("round", params.round);
   if (params.eventId != null) search.set("eventId", String(params.eventId));
+  if (params.filter && params.filter !== "all") search.set("filter", params.filter);
   search.set("_", String(Date.now()));
 
   const res = await fetch(`${env.apiUrl}/api/mobile/difficult-markings?${search.toString()}`, {
@@ -44,7 +47,9 @@ export async function fetchDifficultMarkings(params: {
     suggestedCompetitionId?: string | null;
     resolvedCompetitionId?: string;
   };
-  const results = Array.isArray(json.results) ? json.results : [];
+  const rawResults = Array.isArray(json.results) ? json.results : [];
+  const results =
+    params.filter === "today" ? filterDifficultMarkings(rawResults, "today") : rawResults;
   const totalStoredMatchups =
     typeof json.totalStoredMatchups === "number" ? json.totalStoredMatchups : 0;
   const totalUpcomingMatchups =

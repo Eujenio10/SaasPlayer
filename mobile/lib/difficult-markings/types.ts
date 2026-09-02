@@ -1,4 +1,5 @@
 import { MONITORED_COMPETITIONS } from "@/lib/competitions";
+import { getActiveLocale, t } from "@/lib/i18n";
 
 export type DifficultMarkingLevel =
   | "extremely_difficult"
@@ -79,31 +80,32 @@ export interface DifficultMarkingMatchup {
 
 export { resolveCompetitionId, resolveMatchCompetitionId } from "@/lib/competitions";
 
-export function difficultMarkingLevelLabelIt(level: DifficultMarkingLevel): string {  const map: Record<DifficultMarkingLevel, string> = {
-    extremely_difficult: "Estremamente difficile",
-    very_difficult: "Molto difficile",
-    difficult: "Difficile",
-    monitor: "Da monitorare",
-    hidden: "Non pubblicato"
+export function difficultMarkingLevelLabelIt(level: DifficultMarkingLevel): string {
+  const map: Record<DifficultMarkingLevel, string> = {
+    extremely_difficult: t("markingsLabels.extremelyDifficult"),
+    very_difficult: t("markingsLabels.veryDifficult"),
+    difficult: t("markingsLabels.difficult"),
+    monitor: t("markingsLabels.monitor"),
+    hidden: t("markingsLabels.hidden")
   };
   return map[level] ?? level;
 }
 
 export function zoneLabelIt(zone: ProbableZone): string {
   const map: Record<ProbableZone, string> = {
-    left_flank: "Fascia sinistra",
-    right_flank: "Fascia destra",
-    central: "Centrale",
-    half_space_left: "Half-space sinistro",
-    half_space_right: "Half-space destro",
-    penalty_area: "Area di rigore",
-    unknown: "Zona stimata"
+    left_flank: t("markingsLabels.leftFlank"),
+    right_flank: t("markingsLabels.rightFlank"),
+    central: t("markingsLabels.central"),
+    half_space_left: t("markingsLabels.halfSpaceLeft"),
+    half_space_right: t("markingsLabels.halfSpaceRight"),
+    penalty_area: t("markingsLabels.penaltyArea"),
+    unknown: t("markingsLabels.unknownZone")
   };
   return map[zone] ?? zone;
 }
 
 export function roleLabelIt(role: string): string {
-  const map: Record<string, string> = {
+  const it: Record<string, string> = {
     FULLBACK_LEFT: "Terzino sinistro",
     FULLBACK_RIGHT: "Terzino destro",
     WINGBACK_LEFT: "Esterno sinistro",
@@ -118,14 +120,30 @@ export function roleLabelIt(role: string): string {
     CENTER_FORWARD: "Centravanti",
     SECOND_STRIKER: "Seconda punta"
   };
-  return map[role] ?? "Ruolo tattico";
+  const en: Record<string, string> = {
+    FULLBACK_LEFT: "Left-back",
+    FULLBACK_RIGHT: "Right-back",
+    WINGBACK_LEFT: "Left wing-back",
+    WINGBACK_RIGHT: "Right wing-back",
+    CB_LEFT: "Left centre-back",
+    CB_CENTER: "Centre-back",
+    CB_RIGHT: "Right centre-back",
+    DM: "Defensive midfielder",
+    AM: "Attacking midfielder",
+    WINGER_LEFT: "Left winger",
+    WINGER_RIGHT: "Right winger",
+    CENTER_FORWARD: "Centre-forward",
+    SECOND_STRIKER: "Second striker"
+  };
+  const map = getActiveLocale() === "en" ? en : it;
+  return map[role] ?? t("markingsLabels.tacticalRole");
 }
 
 export function reliabilityLabelIt(score: number): string {
-  if (score >= 0.8) return "Alta";
-  if (score >= 0.65) return "Medio-alta";
-  if (score >= 0.5) return "Media";
-  return "Bassa";
+  if (score >= 0.8) return t("markingsLabels.high");
+  if (score >= 0.65) return t("markingsLabels.mediumHigh");
+  if (score >= 0.5) return t("markingsLabels.medium");
+  return t("markingsLabels.low");
 }
 
 export interface MarkingsCompetitionOption {
@@ -137,6 +155,6 @@ export interface MarkingsCompetitionOption {
 export const MARKINGS_COMPETITIONS: MarkingsCompetitionOption[] = MONITORED_COMPETITIONS.map(
   (competition) => ({
     id: competition.id,
-    label: competition.id === "world-cup" ? "Mondiali" : competition.label
+    label: competition.id === "world-cup" ? t("common.worldCupShort") : competition.label
   })
 );

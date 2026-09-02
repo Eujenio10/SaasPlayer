@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SectionList, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -13,20 +13,16 @@ import { formatGuestApiError, shouldObscureGuestStats } from "@/lib/access/guest
 import { subscribeAdminCatalogRefresh } from "@/lib/admin-catalog-refresh";
 import { useAdminMatchesRefresh } from "@/lib/matches/useAdminMatchesRefresh";
 import { fetchMatches } from "@/lib/api";
+import { completeMatchIntensityBeforePaint } from "@/lib/matches/attach-intensity";
 import { competitionIdsWithMatches } from "@/lib/competitions-with-matches";
-import {
-  filterMatches,
-  groupMatchesByDayLabel,
-  isMatchModeFilter,
-  isWorldCupMatch,
-  type MatchFilterId
-} from "@/lib/matches/filters";
-import { isMatchTodayRome } from "@/lib/match-display";
+import { filterMatches, groupMatchesByDayLabel, isMatchModeFilter, isWorldCupMatch, type MatchFilterId } from "@/lib/matches/filters";
 import type { UpcomingMatchItem } from "@/lib/types";
 import { spacing } from "@/lib/theme";
+import { useLocale } from "@/contexts/LocaleContext";
 
 export default function MatchesScreen() {
   const router = useRouter();
+  const { t } = useLocale();
   const { access, userStatus } = useAuth();
   const { previewActive } = useGuestPreview();
   const [matches, setMatches] = useState<UpcomingMatchItem[]>([]);
@@ -34,25 +30,29 @@ export default function MatchesScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<MatchFilterId>("all");
+  const matchesRef = useRef(matches);
+  matchesRef.current = matches;
 
   const obscureStats = shouldObscureGuestStats(userStatus, previewActive);
 
   const load = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
-    else setLoading(true);
+    else if (!matchesRef.current.length) setLoading(true);
     setError(null);
     try {
       const data = await fetchMatches();
-      setMatches(data.matches ?? []);
+      setMatches(await completeMatchIntensityBeforePaint(data.matches ?? []));
+      setError(null);
     } catch (e) {
-      const raw = e instanceof Error ? e.message : "Impossibile caricare le partite.";
-      setError(formatGuestApiError(raw));
-      setMatches([]);
+      if (!matchesRef.current.length) {
+        const raw = e instanceof Error ? e.message : t("matches.loadFailed");
+        setError(formatGuestApiError(raw));
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [t]);
 
   const adminRefresh = useAdminMatchesRefresh(() => void load(true));
 
@@ -63,25 +63,24 @@ export default function MatchesScreen() {
   useEffect(() => subscribeAdminCatalogRefresh(() => void load(true)), [load]);
 
   const filtered = useMemo(() => filterMatches(matches, filter), [matches, filter]);
-  const sections = useMemo(() => groupMatchesByDayLabel(filtered), [filtered]);
+  const sections = useMemo(() => {
+    if (filter === "intensity") {
+      return filtered.length ? [{ label: t("matches.intensitySection"), data: filtered }] : [];
+    }
+    return groupMatchesByDayLabel(filtered);
+  }, [filtered, filter, t]);
   const availableCompetitionIds = useMemo(
     () => competitionIdsWithMatches(matches),
     [matches]
   );
   const hasWorldCupMatches = useMemo(() => matches.some(isWorldCupMatch), [matches]);
-  const hasTodayMatches = useMemo(
-    () => matches.some((m) => isMatchTodayRome(m.startTimestamp)),
-    [matches]
-  );
 
   useEffect(() => {
-    if (filter === "intensity") setFilter("all");
     if (filter === "world" && !hasWorldCupMatches) setFilter("all");
-    if (filter === "today" && !hasTodayMatches) setFilter("all");
     if (!isMatchModeFilter(filter) && !availableCompetitionIds.includes(filter)) {
       setFilter("all");
     }
-  }, [filter, hasTodayMatches, hasWorldCupMatches, availableCompetitionIds]);
+  }, [filter, hasWorldCupMatches, availableCompetitionIds]);
 
   const openMatch = (item: UpcomingMatchItem) => {
     router.push({
@@ -104,8 +103,8 @@ export default function MatchesScreen() {
         <Text style={styles.brandPitch}>Pitch</Text>
         <Text style={styles.brandBrain}>Brain</Text>
       </Text>
-      <Text style={styles.title}>Analisi Partita</Text>
-      <Text style={styles.subtitle}>Scegli la partita che vuoi analizzare.</Text>
+      <Text style={styles.title}>{t("matches.title")}</Text>
+      <Text style={styles.subtitle}>{t("matches.subtitle")}</Text>
 
       {access?.canRefreshData ? (
         <AdminCompetitionRefreshBar
@@ -122,11 +121,10 @@ export default function MatchesScreen() {
         active={filter}
         onChange={setFilter}
         hasWorldCupMatches={hasWorldCupMatches}
-        hasTodayMatches={hasTodayMatches}
         availableCompetitionIds={availableCompetitionIds}
       />
 
-      {error ? (
+      {error && !matches.length ? (
         <View style={styles.notice}>
           <Text style={styles.noticeText}>{error}</Text>
         </View>
@@ -152,11 +150,13 @@ export default function MatchesScreen() {
         onRefresh={() => void load(true)}
         ListEmptyComponent={
           loading ? null : (
-            <Text style={styles.empty}>Nessuna partita per il filtro selezionato.</Text>
+            <Text style={styles.empty}>
+              {filter === "today" ? t("matches.emptyToday") : t("matches.emptyFilter")}
+            </Text>
           )
         }
       />
-      <PitchBrainLoading visible={loading && !matches.length} message="Analisi in corso…" />
+      <PitchBrainLoading visible={loading && !matches.length} />
     </SafeAreaView>
   );
 }

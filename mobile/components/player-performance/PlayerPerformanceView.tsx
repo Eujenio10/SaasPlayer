@@ -16,23 +16,21 @@ import type {
   PlayerPerformanceCategory,
   PlayerPerformanceItem
 } from "@/lib/player-performance/types";
+import { PLAYER_PERFORMANCE_TEXT } from "@/lib/player-performance/text";
 import {
   formatIndex,
-  mainTabLabelIt,
-  PLAYER_PERFORMANCE_TEXT
-} from "@/lib/player-performance/text";
+  indexLabel,
+  localizePpWarning,
+  mainTabLabel
+} from "@/lib/player-performance/localized-text";
 import { translateTeamName } from "@/lib/italian-display";
 import { subscribeAdminCatalogRefresh } from "@/lib/admin-catalog-refresh";
 import { analysisColors, playerInitials } from "@/components/analysis/analysis-theme";
 import { MobilePlayerPerformanceCard } from "./MobilePlayerPerformanceCard";
 import { PlayerDetailModal } from "./PlayerDetailModal";
 import { spacing } from "@/lib/theme";
-
-const OVERVIEW_LABELS = {
-  mostDangerous: "Più pericoloso",
-  bestCreator: "Miglior creatore",
-  mostConsistent: "Più costante"
-} as const;
+import { useLocale } from "@/contexts/LocaleContext";
+import { t } from "@/lib/i18n";
 
 function OverviewMetricCard({
   label,
@@ -97,11 +95,13 @@ export function PlayerPerformanceView({
   });
   const [exploreAll, setExploreAll] = useState(false);
   const [retryTick, setRetryTick] = useState(0);
+  const { locale } = useLocale();
+  void locale;
 
   useEffect(() => {
     if (!isMatchEligibleForPlayerPerformance({ eventId, startTimestamp })) {
       setLoading(false);
-      setError(PLAYER_PERFORMANCE_TEXT.matchAlreadyStarted);
+      setError(t("pp.matchAlreadyStarted"));
       setData(null);
       return;
     }
@@ -121,7 +121,12 @@ export function PlayerPerformanceView({
         if (!cancelled) setData(payload);
       } catch (err) {
         if (!cancelled) {
-          setError(playerPerformanceUnavailableMessage(err));
+          const raw = playerPerformanceUnavailableMessage(err);
+          setError(
+            raw === PLAYER_PERFORMANCE_TEXT.matchAlreadyStarted
+              ? t("pp.matchAlreadyStarted")
+              : t("pp.error")
+          );
           setData(null);
         }
       } finally {
@@ -149,19 +154,19 @@ export function PlayerPerformanceView({
 
   const emptyLabel = useMemo(() => {
     if (data?.warnings.includes(PLAYER_PERFORMANCE_TEXT.insufficientData)) {
-      return PLAYER_PERFORMANCE_TEXT.insufficientData;
+      return t("pp.insufficientData");
     }
-    if (mainTab === "shooting") return PLAYER_PERFORMANCE_TEXT.emptyShooting;
-    if (mainTab === "creation") return PLAYER_PERFORMANCE_TEXT.emptyCreation;
-    if (mainTab === "trends") return PLAYER_PERFORMANCE_TEXT.emptyTrends;
-    return PLAYER_PERFORMANCE_TEXT.emptyCategory;
-  }, [data?.warnings, mainTab]);
+    if (mainTab === "shooting") return t("pp.emptyShooting");
+    if (mainTab === "creation") return t("pp.emptyCreation");
+    if (mainTab === "trends") return t("pp.emptyTrends");
+    return t("pp.emptyCategory");
+  }, [data?.warnings, mainTab, locale]);
 
   const mainTabs: PlayerPerformanceMainTab[] = ["overview", "shooting", "creation", "trends"];
   const categoryTabs: Array<{ id: PlayerPerformanceCategory; label: string }> = [
-    { id: "dangerous", label: PLAYER_PERFORMANCE_TEXT.tabs.dangerous },
-    { id: "rising", label: PLAYER_PERFORMANCE_TEXT.tabs.rising },
-    { id: "declining", label: PLAYER_PERFORMANCE_TEXT.tabs.declining }
+    { id: "dangerous", label: t("pp.dangerous") },
+    { id: "rising", label: t("pp.rising") },
+    { id: "declining", label: t("pp.declining") }
   ];
 
   const pickPlayers = (side: "homeTeam" | "awayTeam") => {
@@ -185,9 +190,9 @@ export function PlayerPerformanceView({
     <View style={styles.shell}>
       {!loading && !data ? (
         <View style={styles.center}>
-          <Text style={styles.errorText}>{error ?? PLAYER_PERFORMANCE_TEXT.error}</Text>
+          <Text style={styles.errorText}>{error ?? t("pp.error")}</Text>
           <Pressable onPress={() => setRetryTick((n) => n + 1)} style={styles.retryBtn}>
-            <Text style={styles.retryText}>Riprova</Text>
+            <Text style={styles.retryText}>{t("common.retry")}</Text>
           </Pressable>
         </View>
       ) : null}
@@ -195,21 +200,21 @@ export function PlayerPerformanceView({
       {data ? (
       <ScrollView contentContainerStyle={styles.wrap} showsVerticalScrollIndicator={false}>
         <View style={styles.titleRow}>
-          <Text style={styles.subtitle}>{PLAYER_PERFORMANCE_TEXT.subtitle}</Text>
+          <Text style={styles.subtitle}>{t("pp.subtitle")}</Text>
           <Pressable
             onPress={() => setShowTooltip((open) => !open)}
-            accessibilityLabel={PLAYER_PERFORMANCE_TEXT.tooltipTitle}
+            accessibilityLabel={t("pp.tooltipTitle")}
             hitSlop={8}
             style={styles.infoBtn}
           >
             <Ionicons name="information-circle-outline" size={22} color={analysisColors.textMuted} />
           </Pressable>
         </View>
-        {showTooltip ? <Text style={styles.tooltip}>{PLAYER_PERFORMANCE_TEXT.tooltip}</Text> : null}
+        {showTooltip ? <Text style={styles.tooltip}>{t("pp.tooltip")}</Text> : null}
 
         {data.warnings.map((warning) => (
           <Text key={warning} style={styles.warning}>
-            {warning}
+            {localizePpWarning(warning)}
           </Text>
         ))}
 
@@ -221,7 +226,7 @@ export function PlayerPerformanceView({
               style={[styles.tabChip, mainTab === tab && styles.tabChipActive]}
             >
               <Text style={[styles.tabChipText, mainTab === tab && styles.tabChipTextActive]}>
-                {mainTabLabelIt(tab)}
+                {mainTabLabel(tab)}
               </Text>
             </Pressable>
           ))}
@@ -233,23 +238,23 @@ export function PlayerPerformanceView({
               <View key={team.teamId} style={styles.teamSection}>
                 <Text style={styles.teamTitle}>{translateTeamName(team.teamName)}</Text>
                 <OverviewMetricCard
-                  label={OVERVIEW_LABELS.mostDangerous}
+                  label={t("pp.mostDangerous")}
                   player={team.overview.mostDangerous}
-                  valueLabel={PLAYER_PERFORMANCE_TEXT.indices.dangerIndex}
+                  valueLabel={indexLabel("dangerIndex")}
                   value={formatIndex(team.overview.mostDangerous?.dangerIndex)}
                   onSelect={(item) => selectPlayer(item, index === 0)}
                 />
                 <OverviewMetricCard
-                  label={OVERVIEW_LABELS.bestCreator}
+                  label={t("pp.bestCreator")}
                   player={team.overview.bestCreator}
-                  valueLabel={PLAYER_PERFORMANCE_TEXT.indices.creatorIndex}
+                  valueLabel={indexLabel("creatorIndex")}
                   value={formatIndex(team.overview.bestCreator?.creation?.creatorIndex ?? null)}
                   onSelect={(item) => selectPlayer(item, index === 0)}
                 />
                 <OverviewMetricCard
-                  label={OVERVIEW_LABELS.mostConsistent}
+                  label={t("pp.mostConsistent")}
                   player={team.overview.mostConsistent}
-                  valueLabel={PLAYER_PERFORMANCE_TEXT.indices.consistencyScore}
+                  valueLabel={indexLabel("consistencyScore")}
                   value={formatIndex(team.overview.mostConsistent?.consistency?.score ?? null)}
                   onSelect={(item) => selectPlayer(item, index === 0)}
                 />
@@ -260,7 +265,7 @@ export function PlayerPerformanceView({
 
         {mainTab === "overview" && exploreAll ? (
           <>
-            <Text style={styles.rankingsTitle}>{PLAYER_PERFORMANCE_TEXT.overview.rankingsTitle}</Text>
+            <Text style={styles.rankingsTitle}>{t("pp.rankings")}</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabs}>
               {categoryTabs.map((tab) => (
                 <Pressable
@@ -284,7 +289,7 @@ export function PlayerPerformanceView({
               style={[styles.tabChip, category === "dangerous" && styles.tabChipActive]}
             >
               <Text style={[styles.tabChipText, category === "dangerous" && styles.tabChipTextActive]}>
-                {PLAYER_PERFORMANCE_TEXT.sections.creativeThreat}
+                {t("pp.creativeThreat")}
               </Text>
             </Pressable>
             <Pressable
@@ -292,7 +297,7 @@ export function PlayerPerformanceView({
               style={[styles.tabChip, category === "rising" && styles.tabChipActive]}
             >
               <Text style={[styles.tabChipText, category === "rising" && styles.tabChipTextActive]}>
-                {PLAYER_PERFORMANCE_TEXT.sections.oneVsOneThreat}
+                {t("pp.oneVsOneThreat")}
               </Text>
             </Pressable>
           </ScrollView>
@@ -335,8 +340,8 @@ export function PlayerPerformanceView({
                     >
                       <Text style={styles.seeAll}>
                         {expandedSides[side]
-                          ? PLAYER_PERFORMANCE_TEXT.seeLess
-                          : PLAYER_PERFORMANCE_TEXT.seeAll}
+                          ? t("pp.seeLess")
+                          : t("pp.seeAll")}
                       </Text>
                     </Pressable>
                   ) : null}
@@ -352,7 +357,7 @@ export function PlayerPerformanceView({
             style={({ pressed }) => [styles.cta, pressed && { opacity: 0.85 }]}
           >
             <Text style={styles.seeAll}>
-              {exploreAll ? PLAYER_PERFORMANCE_TEXT.seeLess : "Esplora tutti i giocatori >"}
+              {exploreAll ? t("pp.seeLess") : t("pp.exploreAll")}
             </Text>
           </Pressable>
         ) : null}
@@ -367,7 +372,7 @@ export function PlayerPerformanceView({
         onClose={() => setSelectedPlayer(null)}
       />
       ) : null}
-      <PitchBrainLoading visible={loading} message="Analisi in corso…" />
+      <PitchBrainLoading visible={loading} />
     </View>
   );
 }

@@ -11,21 +11,25 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import type { PlayerPerformanceItem } from "@/lib/player-performance/types";
 import {
-  badgeLabelIt,
-  consistencyLabelIt,
-  finishingFormLabelIt,
+  badgeLabel,
+  consistencyLabel,
+  finishingFormLabel,
   formatIndex,
   formatPercent,
   formatTrendPercent,
-  PLAYER_PERFORMANCE_TEXT,
-  reliabilityLabelIt,
-  roleChangeLabelIt,
-  trendStatusLabelIt
-} from "@/lib/player-performance/text";
-import { roleGroupLabelIt } from "@/lib/player-performance/roles";
+  indexLabel,
+  localizePpInsight,
+  reliabilityDetail,
+  reliabilityLabel,
+  roleChangeLabel,
+  roleGroupLabel,
+  trendStatusLabel
+} from "@/lib/player-performance/localized-text";
 import { translateTeamName } from "@/lib/italian-display";
 import { pitchbrainColors } from "@/lib/pitchbrain-theme";
 import { radii, spacing } from "@/lib/theme";
+import { t } from "@/lib/i18n";
+import { useLocale } from "@/contexts/LocaleContext";
 
 function MetricRow({ label, value }: { label: string; value: string }) {
   return (
@@ -56,11 +60,12 @@ export function PlayerDetailModal({
   visible: boolean;
   onClose: () => void;
 }) {
+  useLocale();
   if (!player) return null;
 
   const minutes = (player.recent.minutes ?? 0) + (player.baseline?.minutes ?? 0);
   const contextPerf = isHomeTeam ? player.context?.homePerformance : player.context?.awayPerformance;
-  const contextLabel = isHomeTeam ? PLAYER_PERFORMANCE_TEXT.homeContext : PLAYER_PERFORMANCE_TEXT.awayContext;
+  const contextLabel = isHomeTeam ? t("pp.homeContext") : t("pp.awayContext");
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="fullScreen" onRequestClose={onClose}>
@@ -71,14 +76,14 @@ export function PlayerDetailModal({
               {player.playerName}
             </Text>
             <Text style={styles.meta} numberOfLines={1}>
-              {roleGroupLabelIt(player.roleGroup)} · {translateTeamName(player.teamName)}
+              {roleGroupLabel(player.roleGroup)} · {translateTeamName(player.teamName)}
             </Text>
           </View>
           <Pressable
             onPress={onClose}
             hitSlop={12}
             accessibilityRole="button"
-            accessibilityLabel={PLAYER_PERFORMANCE_TEXT.closeDetail}
+            accessibilityLabel={t("pp.closeDetail")}
             style={styles.closeIconButton}
           >
             <Ionicons name="close" size={24} color={pitchbrainColors.text} />
@@ -91,74 +96,74 @@ export function PlayerDetailModal({
           showsVerticalScrollIndicator
           keyboardShouldPersistTaps="handled"
         >
-          <DetailSection title={PLAYER_PERFORMANCE_TEXT.sections.detailOverview}>
-            <MetricRow label={PLAYER_PERFORMANCE_TEXT.indices.dangerIndex} value={formatIndex(player.dangerIndex)} />
+          <DetailSection title={t("pp.detailOverview")}>
+            <MetricRow label={indexLabel("dangerIndex")} value={formatIndex(player.dangerIndex)} />
             <MetricRow
-              label={PLAYER_PERFORMANCE_TEXT.indices.offensiveTrend}
-              value={`${trendStatusLabelIt(player.trendStatus)} (${formatTrendPercent(player.offensiveTrend)})`}
+              label={indexLabel("offensiveTrend")}
+              value={`${trendStatusLabel(player.trendStatus)} (${formatTrendPercent(player.offensiveTrend)})`}
             />
             <MetricRow
-              label={PLAYER_PERFORMANCE_TEXT.indices.shotThreatIndex}
+              label={indexLabel("shotThreatIndex")}
               value={formatIndex(player.shooting?.shotThreatIndex ?? null)}
             />
             <MetricRow
-              label={PLAYER_PERFORMANCE_TEXT.indices.creatorIndex}
+              label={indexLabel("creatorIndex")}
               value={formatIndex(player.creation?.creatorIndex ?? null)}
             />
             <MetricRow
-              label={PLAYER_PERFORMANCE_TEXT.indices.consistencyScore}
-              value={`${formatIndex(player.consistency?.score ?? null)} · ${consistencyLabelIt(player.consistency?.classification ?? null)}`}
+              label={indexLabel("consistencyScore")}
+              value={`${formatIndex(player.consistency?.score ?? null)} · ${consistencyLabel(player.consistency?.classification ?? null)}`}
             />
-            {player.insight ? <Text style={styles.insight}>{player.insight}</Text> : null}
+            {localizePpInsight(player.insight) ? <Text style={styles.insight}>{localizePpInsight(player.insight)}</Text> : null}
             <Text style={styles.sampleLine}>
-              {reliabilityLabelIt(player.dataReliability)} ·{" "}
-              {PLAYER_PERFORMANCE_TEXT.reliabilityDetail(
+              {reliabilityLabel(player.dataReliability)} ·{" "}
+              {reliabilityDetail(
                 player.reliabilityDetail?.appearances ?? player.recent.appearances,
                 minutes
               )}
             </Text>
           </DetailSection>
 
-          <DetailSection title={PLAYER_PERFORMANCE_TEXT.sections.shooting}>
-            <MetricRow label={PLAYER_PERFORMANCE_TEXT.indices.shotsPer90} value={player.shooting?.shotsPer90.toFixed(1) ?? "—"} />
+          <DetailSection title={t("pp.shootingSection")}>
+            <MetricRow label={indexLabel("shotsPer90")} value={player.shooting?.shotsPer90.toFixed(1) ?? "—"} />
             <MetricRow
-              label={PLAYER_PERFORMANCE_TEXT.indices.shotsOnTargetPer90}
+              label={indexLabel("shotsOnTargetPer90")}
               value={player.shooting?.shotsOnTargetPer90.toFixed(1) ?? "—"}
             />
-            <MetricRow label={PLAYER_PERFORMANCE_TEXT.indices.shotAccuracy} value={formatPercent(player.shooting?.shotAccuracy)} />
-            <MetricRow label={PLAYER_PERFORMANCE_TEXT.indices.goalsPer90} value={player.shooting?.goalsPer90.toFixed(1) ?? "—"} />
+            <MetricRow label={indexLabel("shotAccuracy")} value={formatPercent(player.shooting?.shotAccuracy)} />
+            <MetricRow label={indexLabel("goalsPer90")} value={player.shooting?.goalsPer90.toFixed(1) ?? "—"} />
           </DetailSection>
 
-          <DetailSection title={PLAYER_PERFORMANCE_TEXT.sections.creation}>
+          <DetailSection title={t("pp.creationSection")}>
             <MetricRow
-              label={PLAYER_PERFORMANCE_TEXT.indices.keyPassesPer90}
+              label={indexLabel("keyPassesPer90")}
               value={player.creation?.keyPassesPer90?.toFixed(1) ?? "—"}
             />
-            <MetricRow label={PLAYER_PERFORMANCE_TEXT.indices.assistsPer90} value={player.creation?.assistsPer90.toFixed(1) ?? "—"} />
+            <MetricRow label={indexLabel("assistsPer90")} value={player.creation?.assistsPer90.toFixed(1) ?? "—"} />
           </DetailSection>
 
-          <DetailSection title={PLAYER_PERFORMANCE_TEXT.sections.trends}>
+          <DetailSection title={t("pp.trendsSection")}>
             {player.finishingForm ? (
-              <MetricRow label="Forma realizzativa" value={finishingFormLabelIt(player.finishingForm.status)} />
+              <MetricRow label={t("pp.finishingForm")} value={finishingFormLabel(player.finishingForm.status)} />
             ) : null}
-            <MetricRow label={PLAYER_PERFORMANCE_TEXT.detail.last3} value={player.trendWindows?.shotsPer90Last3?.toFixed(1) ?? "—"} />
-            <MetricRow label={PLAYER_PERFORMANCE_TEXT.detail.last5} value={player.trendWindows?.shotsPer90Last5?.toFixed(1) ?? "—"} />
-            <MetricRow label={PLAYER_PERFORMANCE_TEXT.detail.last10} value={player.trendWindows?.shotsPer90Last10?.toFixed(1) ?? "—"} />
+            <MetricRow label={t("pp.last3")} value={player.trendWindows?.shotsPer90Last3?.toFixed(1) ?? "—"} />
+            <MetricRow label={t("pp.last5")} value={player.trendWindows?.shotsPer90Last5?.toFixed(1) ?? "—"} />
+            <MetricRow label={t("pp.last10")} value={player.trendWindows?.shotsPer90Last10?.toFixed(1) ?? "—"} />
           </DetailSection>
 
-          <DetailSection title={PLAYER_PERFORMANCE_TEXT.sections.usage}>
-            <MetricRow label={PLAYER_PERFORMANCE_TEXT.detail.startPercentage} value={formatPercent(player.usage?.startPercentage)} />
-            <MetricRow label={PLAYER_PERFORMANCE_TEXT.detail.averageMinutes} value={player.usage?.averageMinutes.toFixed(0) ?? "—"} />
-            {roleChangeLabelIt(player.context?.roleChange) ? (
-              <Text style={styles.warning}>{roleChangeLabelIt(player.context?.roleChange)}</Text>
+          <DetailSection title={t("pp.usage")}>
+            <MetricRow label={t("pp.startPercentage")} value={formatPercent(player.usage?.startPercentage)} />
+            <MetricRow label={t("pp.averageMinutes")} value={player.usage?.averageMinutes.toFixed(0) ?? "—"} />
+            {roleChangeLabel(player.context?.roleChange) ? (
+              <Text style={styles.warning}>{roleChangeLabel(player.context?.roleChange)}</Text>
             ) : null}
           </DetailSection>
 
           {contextPerf ? (
             <DetailSection title={contextLabel}>
-              <MetricRow label={PLAYER_PERFORMANCE_TEXT.indices.shotsPer90} value={contextPerf.shotsPer90?.toFixed(1) ?? "—"} />
+              <MetricRow label={indexLabel("shotsPer90")} value={contextPerf.shotsPer90?.toFixed(1) ?? "—"} />
               <MetricRow
-                label={PLAYER_PERFORMANCE_TEXT.indices.shotsOnTargetPer90}
+                label={indexLabel("shotsOnTargetPer90")}
                 value={contextPerf.shotsOnTargetPer90?.toFixed(1) ?? "—"}
               />
             </DetailSection>
@@ -168,18 +173,18 @@ export function PlayerDetailModal({
             <View style={styles.badgesWrap}>
               {player.badges.map((badge) => (
                 <Text key={badge} style={styles.badge}>
-                  {badgeLabelIt(badge)}
+                  {badgeLabel(badge)}
                 </Text>
               ))}
             </View>
           ) : null}
 
-          <Text style={styles.methodology}>{PLAYER_PERFORMANCE_TEXT.detail.methodologyNote}</Text>
+          <Text style={styles.methodology}>{t("pp.methodology")}</Text>
         </ScrollView>
 
         <SafeAreaView edges={["bottom"]} style={styles.footerSafe}>
           <Pressable onPress={onClose} style={styles.closeCta} accessibilityRole="button">
-            <Text style={styles.closeCtaText}>Chiudi</Text>
+            <Text style={styles.closeCtaText}>{t("common.close")}</Text>
           </Pressable>
         </SafeAreaView>
       </SafeAreaView>

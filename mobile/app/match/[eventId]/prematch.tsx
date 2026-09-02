@@ -6,17 +6,19 @@ import { PreMatchReportView } from "@/components/prematch";
 import { useAccessFlow } from "@/contexts/AccessFlowContext";
 import { useMatchRouteParams } from "@/lib/matches/use-match-route-params";
 import { spacing } from "@/lib/theme";
+import { useLocale } from "@/contexts/LocaleContext";
 
 export default function MatchPrematchScreen() {
   const match = useMatchRouteParams();
+  const { t } = useLocale();
   const { openPaywall } = useAccessFlow();
 
   return (
     <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
       <View style={styles.headerPad}>
         <AnalysisNavHeader
-          backLabel="Match"
-          title="Pre-Partita"
+          backLabel={t("matchHub.backMatch")}
+          title={t("matchHub.prematchTitle")}
           subtitle={match.kickoffLongLabel}
         />
       </View>

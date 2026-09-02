@@ -16,16 +16,11 @@ import { useAuth } from "@/contexts/AuthContext";
 import { mapAuthError } from "@/lib/auth-errors";
 import { pitchbrainColors } from "@/lib/pitchbrain-theme";
 import { radii, spacing } from "@/lib/theme";
+import { useLocale } from "@/contexts/LocaleContext";
 
 type AuthMode = "login" | "register" | "recover";
 
 const RESEND_COOLDOWN_SEC = 60;
-
-const REGISTER_STEPS = [
-  "Inserisci email e password",
-  "Conferma dall'email che ti inviamo",
-  "Accedi a PitchBrain"
-] as const;
 
 function ModeTabs({
   mode,
@@ -34,6 +29,7 @@ function ModeTabs({
   mode: AuthMode;
   onChange: (mode: AuthMode) => void;
 }) {
+  const { t } = useLocale();
   return (
     <View style={styles.tabs}>
       {(["login", "register"] as const).map((tab) => {
@@ -45,7 +41,7 @@ function ModeTabs({
             style={[styles.tab, active && styles.tabActive]}
           >
             <Text style={[styles.tabText, active && styles.tabTextActive]}>
-              {tab === "login" ? "Accedi" : "Registrati"}
+              {tab === "login" ? t("login.signIn") : t("login.register")}
             </Text>
           </Pressable>
         );
@@ -71,6 +67,7 @@ function StepList({ steps }: { steps: readonly string[] }) {
 
 export default function LoginScreen() {
   const router = useRouter();
+  const { t } = useLocale();
   const params = useLocalSearchParams<{ mode?: string }>();
   const { signIn, signUp, resendConfirmation, resetPassword, session } = useAuth();
   const { resumePendingAction } = useAccessFlow();
@@ -125,16 +122,14 @@ export default function LoginScreen() {
       } else if (mode === "recover") {
         await resetPassword(email.trim());
         setRecoverSent(true);
-        setSuccessMessage(
-          "Ti abbiamo inviato un'email con le istruzioni per reimpostare la password."
-        );
+          setSuccessMessage(t("login.recoverSent"));
       } else {
         if (password.length < 8) {
-          setError("La password deve avere almeno 8 caratteri.");
+          setError(t("login.passwordMin"));
           return;
         }
         if (password !== confirmPassword) {
-          setError("Le password non coincidono.");
+          setError(t("login.passwordMismatch"));
           return;
         }
         const result = await signUp(email.trim(), password);
@@ -148,7 +143,8 @@ export default function LoginScreen() {
         }
       }
     } catch (err) {
-      setError(mapAuthError(err instanceof Error ? err : new Error("auth_failed")));
+      console.warn("[auth] submit failed", err);
+      setError(mapAuthError(err));
     } finally {
       setSubmitting(false);
     }
@@ -160,10 +156,11 @@ export default function LoginScreen() {
     setResending(true);
     try {
       await resendConfirmation(email.trim());
-      setSuccessMessage("Email di conferma reinviata. Controlla posta in arrivo e spam.");
+      setSuccessMessage(t("login.resendSuccess"));
       setResendCooldown(RESEND_COOLDOWN_SEC);
     } catch (err) {
-      setError(mapAuthError(err instanceof Error ? err : new Error("resend_failed")));
+      console.warn("[auth] resend failed", err);
+      setError(mapAuthError(err));
     } finally {
       setResending(false);
     }
@@ -179,24 +176,26 @@ export default function LoginScreen() {
   const title =
     mode === "recover"
       ? recoverSent
-        ? "Controlla la email"
-        : "Recupera password"
+        ? t("login.checkEmail")
+        : t("login.recover")
       : mode === "login"
-        ? "Accedi"
+        ? t("login.signIn")
         : registerSent
-          ? "Controlla la email"
-          : "Crea account";
+          ? t("login.checkEmail")
+          : t("login.createAccount");
 
   const subtitle =
     mode === "recover"
       ? recoverSent
-        ? "Apri il link nell'email per scegliere una nuova password."
-        : "Inserisci l'email dell'account: ti invieremo un link di reset."
+        ? t("login.recoverSentSubtitle")
+        : t("login.recoverSubtitle")
       : mode === "login"
-        ? "Sincronizza le tue analisi e preferenze su tutti i dispositivi."
+        ? t("login.loginSubtitle")
         : registerSent
-          ? "Apri il link di conferma nell'email per attivare l'account."
-          : "Gratis. Conferma l'email per completare la registrazione.";
+          ? t("login.registerSentSubtitle")
+          : t("login.registerSubtitle");
+
+  const registerSteps = [t("login.step1"), t("login.step2"), t("login.step3")];
 
   return (
     <KeyboardAvoidingView
@@ -217,47 +216,51 @@ export default function LoginScreen() {
             <ModeTabs mode={mode} onChange={switchMode} />
           ) : null}
 
-          {error ? <Text style={styles.error}>{error}</Text> : null}
+          {error ? (
+            <Text style={styles.error} selectable>
+              {error}
+            </Text>
+          ) : null}
           {successMessage ? <Text style={styles.success}>{successMessage}</Text> : null}
 
           {mode === "login" && !registerSent ? (
             <>
-              <Text style={styles.label}>Email</Text>
+              <Text style={styles.label}>{t("login.email")}</Text>
               <TextInput
                 autoCapitalize="none"
                 autoComplete="email"
                 keyboardType="email-address"
                 value={email}
                 onChangeText={setEmail}
-                placeholder="nome@email.it"
+                placeholder={t("login.placeholderEmail")}
                 placeholderTextColor={pitchbrainColors.textDim}
                 style={styles.input}
               />
-              <Text style={styles.label}>Password</Text>
+              <Text style={styles.label}>{t("login.password")}</Text>
               <TextInput
                 secureTextEntry
                 value={password}
                 onChangeText={setPassword}
-                placeholder="La tua password"
+                placeholder={t("login.placeholderPassword")}
                 placeholderTextColor={pitchbrainColors.textDim}
                 style={styles.input}
               />
               <Pressable onPress={() => switchMode("recover")} hitSlop={8}>
-                <Text style={styles.link}>Password dimenticata?</Text>
+                <Text style={styles.link}>{t("login.forgot")}</Text>
               </Pressable>
             </>
           ) : null}
 
           {mode === "recover" && !recoverSent ? (
             <>
-              <Text style={styles.label}>Email</Text>
+              <Text style={styles.label}>{t("login.email")}</Text>
               <TextInput
                 autoCapitalize="none"
                 autoComplete="email"
                 keyboardType="email-address"
                 value={email}
                 onChangeText={setEmail}
-                placeholder="nome@email.it"
+                placeholder={t("login.placeholderEmail")}
                 placeholderTextColor={pitchbrainColors.textDim}
                 style={styles.input}
               />
@@ -266,42 +269,42 @@ export default function LoginScreen() {
 
           {mode === "register" && !registerSent ? (
             <>
-              <Text style={styles.label}>Email</Text>
+              <Text style={styles.label}>{t("login.email")}</Text>
               <TextInput
                 autoCapitalize="none"
                 autoComplete="email"
                 keyboardType="email-address"
                 value={email}
                 onChangeText={setEmail}
-                placeholder="nome@email.it"
+                placeholder={t("login.placeholderEmail")}
                 placeholderTextColor={pitchbrainColors.textDim}
                 style={styles.input}
               />
-              <Text style={styles.label}>Password</Text>
+              <Text style={styles.label}>{t("login.password")}</Text>
               <TextInput
                 secureTextEntry
                 value={password}
                 onChangeText={setPassword}
-                placeholder="Almeno 8 caratteri"
+                placeholder={t("login.placeholderMinChars")}
                 placeholderTextColor={pitchbrainColors.textDim}
                 style={styles.input}
               />
-              <Text style={styles.label}>Conferma password</Text>
+              <Text style={styles.label}>{t("login.confirmPassword")}</Text>
               <TextInput
                 secureTextEntry
                 value={confirmPassword}
                 onChangeText={setConfirmPassword}
-                placeholder="Ripeti la password"
+                placeholder={t("login.placeholderRepeat")}
                 placeholderTextColor={pitchbrainColors.textDim}
                 style={styles.input}
               />
-              <StepList steps={REGISTER_STEPS} />
+              <StepList steps={registerSteps} />
             </>
           ) : null}
 
           {registerSent ? (
             <>
-              <StepList steps={REGISTER_STEPS} />
+              <StepList steps={registerSteps} />
               <Pressable
                 onPress={() => void handleResend()}
                 disabled={resending || resendCooldown > 0}
@@ -315,8 +318,8 @@ export default function LoginScreen() {
                 ) : (
                   <Text style={styles.secondaryBtnText}>
                     {resendCooldown > 0
-                      ? `Reinvia email tra ${resendCooldown}s`
-                      : "Reinvia email di conferma"}
+                      ? t("login.resendIn", { seconds: resendCooldown })
+                      : t("login.resendConfirm")}
                   </Text>
                 )}
               </Pressable>
@@ -324,7 +327,7 @@ export default function LoginScreen() {
                 style={({ pressed }) => [styles.secondaryBtn, pressed && { opacity: 0.9 }]}
                 onPress={() => switchMode("login")}
               >
-                <Text style={styles.secondaryBtnText}>Ho confermato — Accedi</Text>
+                <Text style={styles.secondaryBtnText}>{t("login.confirmedSignIn")}</Text>
               </Pressable>
             </>
           ) : null}
@@ -334,7 +337,7 @@ export default function LoginScreen() {
               style={({ pressed }) => [styles.secondaryBtn, pressed && { opacity: 0.9 }]}
               onPress={() => switchMode("login")}
             >
-              <Text style={styles.secondaryBtnText}>Torna al login</Text>
+              <Text style={styles.secondaryBtnText}>{t("login.backToLogin")}</Text>
             </Pressable>
           ) : null}
 
@@ -353,10 +356,10 @@ export default function LoginScreen() {
               ) : (
                 <Text style={styles.buttonText}>
                   {mode === "login"
-                    ? "Entra in PitchBrain"
+                    ? t("login.enterPitchBrain")
                     : mode === "recover"
-                      ? "Invia link di reset"
-                      : "Crea account"}
+                      ? t("login.sendReset")
+                      : t("login.createAccount")}
                 </Text>
               )}
             </Pressable>
@@ -364,13 +367,13 @@ export default function LoginScreen() {
 
           {mode === "recover" && !recoverSent ? (
             <Pressable onPress={() => switchMode("login")} hitSlop={8} style={styles.guestWrap}>
-              <Text style={styles.guestLink}>Torna al login</Text>
+              <Text style={styles.guestLink}>{t("login.backToLogin")}</Text>
             </Pressable>
           ) : null}
 
           {mode !== "recover" && !registerSent ? (
             <Pressable onPress={() => router.replace("/")} hitSlop={8} style={styles.guestWrap}>
-              <Text style={styles.guestLink}>Continua senza account</Text>
+              <Text style={styles.guestLink}>{t("login.continueGuest")}</Text>
             </Pressable>
           ) : null}
         </View>

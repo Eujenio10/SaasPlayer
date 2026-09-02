@@ -2,6 +2,8 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import type { UserAccessRole } from "@/lib/types";
 import { homeColors } from "@/components/home/home-theme";
+import { LanguageToggle } from "@/components/home/LanguageToggle";
+import { useLocale } from "@/contexts/LocaleContext";
 import { spacing } from "@/lib/theme";
 
 function accessBadgeLabel(role: UserAccessRole, isGuest?: boolean): string {
@@ -25,6 +27,7 @@ export function HomeHeader({
   adminRefreshing?: boolean;
   onBadgePress?: () => void;
 }) {
+  const { t } = useLocale();
   const badgeLabel = accessBadgeLabel(role ?? "member", isGuest);
 
   return (
@@ -34,16 +37,17 @@ export function HomeHeader({
           <Text style={styles.pitch}>Pitch</Text>
           <Text style={styles.brain}>Brain</Text>
         </Text>
-        <Text style={styles.tagline}>Intelligenza tattica calcistica</Text>
+        <Text style={styles.tagline}>{t("home.tagline")}</Text>
       </View>
 
       <View style={styles.rightCol}>
+        <LanguageToggle />
         {onAdminRefresh ? (
           <Pressable
             onPress={onAdminRefresh}
             disabled={adminRefreshing}
             accessibilityRole="button"
-            accessibilityLabel="Aggiorna dati"
+            accessibilityLabel={t("home.refreshData")}
             style={({ pressed }) => [styles.refreshBtn, pressed && { opacity: 0.85 }]}
           >
             <Text style={styles.refreshText}>{adminRefreshing ? "…" : "↻"}</Text>

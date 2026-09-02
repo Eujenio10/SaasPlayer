@@ -1,3 +1,5 @@
+import { invalidateMatchesCache } from "@/lib/api";
+
 type RefreshListener = () => void;
 
 const listeners = new Set<RefreshListener>();
@@ -8,6 +10,7 @@ export function subscribeAdminCatalogRefresh(listener: RefreshListener): () => v
 }
 
 export function notifyAdminCatalogRefresh(): void {
+  invalidateMatchesCache();
   for (const listener of listeners) {
     try {
       listener();

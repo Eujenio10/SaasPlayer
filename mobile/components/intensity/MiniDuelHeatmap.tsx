@@ -1,5 +1,6 @@
 import { StyleSheet, View } from "react-native";
 import type { DuelHeatmapPayload } from "@/lib/duel-heatmap";
+import { t } from "@/lib/i18n";
 import {
   DuelPitchFrame,
   HeatmapDots,
@@ -14,7 +15,7 @@ import { spacing } from "@/lib/theme";
 export function MiniDuelHeatmap({ payload }: { payload: DuelHeatmapPayload | null }) {
   if (!payload) {
     return (
-      <HeatmapUnavailable message="Heatmap non disponibile per questo duello (dati stagionali insufficienti)." />
+      <HeatmapUnavailable message={t("intensity.heatmapMissing")} />
     );
   }
 

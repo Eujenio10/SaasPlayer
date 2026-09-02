@@ -2,20 +2,23 @@ import { View, Text, Pressable, StyleSheet } from "react-native";
 import type { PlayerPerformanceMainTab } from "@/lib/player-performance/advanced-types";
 import { historySparklineValues } from "@/lib/player-performance/selectors";
 import type { PlayerPerformanceCategory, PlayerPerformanceItem } from "@/lib/player-performance/types";
-import { roleGroupLabelIt } from "@/lib/player-performance/roles";
 import {
-  badgeLabelIt,
+  badgeLabel,
   formatIndex,
   formatPercent,
   formatTrendPercent,
-  PLAYER_PERFORMANCE_TEXT,
-  reliabilityLabelIt,
+  indexLabel,
+  localizePpInsight,
+  reliabilityLabel,
+  roleGroupLabel,
   sparklineText,
   trendArrow,
-  trendStatusLabelIt
-} from "@/lib/player-performance/text";
+  trendStatusLabel
+} from "@/lib/player-performance/localized-text";
 import { translateTeamName } from "@/lib/italian-display";
 import { analysisColors, playerInitials } from "@/components/analysis/analysis-theme";
+import { t } from "@/lib/i18n";
+import { useLocale } from "@/contexts/LocaleContext";
 
 function primaryIndex(
   item: PlayerPerformanceItem,
@@ -23,23 +26,23 @@ function primaryIndex(
   category: PlayerPerformanceCategory
 ) {
   if (mainTab === "shooting") {
-    return { label: PLAYER_PERFORMANCE_TEXT.indices.shotThreatIndex, value: formatIndex(item.shooting?.shotThreatIndex) };
+    return { label: indexLabel("shotThreatIndex"), value: formatIndex(item.shooting?.shotThreatIndex) };
   }
   if (mainTab === "creation") {
     const creator = item.creation?.creatorIndex ?? 0;
     const oneVsOne = item.oneVsOne?.oneVsOneThreatIndex ?? 0;
     if (oneVsOne > creator) {
-      return { label: PLAYER_PERFORMANCE_TEXT.indices.oneVsOneThreatIndex, value: formatIndex(item.oneVsOne?.oneVsOneThreatIndex) };
+      return { label: indexLabel("oneVsOneThreatIndex"), value: formatIndex(item.oneVsOne?.oneVsOneThreatIndex) };
     }
-    return { label: PLAYER_PERFORMANCE_TEXT.indices.creatorIndex, value: formatIndex(item.creation?.creatorIndex) };
+    return { label: indexLabel("creatorIndex"), value: formatIndex(item.creation?.creatorIndex) };
   }
   if (mainTab === "trends") {
-    return { label: PLAYER_PERFORMANCE_TEXT.indices.offensiveTrend, value: formatTrendPercent(item.offensiveTrend) };
+    return { label: indexLabel("offensiveTrend"), value: formatTrendPercent(item.offensiveTrend) };
   }
   if (category === "dangerous") {
-    return { label: PLAYER_PERFORMANCE_TEXT.indices.dangerIndex, value: formatIndex(item.dangerIndex) };
+    return { label: indexLabel("dangerIndex"), value: formatIndex(item.dangerIndex) };
   }
-  return { label: PLAYER_PERFORMANCE_TEXT.indices.offensiveTrend, value: formatTrendPercent(item.offensiveTrend) };
+  return { label: indexLabel("offensiveTrend"), value: formatTrendPercent(item.offensiveTrend) };
 }
 
 export function MobilePlayerPerformanceCard({
@@ -53,6 +56,7 @@ export function MobilePlayerPerformanceCard({
   category: PlayerPerformanceCategory;
   onSelect: (item: PlayerPerformanceItem) => void;
 }) {
+  useLocale();
   const index = primaryIndex(item, mainTab, category);
   const metric = mainTab === "creation" ? "keyPasses" : "shots";
   const sparkValues = historySparklineValues(item, metric);
@@ -67,7 +71,7 @@ export function MobilePlayerPerformanceCard({
         <View style={styles.headerText}>
           <Text style={styles.playerName}>{item.playerName}</Text>
           <Text style={styles.playerMeta}>
-            {roleGroupLabelIt(item.roleGroup)} · {translateTeamName(item.teamName)}
+            {roleGroupLabel(item.roleGroup)} · {translateTeamName(item.teamName)}
           </Text>
         </View>
       </View>
@@ -76,13 +80,13 @@ export function MobilePlayerPerformanceCard({
       </Text>
       {item.offensiveTrend != null && mainTab !== "trends" ? (
         <Text style={styles.metricLine}>
-          {trendArrow(item.trendStatus)} {trendStatusLabelIt(item.trendStatus)}: {formatTrendPercent(item.offensiveTrend)}
+          {trendArrow(item.trendStatus)} {trendStatusLabel(item.trendStatus)}: {formatTrendPercent(item.offensiveTrend)}
         </Text>
       ) : null}
       {mainTab === "shooting" ? (
         <>
-          <Text style={styles.metricLine}>{PLAYER_PERFORMANCE_TEXT.indices.shotsPer90}: {item.shooting?.shotsPer90.toFixed(1)}</Text>
-          <Text style={styles.metricLine}>{PLAYER_PERFORMANCE_TEXT.indices.shotAccuracy}: {formatPercent(item.shooting?.shotAccuracy)}</Text>
+          <Text style={styles.metricLine}>{indexLabel("shotsPer90")}: {item.shooting?.shotsPer90.toFixed(1)}</Text>
+          <Text style={styles.metricLine}>{indexLabel("shotAccuracy")}: {formatPercent(item.shooting?.shotAccuracy)}</Text>
         </>
       ) : null}
       {sparkValues.length ? (
@@ -92,13 +96,13 @@ export function MobilePlayerPerformanceCard({
       ) : null}
       {item.badges?.slice(0, 3).map((badge) => (
         <Text key={badge} style={styles.badge}>
-          {badgeLabelIt(badge)}
+          {badgeLabel(badge)}
         </Text>
       ))}
       <Text style={styles.sampleLine}>
-        {reliabilityLabelIt(item.dataReliability)} · {minutes} {PLAYER_PERFORMANCE_TEXT.minutesAnalyzed}
+        {reliabilityLabel(item.dataReliability)} · {minutes} {t("pp.minutesAnalyzed")}
       </Text>
-      {item.insight ? <Text style={styles.insight}>{item.insight}</Text> : null}
+      {localizePpInsight(item.insight) ? <Text style={styles.insight}>{localizePpInsight(item.insight)}</Text> : null}
     </Pressable>
   );
 }
