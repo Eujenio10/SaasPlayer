@@ -105,14 +105,26 @@ async function generateAndSendLink(
   }
 
   const copy = localeMessages(params.locale);
-  const payload = {
-    type: params.type,
-    email: params.email,
-    options: { redirectTo: params.redirectTo }
-  };
-  const { data, error } = params.password
-    ? await service.auth.admin.generateLink({ ...payload, password: params.password })
-    : await service.auth.admin.generateLink(payload);
+  const options = { redirectTo: params.redirectTo };
+  const { data, error } =
+    params.type === "signup"
+      ? await service.auth.admin.generateLink({
+          type: "signup",
+          email: params.email,
+          password: params.password ?? crypto.randomUUID(),
+          options
+        })
+      : params.type === "invite"
+        ? await service.auth.admin.generateLink({
+            type: "invite",
+            email: params.email,
+            options
+          })
+        : await service.auth.admin.generateLink({
+            type: "recovery",
+            email: params.email,
+            options
+          });
   const actionLink = data?.properties?.action_link;
   if (error || !actionLink) {
     if (error && isAuthRateLimitError(error.message, error.status)) {
