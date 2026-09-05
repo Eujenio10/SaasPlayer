@@ -2,7 +2,11 @@ import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { canonicalCompetitionId } from "@/lib/match-simulator/query";
 import {
   aggregateRefereeFixturesFromTeamRows,
-  computeRefereeCardAverages
+  computeRefereeCardAverages,
+  MAX_PLAUSIBLE_TEAM_RED_CARDS,
+  MAX_PLAUSIBLE_TEAM_YELLOW_CARDS,
+  refereeStatsLookPlausible,
+  sanitizeTeamCardCount
 } from "@/lib/referee-severity/scoring";
 import {
   REFEREE_SEVERITY_MIN_MATCHES,
@@ -15,6 +19,15 @@ function num(value: unknown, fallback = 0): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
+function currentSeasonStartIso(now = new Date()): string {
+  const year = now.getUTCMonth() >= 6 ? now.getUTCFullYear() : now.getUTCFullYear() - 1;
+  return new Date(Date.UTC(year, 6, 1)).toISOString();
+}
+
+function sameSeasonId(stored: unknown, wanted: string): boolean {
+  return String(stored ?? "").trim() === wanted.trim();
+}
+
 export async function loadRefereeCompetitionMatchRows(params: {
   refereeId: string;
   competitionId: string;
@@ -22,30 +35,67 @@ export async function loadRefereeCompetitionMatchRows(params: {
 }): Promise<Array<{ fixtureId: string; yellowCards: number | null; redCards: number | null; seasonId: string }>> {
   const sb = createSupabaseServiceClient();
   const competitionId = canonicalCompetitionId(params.competitionId);
-  const { data, error } = await sb
+  const seasonId = params.seasonId?.trim() || "";
+
+  let query = sb
     .from("team_match_stats")
-    .select("fixture_id, yellow_cards, red_cards, season_id, competition_id")
+    .select("fixture_id, yellow_cards, red_cards, season_id, competition_id, match_date")
     .eq("referee_id", params.refereeId)
+    .gte("match_date", currentSeasonStartIso())
     .order("match_date", { ascending: false })
-    .limit(120);
-  if (error || !data) return [];
+    .limit(80);
 
-  const rows = data
-    .filter((row) => canonicalCompetitionId(String(row.competition_id ?? "")) === competitionId)
-    .map((row) => ({
-      fixtureId: String(row.fixture_id),
-      yellowCards: row.yellow_cards != null ? Number(row.yellow_cards) : null,
-      redCards: row.red_cards != null ? Number(row.red_cards) : null,
-      seasonId: String(row.season_id ?? "")
-    }));
-
-  if (params.seasonId) {
-    const seasonRows = rows.filter((row) => row.seasonId === params.seasonId);
-    const seasonFixtures = new Set(seasonRows.map((row) => row.fixtureId));
-    if (seasonFixtures.size >= REFEREE_SEVERITY_MIN_MATCHES) return seasonRows;
+  if (seasonId) {
+    query = query.eq("season_id", seasonId);
   }
 
-  return rows;
+  const { data, error } = await query;
+  if (error || !data) return [];
+
+  const mapped = data
+    .filter((row) => canonicalCompetitionId(String(row.competition_id ?? "")) === competitionId)
+    .filter((row) => !seasonId || sameSeasonId(row.season_id, seasonId))
+    .map((row) => ({
+      fixtureId: String(row.fixture_id ?? "").trim(),
+      yellowCards: sanitizeTeamCardCount(
+        row.yellow_cards != null ? Number(row.yellow_cards) : null,
+        MAX_PLAUSIBLE_TEAM_YELLOW_CARDS
+      ),
+      redCards: sanitizeTeamCardCount(
+        row.red_cards != null ? Number(row.red_cards) : null,
+        MAX_PLAUSIBLE_TEAM_RED_CARDS
+      ),
+      seasonId: String(row.season_id ?? "")
+    }))
+    .filter((row) => row.fixtureId.length > 0);
+
+  if (mapped.length > 0 || !seasonId) return mapped;
+
+  /** Stagione FootAPI diversa da quella in DB: resta comunque nell'annata in corso. */
+  const fallback = await sb
+    .from("team_match_stats")
+    .select("fixture_id, yellow_cards, red_cards, season_id, competition_id, match_date")
+    .eq("referee_id", params.refereeId)
+    .gte("match_date", currentSeasonStartIso())
+    .order("match_date", { ascending: false })
+    .limit(80);
+
+  if (fallback.error || !fallback.data) return [];
+  return fallback.data
+    .filter((row) => canonicalCompetitionId(String(row.competition_id ?? "")) === competitionId)
+    .map((row) => ({
+      fixtureId: String(row.fixture_id ?? "").trim(),
+      yellowCards: sanitizeTeamCardCount(
+        row.yellow_cards != null ? Number(row.yellow_cards) : null,
+        MAX_PLAUSIBLE_TEAM_YELLOW_CARDS
+      ),
+      redCards: sanitizeTeamCardCount(
+        row.red_cards != null ? Number(row.red_cards) : null,
+        MAX_PLAUSIBLE_TEAM_RED_CARDS
+      ),
+      seasonId: String(row.season_id ?? "")
+    }))
+    .filter((row) => row.fixtureId.length > 0);
 }
 
 export function statsFromMatchRows(params: {
@@ -74,7 +124,7 @@ export async function loadRefereeStatisticsRow(params: {
     .eq("referee_id", params.refereeId)
     .maybeSingle();
   if (error || !data) return null;
-  return {
+  const stats: RefereeSeverityStats = {
     refereeId: String(data.referee_id),
     refereeName: String(data.referee_name ?? ""),
     matchesCount: num(data.matches_count),
@@ -83,6 +133,8 @@ export async function loadRefereeStatisticsRow(params: {
     severityScore: num(data.severity_score),
     sufficientSample: num(data.matches_count) >= REFEREE_SEVERITY_MIN_MATCHES
   };
+  if (!refereeStatsLookPlausible(stats)) return null;
+  return stats;
 }
 
 export async function upsertRefereeStatistics(params: {

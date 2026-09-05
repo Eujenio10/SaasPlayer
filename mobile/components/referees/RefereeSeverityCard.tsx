@@ -43,13 +43,13 @@ export function RefereeSeverityCard({
         <Text style={styles.pending}>{t("referees.notAssigned")}</Text>
       )}
 
-      {item.insufficientData || (item.referee && !item.stats?.sufficientSample) ? (
-        <Text style={styles.insufficient}>{t("referees.insufficient")}</Text>
-      ) : item.stats?.sufficientSample ? (
+      {item.stats && item.stats.matchesCount > 0 ? (
         <RefereeStatsBadge
           yellowAverage={item.stats.yellowAverage}
           redAverage={item.stats.redAverage}
         />
+      ) : item.referee ? (
+        <Text style={styles.insufficient}>{t("referees.insufficient")}</Text>
       ) : null}
 
       <MatchIntensityIndicator intensity={item.matchIntensity} />

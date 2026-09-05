@@ -10,6 +10,7 @@ import {
   computeRefereeCardAverages,
   sortMatchesByRefereeSeverity
 } from "@/lib/referee-severity/scoring";
+import { extractTeamSideStats, parseAllPeriodStats } from "@/lib/match-simulator/footapi-stat-parser";
 import type { RefereeSeverityStats } from "@/lib/referee-severity/types";
 
 type TestResult = { name: string; passed: boolean; detail?: string };
@@ -36,8 +37,8 @@ const stats = computeRefereeCardAverages({
 check("yellow average 1 decimal", stats.yellowAverage === 5.8, String(stats.yellowAverage));
 check("red average 2 decimals", stats.redAverage === 0.4, String(stats.redAverage));
 check(
-  "severity = yellow + red*2",
-  stats.severityScore === Number((5.8 + 0.4 * 2).toFixed(2)),
+  "severity = media cartellini gialli+rossi",
+  stats.severityScore === Number((5.8 + 0.4).toFixed(2)),
   String(stats.severityScore)
 );
 check("sufficient with 5 matches", stats.sufficientSample === true);
@@ -58,14 +59,76 @@ const aggregated = aggregateRefereeFixturesFromTeamRows([
 check("aggregates two team rows per fixture", aggregated.length === 2);
 check("fixture a yellow total", aggregated[0]?.yellowCards === 5);
 
+const discarded = aggregateRefereeFixturesFromTeamRows([
+  { fixtureId: "x", yellowCards: 4, redCards: 217 },
+  { fixtureId: "x", yellowCards: 3, redCards: 0 },
+  { fixtureId: "", yellowCards: 9, redCards: 1 }
+]);
+check("scarta rossi impossibili", discarded[0]?.redCards === 0, String(discarded[0]?.redCards));
+check("scarta fixture senza id", discarded.length === 1, String(discarded.length));
+
+const milder = computeRefereeCardAverages({
+  refereeId: "2",
+  refereeName: "Orsato",
+  fixtures: [
+    { yellowCards: 3, redCards: 0 },
+    { yellowCards: 2, redCards: 0 },
+    { yellowCards: 4, redCards: 0 },
+    { yellowCards: 3, redCards: 0 },
+    { yellowCards: 3, redCards: 0 }
+  ]
+});
 const ranked = sortMatchesByRefereeSeverity([
-  { stats: { ...few, sufficientSample: false } },
+  { stats: milder },
   { stats: stats },
   { stats: null as RefereeSeverityStats | null }
 ]);
-check("orders by severity then missing referee last", ranked[0]?.stats?.refereeId === "1");
-check("insufficient before missing referee", ranked[1]?.stats?.refereeId === "2");
-check("missing referee last", ranked[2]?.stats == null);
+check("ordina dalla media cartellini più alta", ranked[0]?.stats?.refereeId === "1");
+check("media più bassa dopo", ranked[1]?.stats?.refereeId === "2");
+check("senza dati in fondo", ranked[2]?.stats == null);
+
+const coveredStats = extractTeamSideStats(
+  parseAllPeriodStats({
+    statistics: [
+      {
+        period: "ALL",
+        groups: [
+          {
+            statisticsItems: [
+              { key: "yellowCards", homeValue: 3, awayValue: 2 },
+              { key: "redCards", homeValue: 0, awayValue: 1 },
+              { key: "totalDistanceCovered", homeValue: 109.4, awayValue: 107.8 }
+            ]
+          }
+        ]
+      }
+    ]
+  }),
+  "home"
+);
+check("km percorsi non diventano rossi", coveredStats.redCards === 0, String(coveredStats.redCards));
+check("gialli restano i cartellini", coveredStats.yellowCards === 3, String(coveredStats.yellowCards));
+
+const coveredOnly = extractTeamSideStats(
+  parseAllPeriodStats({
+    statistics: [
+      {
+        period: "ALL",
+        groups: [
+          {
+            statisticsItems: [{ key: "totalDistanceCovered", homeValue: 217, awayValue: 198 }]
+          }
+        ]
+      }
+    ]
+  }),
+  "home"
+);
+check(
+  "senza chiave redCards i km restano null",
+  coveredOnly.redCards == null,
+  String(coveredOnly.redCards)
+);
 
 const cards = countCardsFromMatchEvents({
   incidents: [

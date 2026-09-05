@@ -58,6 +58,13 @@ export function parseAllPeriodStats(
   return map;
 }
 
+/** Chiavi corte tipo `red` non devono matchare `totalDistanceCovered` (contiene "red"). */
+function keysLooselyMatch(foundKey: string, wanted: string): boolean {
+  if (foundKey === wanted) return true;
+  if (wanted.length < 4) return false;
+  return foundKey.startsWith(wanted) || wanted.startsWith(foundKey);
+}
+
 function resolveSideValue(
   statMap: Map<string, { home: number; away: number }>,
   keys: string[],
@@ -71,7 +78,7 @@ function resolveSideValue(
   for (const key of keys) {
     const wanted = normalizeStatKey(key);
     for (const [foundKey, entry] of statMap.entries()) {
-      if (foundKey.includes(wanted) || wanted.includes(foundKey)) {
+      if (keysLooselyMatch(foundKey, wanted)) {
         return side === "home" ? entry.home : entry.away;
       }
     }
