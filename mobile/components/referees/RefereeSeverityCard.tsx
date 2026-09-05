@@ -48,8 +48,6 @@ export function RefereeSeverityCard({
           yellowAverage={item.stats.yellowAverage}
           redAverage={item.stats.redAverage}
         />
-      ) : item.referee ? (
-        <Text style={styles.insufficient}>{t("referees.insufficient")}</Text>
       ) : null}
 
       <MatchIntensityIndicator intensity={item.matchIntensity} />
@@ -103,10 +101,5 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "600",
     fontStyle: "italic"
-  },
-  insufficient: {
-    color: "#FCD34D",
-    fontSize: 12,
-    fontWeight: "700"
   }
 });

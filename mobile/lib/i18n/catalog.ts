@@ -85,7 +85,7 @@ export const catalog = {
       referee: "Arbitro",
       unnamed: "Designato",
       notAssigned: "Arbitro non ancora designato",
-      insufficient: "Dati insufficienti (meno di 5 partite)",
+      insufficient: "Nessuna gara diretta in questa stagione.",
       intensity: "Intensità partita",
       loadFailed: "Impossibile caricare gli arbitri della giornata.",
       empty: "Nessuna partita della prossima giornata per questo campionato."
@@ -734,7 +734,7 @@ export const catalog = {
       referee: "Referee",
       unnamed: "Appointed",
       notAssigned: "Referee not appointed yet",
-      insufficient: "Insufficient data (fewer than 5 matches)",
+      insufficient: "No matches directed this season.",
       intensity: "Match intensity",
       loadFailed: "Unable to load the matchday referee list.",
       empty: "No upcoming matchday fixtures for this competition."

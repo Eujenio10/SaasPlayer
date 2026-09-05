@@ -65,6 +65,18 @@ function keysLooselyMatch(foundKey: string, wanted: string): boolean {
   return foundKey.startsWith(wanted) || wanted.startsWith(foundKey);
 }
 
+function resolveSideValueExact(
+  statMap: Map<string, { home: number; away: number }>,
+  keys: string[],
+  side: "home" | "away"
+): number | null {
+  for (const key of keys) {
+    const entry = statMap.get(normalizeStatKey(key));
+    if (entry) return side === "home" ? entry.home : entry.away;
+  }
+  return null;
+}
+
 function resolveSideValue(
   statMap: Map<string, { home: number; away: number }>,
   keys: string[],
@@ -109,8 +121,13 @@ export function extractTeamSideStats(
     corners: resolveSideValue(statMap, ["cornerKicks", "corners"], side),
     possession: resolveSideValue(statMap, ["ballPossession", "possession"], side),
     fouls: resolveSideValue(statMap, ["fouls", "foulsCommitted"], side),
-    yellowCards: resolveSideValue(statMap, ["yellowCards", "yellow"], side),
-    redCards: resolveSideValue(statMap, ["redCards", "red"], side),
+    yellowCards: resolveSideValueExact(statMap, ["yellowCards", "yellowCard"], side),
+    redCards: (() => {
+      const red = resolveSideValueExact(statMap, ["redCards", "redCard", "directRedCards"], side);
+      const yellowRed = resolveSideValueExact(statMap, ["yellowRedCards", "yellowRedCard"], side);
+      if (red == null && yellowRed == null) return null;
+      return (red ?? 0) + (yellowRed ?? 0);
+    })(),
     saves: resolveSideValue(statMap, ["goalkeeperSaves", "saves", "keeperSaves"], side),
     offsides: resolveSideValue(statMap, ["offsides", "offside"], side),
     shotsOutsideBox: resolveSideValue(

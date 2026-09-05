@@ -7,7 +7,8 @@ import { loadOrganizationUpcomingMatches } from "@/lib/match-simulator/fixtures-
 import { canonicalCompetitionId, filterUpcomingMatches } from "@/lib/match-simulator/query";
 import {
   extractRefereeIdentityFromFootApiPayload,
-  extractSeasonIdFromFootApiPayload
+  extractSeasonIdFromFootApiPayload,
+  extractTournamentIdFromFootApiPayload
 } from "@/lib/referee-severity/extract";
 import {
   loadRefereeCompetitionMatchRows,
@@ -18,6 +19,7 @@ import {
   upsertRefereeStatistics
 } from "@/lib/referee-severity/persist";
 import { sortMatchesByRefereeSeverity, refereeStatsLookPlausible } from "@/lib/referee-severity/scoring";
+import { resolveRefereeCurrentSeasonCards } from "@/lib/referee-severity/season-stats";
 import { sportApiEventPath } from "@/lib/sportapi-endpoints";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { selectNextMatchdayPerCompetition } from "@/lib/tactical-matches-filters";
@@ -33,7 +35,7 @@ import {
 const API_CACHE_TTL_HOURS = REFEREE_SEVERITY_CACHE_TTL_MS / (60 * 60 * 1000);
 
 function roundApiCacheKey(organizationId: string, competitionId: string): string {
-  return `referee_severity_round:v2:${organizationId}:${competitionId}`;
+  return `referee_severity_round:v3:${organizationId}:${competitionId}`;
 }
 
 function competitionIdsFromMatches(matches: UpcomingMatchItem[]): string[] {
@@ -75,60 +77,91 @@ function nextRoundNumber(matches: UpcomingMatchItem[]): number | null {
 
 async function resolveFixtureReferee(
   eventId: number
-): Promise<{ referee: RefereeIdentity | null; seasonId: string | null }> {
+): Promise<{ referee: RefereeIdentity | null; seasonId: string | null; tournamentId: string | null }> {
   try {
     const response = await footApiFetch(sportApiEventPath(eventId));
-    if (!response.ok) return { referee: null, seasonId: null };
+    if (!response.ok) return { referee: null, seasonId: null, tournamentId: null };
     const payload = await response.json();
     return {
       referee: extractRefereeIdentityFromFootApiPayload(payload),
-      seasonId: extractSeasonIdFromFootApiPayload(payload)
+      seasonId: extractSeasonIdFromFootApiPayload(payload),
+      tournamentId: extractTournamentIdFromFootApiPayload(payload)
     };
   } catch (error) {
     console.warn("[referee-severity] fixture_referee_fetch_failed", {
       eventId,
       message: error instanceof Error ? error.message : String(error)
     });
-    return { referee: null, seasonId: null };
+    return { referee: null, seasonId: null, tournamentId: null };
   }
 }
 
 async function resolveRefereeStats(params: {
   competitionId: string;
   seasonId: string | null;
+  tournamentId: string | null;
   referee: RefereeIdentity;
+  memo: Map<string, Promise<RefereeSeverityStats>>;
 }): Promise<RefereeSeverityStats> {
-  const seasonId = params.seasonId?.trim() || null;
-  const cached = seasonId
-    ? await loadRefereeStatisticsRow({
+  const memoKey = `${params.referee.id}:${params.competitionId}:${params.seasonId ?? ""}:${params.tournamentId ?? ""}`;
+  const cachedWork = params.memo.get(memoKey);
+  if (cachedWork) return cachedWork;
+
+  const work = (async () => {
+    const fromProvider = await resolveRefereeCurrentSeasonCards({
+      refereeId: params.referee.id,
+      refereeName: params.referee.name,
+      seasonId: params.seasonId,
+      tournamentId: params.tournamentId
+    });
+    if (fromProvider && fromProvider.matchesCount >= 1) {
+      if (params.seasonId) {
+        await upsertRefereeStatistics({
+          competitionId: params.competitionId,
+          seasonId: params.seasonId,
+          stats: fromProvider
+        });
+      }
+      return fromProvider;
+    }
+
+    const seasonId = params.seasonId?.trim() || null;
+    const cached = seasonId
+      ? await loadRefereeStatisticsRow({
+          competitionId: params.competitionId,
+          seasonId,
+          refereeId: params.referee.id
+        })
+      : null;
+    const rows = await loadRefereeCompetitionMatchRows({
+      refereeId: params.referee.id,
+      competitionId: params.competitionId,
+      seasonId
+    });
+    const stats = statsFromMatchRows({
+      refereeId: params.referee.id,
+      refereeName: params.referee.name || cached?.refereeName || "",
+      rows
+    });
+    if (seasonId) {
+      await upsertRefereeStatistics({
         competitionId: params.competitionId,
         seasonId,
-        refereeId: params.referee.id
-      })
-    : null;
-  const rows = await loadRefereeCompetitionMatchRows({
-    refereeId: params.referee.id,
-    competitionId: params.competitionId,
-    seasonId
-  });
-  const stats = statsFromMatchRows({
-    refereeId: params.referee.id,
-    refereeName: params.referee.name || cached?.refereeName || "",
-    rows
-  });
-  if (seasonId) {
-    await upsertRefereeStatistics({
-      competitionId: params.competitionId,
-      seasonId,
-      stats
-    });
-  }
-  return stats;
+        stats
+      });
+    }
+    return stats;
+  })();
+
+  params.memo.set(memoKey, work);
+  return work;
 }
 
 function isUsableRoundCache(payload: RefereeSeverityRoundResponse | null | undefined): boolean {
   if (!payload?.matches.length) return false;
   return payload.matches.every((item) => {
+    if (item.insufficientData) return false;
+    if (item.referee && (!item.stats || item.stats.matchesCount < 1)) return false;
     if (!item.stats) return true;
     if (!refereeStatsLookPlausible(item.stats)) return false;
     const expected = Number((item.stats.yellowAverage + item.stats.redAverage).toFixed(2));
@@ -201,8 +234,10 @@ async function buildRoundForCompetition(params: {
   const previousByEvent = new Map((previous?.matches ?? []).map((item) => [item.eventId, item]));
 
   let seasonId = previous?.seasonId ?? null;
+  let tournamentId: string | null = null;
   const built: Omit<RefereeSeverityMatchItem, "position">[] = [];
   const liveFetchDeadline = Date.now() + Math.max(0, params.liveFetchBudgetMs);
+  const statsMemo = new Map<string, Promise<RefereeSeverityStats>>();
 
   for (const match of nextMatchday) {
     const existing = previousByEvent.get(match.eventId);
@@ -211,19 +246,23 @@ async function buildRoundForCompetition(params: {
       const resolved = await resolveFixtureReferee(match.eventId);
       referee = resolved.referee;
       seasonId = seasonId ?? resolved.seasonId;
+      tournamentId = tournamentId ?? resolved.tournamentId;
     }
 
     let stats: RefereeSeverityStats | null = null;
     if (referee) {
-      if (!seasonId && params.allowLiveRefereeFetch && Date.now() < liveFetchDeadline) {
+      if ((!seasonId || !tournamentId) && params.allowLiveRefereeFetch && Date.now() < liveFetchDeadline) {
         const resolved = await resolveFixtureReferee(match.eventId);
         referee = resolved.referee ?? referee;
         seasonId = seasonId ?? resolved.seasonId;
+        tournamentId = tournamentId ?? resolved.tournamentId;
       }
       stats = await resolveRefereeStats({
         competitionId,
         seasonId,
-        referee: { id: referee.id, name: referee.name }
+        tournamentId,
+        referee: { id: referee.id, name: referee.name },
+        memo: statsMemo
       });
     }
 

@@ -50,3 +50,12 @@ export function extractSeasonIdFromFootApiPayload(payload: unknown): string | nu
   const season = event?.season as { id?: number | string } | undefined;
   return readId(season?.id);
 }
+
+export function extractTournamentIdFromFootApiPayload(payload: unknown): string | null {
+  const root = payload as Record<string, unknown>;
+  const event = (root?.event ?? root) as Record<string, unknown> | undefined;
+  const tournament = event?.tournament as { uniqueTournament?: { id?: number | string }; id?: number | string } | undefined;
+  return readId(tournament?.uniqueTournament?.id) ?? readId(tournament?.id) ?? readId(
+    (event?.uniqueTournament as { id?: number | string } | undefined)?.id
+  );
+}

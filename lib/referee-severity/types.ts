@@ -1,6 +1,6 @@
 import type { MatchIntensityPreview } from "@/lib/match-intensity-preview";
 
-export const REFEREE_SEVERITY_MIN_MATCHES = 5;
+export const REFEREE_SEVERITY_MIN_MATCHES = 1;
 export const REFEREE_SEVERITY_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 
 export interface RefereeCardFixtureTotals {

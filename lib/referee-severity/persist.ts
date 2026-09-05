@@ -3,7 +3,6 @@ import { canonicalCompetitionId } from "@/lib/match-simulator/query";
 import {
   aggregateRefereeFixturesFromTeamRows,
   computeRefereeCardAverages,
-  MAX_PLAUSIBLE_TEAM_RED_CARDS,
   MAX_PLAUSIBLE_TEAM_YELLOW_CARDS,
   refereeStatsLookPlausible,
   sanitizeTeamCardCount
@@ -61,10 +60,7 @@ export async function loadRefereeCompetitionMatchRows(params: {
         row.yellow_cards != null ? Number(row.yellow_cards) : null,
         MAX_PLAUSIBLE_TEAM_YELLOW_CARDS
       ),
-      redCards: sanitizeTeamCardCount(
-        row.red_cards != null ? Number(row.red_cards) : null,
-        MAX_PLAUSIBLE_TEAM_RED_CARDS
-      ),
+      redCards: null,
       seasonId: String(row.season_id ?? "")
     }))
     .filter((row) => row.fixtureId.length > 0);
@@ -89,10 +85,7 @@ export async function loadRefereeCompetitionMatchRows(params: {
         row.yellow_cards != null ? Number(row.yellow_cards) : null,
         MAX_PLAUSIBLE_TEAM_YELLOW_CARDS
       ),
-      redCards: sanitizeTeamCardCount(
-        row.red_cards != null ? Number(row.red_cards) : null,
-        MAX_PLAUSIBLE_TEAM_RED_CARDS
-      ),
+      redCards: null,
       seasonId: String(row.season_id ?? "")
     }))
     .filter((row) => row.fixtureId.length > 0);

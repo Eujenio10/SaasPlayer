@@ -1,7 +1,36 @@
 /**
- * Conta i cartellini dagli eventi FootAPI (incidents / events).
- * Yellow Card → giallo; Red Card e second yellow → rosso.
+ * Conta i cartellini dagli eventi FootAPI (incidents).
+ * Giallo → yellow; rosso e doppio giallo → red.
+ * Non usa substring "red" su campi liberi (evita falsi positivi).
  */
+
+function text(value: unknown): string {
+  return typeof value === "string" ? value.trim().toLowerCase() : "";
+}
+
+function isCardIncident(row: Record<string, unknown>): boolean {
+  const type = text(row.type ?? row.incidentType);
+  const incidentClass = text(row.incidentClass ?? row.class);
+  return type === "card" || type.includes("card") || incidentClass === "yellow" || incidentClass === "red" || incidentClass === "yellowred";
+}
+
+function cardKind(row: Record<string, unknown>): "yellow" | "red" | null {
+  const incidentClass = text(row.incidentClass ?? row.class);
+  const detail = text(row.detail);
+  const token = incidentClass || detail;
+  if (!token) return null;
+  if (token.includes("second") || token.includes("yellowred") || token.includes("yellow-red") || token === "yellowred") {
+    return "red";
+  }
+  if (token === "red" || token.startsWith("red ") || token.endsWith(" red") || token === "redcard") {
+    return "red";
+  }
+  if (token === "yellow" || token.startsWith("yellow") || token.includes("yellow card")) {
+    return "yellow";
+  }
+  return null;
+}
+
 export function countCardsFromMatchEvents(payload: unknown): { yellow: number; red: number } {
   const root = (payload && typeof payload === "object" ? payload : {}) as Record<string, unknown>;
   const nestedEvent = (root.event && typeof root.event === "object" ? root.event : null) as
@@ -21,22 +50,10 @@ export function countCardsFromMatchEvents(payload: unknown): { yellow: number; r
   for (const item of pools) {
     if (!item || typeof item !== "object") continue;
     const row = item as Record<string, unknown>;
-    const type = String(row.type ?? row.incidentType ?? "").toLowerCase();
-    const detail = String(row.detail ?? row.incidentClass ?? row.class ?? "").toLowerCase();
-    const isCard = type.includes("card") || detail.includes("card") || detail.includes("yellow") || detail.includes("red");
-    if (!isCard) continue;
-
-    if (detail.includes("second") || detail.includes("yellowred") || detail.includes("yellow-red")) {
-      red += 1;
-      continue;
-    }
-    if (detail.includes("red")) {
-      red += 1;
-      continue;
-    }
-    if (detail.includes("yellow")) {
-      yellow += 1;
-    }
+    if (!isCardIncident(row)) continue;
+    const kind = cardKind(row);
+    if (kind === "red") red += 1;
+    else if (kind === "yellow") yellow += 1;
   }
 
   return { yellow, red };

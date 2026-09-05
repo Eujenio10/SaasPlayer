@@ -10,6 +10,7 @@ import {
   computeRefereeCardAverages,
   sortMatchesByRefereeSeverity
 } from "@/lib/referee-severity/scoring";
+import { pickRefereeSeasonCardTotals } from "@/lib/referee-severity/season-stats";
 import { extractTeamSideStats, parseAllPeriodStats } from "@/lib/match-simulator/footapi-stat-parser";
 import type { RefereeSeverityStats } from "@/lib/referee-severity/types";
 
@@ -46,9 +47,10 @@ check("sufficient with 5 matches", stats.sufficientSample === true);
 const few = computeRefereeCardAverages({
   refereeId: "2",
   refereeName: "Orsato",
-  fixtures: fixtures.slice(0, 3)
+  fixtures: fixtures.slice(0, 1)
 });
-check("insufficient under 5 matches", few.sufficientSample === false);
+check("una partita basta", few.sufficientSample === true);
+check("media su una sola gara", few.yellowAverage === 6, String(few.yellowAverage));
 
 const aggregated = aggregateRefereeFixturesFromTeamRows([
   { fixtureId: "a", yellowCards: 2, redCards: 0 },
@@ -141,6 +143,22 @@ const cards = countCardsFromMatchEvents({
 });
 check("counts yellow cards from incidents", cards.yellow === 2);
 check("counts red and second yellow as red", cards.red === 2);
+
+const seasonTotals = pickRefereeSeasonCardTotals(
+  {
+    uniqueTournamentSeasons: [
+      {
+        uniqueTournament: { id: 23 },
+        season: { id: 77000 },
+        statistics: { appearances: 3, yellowCards: 12, redCards: 1, yellowRedCards: 1 }
+      }
+    ]
+  },
+  { seasonId: "77000", tournamentId: "23" }
+);
+check("totali stagione → 3 gare", seasonTotals?.matchesCount === 3, String(seasonTotals?.matchesCount));
+check("gialli totali 12", seasonTotals?.yellowTotal === 12, String(seasonTotals?.yellowTotal));
+check("rossi = diretti + doppio giallo", seasonTotals?.redTotal === 2, String(seasonTotals?.redTotal));
 
 const identity = extractRefereeIdentityFromFootApiPayload({
   event: {

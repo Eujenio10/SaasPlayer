@@ -96,6 +96,36 @@ export function sportApiEventIncidentsPath(
     : `/api/v1/event/${eventId}/incidents`;
 }
 
+export function sportApiRefereeStatisticsSeasonsPath(
+  refereeId: string,
+  host = env.SPORTAPI_RAPIDAPI_HOST
+): string {
+  return isFootApi(host)
+    ? `/api/referee/${refereeId}/statistics/seasons`
+    : `/api/v1/referee/${refereeId}/statistics/seasons`;
+}
+
+export function sportApiRefereeTournamentSeasonStatisticsPath(
+  refereeId: string,
+  tournamentId: string,
+  seasonId: string,
+  host = env.SPORTAPI_RAPIDAPI_HOST
+): string {
+  return isFootApi(host)
+    ? `/api/referee/${refereeId}/tournament/${tournamentId}/season/${seasonId}/statistics`
+    : `/api/v1/referee/${refereeId}/unique-tournament/${tournamentId}/season/${seasonId}/statistics`;
+}
+
+export function sportApiRefereeLastEventsPath(
+  refereeId: string,
+  page: number,
+  host = env.SPORTAPI_RAPIDAPI_HOST
+): string {
+  return isFootApi(host)
+    ? `/api/referee/${refereeId}/matches/previous/${page}`
+    : `/api/v1/referee/${refereeId}/events/last/${page}`;
+}
+
 export function sportApiTeamPath(teamId: number, host = env.SPORTAPI_RAPIDAPI_HOST): string {
   return isFootApi(host) ? `/api/team/${teamId}` : `/api/v1/team/${teamId}`;
 }
