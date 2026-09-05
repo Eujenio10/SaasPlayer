@@ -4,12 +4,14 @@ import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { HomeHeader } from "@/components/home/HomeHeader";
+import { LanguageToggle } from "@/components/home/LanguageToggle";
 import { ErrorState } from "@/components/home/ErrorState";
 import { FeaturedMatchCard } from "@/components/home/FeaturedMatchCard";
 import { HomeLoadingSkeleton } from "@/components/home/LoadingSkeleton";
 import { PitchBrainLoading } from "@/components/PitchBrainLoading";
 import { UpcomingMatchesSection } from "@/components/home/UpcomingMatchesSection";
 import { MatchRadarHomeCta } from "@/components/match-radar/MatchRadarHomeCta";
+import { RefereeSeverityHomeCta } from "@/components/referees/RefereeSeverityHomeCta";
 import { EarlySeasonNoticeBanner } from "@/components/home/EarlySeasonNoticeBanner";
 import { homeColors } from "@/components/home/home-theme";
 import { useAuth } from "@/contexts/AuthContext";
@@ -109,6 +111,8 @@ export function HomeScreen() {
           onBadgePress={() => router.push("/profile")}
         />
 
+        <LanguageToggle />
+
         {firstLoad && !showOverlay ? <HomeLoadingSkeleton /> : null}
 
         <View style={styles.content}>
@@ -149,6 +153,7 @@ export function HomeScreen() {
           ) : null}
 
           <MatchRadarHomeCta />
+          <RefereeSeverityHomeCta />
 
           <UpcomingMatchesSection
             matches={upcomingMatches}

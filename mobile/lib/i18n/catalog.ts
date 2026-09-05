@@ -8,6 +8,7 @@ export const catalog = {
       it: "Italiano",
       en: "English",
       choose: "Lingua",
+      hint: "Scegli la lingua dell'app",
       accessibility: "Seleziona lingua"
     },
     tabs: {
@@ -68,7 +69,26 @@ export const catalog = {
       radarTitle: "MATCH RADAR",
       radarBody: "Scopri le partite con i segnali più interessanti da analizzare.",
       radarOpen: "APRI RADAR →",
-      radarA11y: "Apri Match Radar"
+      radarA11y: "Apri Match Radar",
+      refereesTitle: "ARBITRI SEVERI",
+      refereesBody: "Le partite della prossima giornata ordinate per la media cartellini dell'arbitro.",
+      refereesOpen: "APRI →",
+      refereesA11y: "Apri Arbitri Severi"
+    },
+    referees: {
+      back: "Arbitri",
+      title: "Arbitri Severi",
+      subtitle: "Le partite della prossima giornata ordinate per la media cartellini dell'arbitro.",
+      info: "Classifica basata sulla media cartellini dell'arbitro nelle ultime partite ufficiali",
+      competition: "Campionato",
+      round: "Giornata",
+      referee: "Arbitro",
+      unnamed: "Designato",
+      notAssigned: "Arbitro non ancora designato",
+      insufficient: "Dati insufficienti (meno di 5 partite)",
+      intensity: "Intensità partita",
+      loadFailed: "Impossibile caricare gli arbitri della giornata.",
+      empty: "Nessuna partita della prossima giornata per questo campionato."
     },
     matches: {
       title: "Analisi Partita",
@@ -637,6 +657,7 @@ export const catalog = {
       it: "Italiano",
       en: "English",
       choose: "Language",
+      hint: "Choose the app language",
       accessibility: "Select language"
     },
     tabs: {
@@ -697,7 +718,26 @@ export const catalog = {
       radarTitle: "MATCH RADAR",
       radarBody: "Find the matches with the most interesting signals to analyse.",
       radarOpen: "OPEN RADAR →",
-      radarA11y: "Open Match Radar"
+      radarA11y: "Open Match Radar",
+      refereesTitle: "STRICT REFEREES",
+      refereesBody: "Upcoming matchday fixtures ranked by the appointed referee's average cards.",
+      refereesOpen: "OPEN →",
+      refereesA11y: "Open Strict Referees"
+    },
+    referees: {
+      back: "Referees",
+      title: "Strict Referees",
+      subtitle: "Upcoming matchday fixtures ranked by the appointed referee's average cards.",
+      info: "Ranking based on the appointed referee's average cards in recent official matches",
+      competition: "Competition",
+      round: "Matchday",
+      referee: "Referee",
+      unnamed: "Appointed",
+      notAssigned: "Referee not appointed yet",
+      insufficient: "Insufficient data (fewer than 5 matches)",
+      intensity: "Match intensity",
+      loadFailed: "Unable to load the matchday referee list.",
+      empty: "No upcoming matchday fixtures for this competition."
     },
     matches: {
       title: "Match analysis",

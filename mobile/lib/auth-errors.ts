@@ -10,9 +10,24 @@ function readString(value: unknown): string {
   return typeof value === "string" && value.trim() ? value.trim() : "";
 }
 
+function parseDumpedFetchError(raw: string): Partial<AuthErrorShape> {
+  if (!raw.includes("x-sb-error-code") && !raw.includes("supabase.co/auth")) {
+    return {};
+  }
+  const status = raw.match(/"status":(\d+)/)?.[1] ?? "";
+  const code = raw.match(/x-sb-error-code":"([^"]+)"/)?.[1] ?? "";
+  const path = raw.match(/supabase\.co(\/auth\/[^"]+)/)?.[1] ?? "/auth/v1/signup";
+  return {
+    status,
+    code,
+    message: `Supabase ${path} ha risposto ${status || "errore"} (${code || "unexpected_failure"})`
+  };
+}
+
 export function describeAuthError(error: unknown): AuthErrorShape {
   if (error instanceof Error) {
     const extra = error as Error & { code?: unknown; status?: unknown; cause?: unknown };
+    const dumped = parseDumpedFetchError(error.message);
     const fromCause =
       extra.cause instanceof Error
         ? extra.cause.message
@@ -20,9 +35,9 @@ export function describeAuthError(error: unknown): AuthErrorShape {
           ? readString((extra.cause as { message?: unknown }).message)
           : readString(extra.cause);
     return {
-      message: error.message || fromCause || error.name,
-      code: readString(extra.code),
-      status: extra.status != null ? String(extra.status) : ""
+      message: dumped.message || error.message || fromCause || error.name,
+      code: dumped.code || readString(extra.code),
+      status: dumped.status || (extra.status != null ? String(extra.status) : "")
     };
   }
 
@@ -45,17 +60,11 @@ export function describeAuthError(error: unknown): AuthErrorShape {
   return { message: String(error ?? "unknown"), code: "", status: "" };
 }
 
-function detailLine(info: AuthErrorShape): string {
-  return [info.code, info.status ? `HTTP ${info.status}` : "", info.message]
-    .filter(Boolean)
-    .join(" · ");
-}
-
 export function mapAuthError(error: AuthError | Error | unknown): string {
   const info = describeAuthError(error);
   const code = info.code.toLowerCase();
   const message = info.message.toLowerCase();
-  const detail = detailLine(info);
+  const errorName = error instanceof Error ? error.name : "";
 
   if (
     code === "over_email_send_rate_limit" ||
@@ -100,6 +109,8 @@ export function mapAuthError(error: AuthError | Error | unknown): string {
   if (
     code === "unexpected_failure" ||
     info.status === "500" ||
+    errorName === "AuthRetryableFetchError" ||
+    message.includes("unexpected_failure") ||
     message.includes("error sending") ||
     message.includes("confirmation email") ||
     message.includes("smtp") ||
@@ -108,7 +119,7 @@ export function mapAuthError(error: AuthError | Error | unknown): string {
     message.includes("database error") ||
     message.includes("saving new user")
   ) {
-    return `Invio email non riuscito. Controlla SMTP Aruba (no-reply@pitchbrain.it) e che l'hook Send Email sia spento.\n${detail}`;
+    return "Invio email non riuscito. Controlla SMTP Aruba (no-reply@pitchbrain.it) e che l'hook Send Email sia spento.";
   }
 
   if (
@@ -145,5 +156,5 @@ export function mapAuthError(error: AuthError | Error | unknown): string {
     return "Apri il link sullo stesso dispositivo dove hai richiesto l'email, oppure richiedine uno nuovo.";
   }
 
-  return `Operazione non riuscita. Riprova tra qualche istante.\n${detail}`;
+  return "Operazione non riuscita. Riprova tra qualche istante.";
 }

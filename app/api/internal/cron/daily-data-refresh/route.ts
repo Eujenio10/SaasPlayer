@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { waitUntil } from "@vercel/functions";
 import { resolveProductOrganizationId } from "@/lib/auth/product-organization";
 import { authorizeCronRequest } from "@/lib/data-refresh/cron-auth";
+import { runPrematchRefreshTick } from "@/lib/data-refresh/run-prematch-refresh";
 import {
   continueMorningRefreshChain,
   isMorningRefreshContinuation,
@@ -51,6 +52,19 @@ export async function GET(request: Request) {
 
     enqueueContinuation(request, tick.shouldContinue);
 
+    /** Dopo il giro mattutino i ping 20 min restano inutili: li riusiamo per il pre-partita. */
+    let prematch: Awaited<ReturnType<typeof runPrematchRefreshTick>> | undefined;
+    if (tick.skipped) {
+      try {
+        prematch = await runPrematchRefreshTick({ organizationId: productOrganizationId });
+      } catch (error) {
+        console.warn(
+          "[cron/daily-data-refresh] prematch_side_tick_failed:",
+          error instanceof Error ? error.message : String(error)
+        );
+      }
+    }
+
     return NextResponse.json({
       trigger: "scheduled_cron",
       ...(tick.result ?? {}),
@@ -61,6 +75,7 @@ export async function GET(request: Request) {
       competitionSlug: tick.competitionSlug ?? "menu",
       phase: tick.phase ?? tick.job?.phase,
       job: tick.job,
+      prematch,
       error: tick.ok ? undefined : tick.result?.error
     });
   } catch (error) {

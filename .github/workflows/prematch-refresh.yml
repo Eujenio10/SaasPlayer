@@ -1,15 +1,14 @@
 name: Prematch refresh
 
 # Piano Vercel Hobby: un solo cron al giorno, già usato dal giro mattutino.
-# Qui il ping arriva ogni 10 minuti: l'endpoint controlla se una partita in menu
-# inizia tra 35 e 5 minuti e, solo in quel caso, rigenera simulazione e marcature
-# con le formazioni ufficiali. Fuori finestra la chiamata esce subito.
+# Qui il ping arriva ogni 5 minuti: l'endpoint aggiorna solo se una partita in
+# menu inizia tra 55 e 5 minuti. Fuori finestra esce subito. GitHub può ritardare
+# gli schedule: per questo la finestra lato app è larga 50 minuti.
 on:
   schedule:
-    - cron: "*/10 * * * *"
+    - cron: "*/5 * * * *"
   workflow_dispatch:
 
-# Un ping alla volta: evita che due tick si sovrappongano sulla stessa partita.
 concurrency:
   group: prematch-refresh
   cancel-in-progress: false
@@ -26,7 +25,25 @@ jobs:
         run: |
           if [ -z "$CRON_SECRET" ]; then
             echo "Manca il secret GitHub CRON_SECRET (stesso valore di Vercel → Environment Variables)."
+            echo "Repo → Settings → Secrets and variables → Actions → New repository secret."
             exit 1
           fi
-          curl -fsS --max-time 300 -X GET "$APP_URL/api/internal/cron/prematch-refresh" \
-            -H "Authorization: Bearer ${CRON_SECRET}"
+          echo "GET $APP_URL/api/internal/cron/prematch-refresh"
+          HTTP_CODE=$(curl -sS --max-time 300 -o /tmp/prematch-body.json -w "%{http_code}" \
+            -X GET "$APP_URL/api/internal/cron/prematch-refresh" \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            -H "Accept: application/json") || {
+            echo "curl fallito (timeout o rete)."
+            exit 1
+          }
+          echo "HTTP $HTTP_CODE"
+          cat /tmp/prematch-body.json
+          echo
+          if [ "$HTTP_CODE" = "401" ]; then
+            echo "Unauthorized: CRON_SECRET su GitHub non coincide con quello su Vercel."
+            exit 1
+          fi
+          if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+            echo "Endpoint prematch non OK."
+            exit 1
+          fi

@@ -33,15 +33,16 @@ export type MorningRefreshCompetitionSlug = (typeof MORNING_REFRESH_COMPETITION_
 
 /**
  * Rinfresco pre-partita: le formazioni ufficiali escono circa un'ora prima del
- * calcio d'inizio, quindi poco prima si rigenerano simulazione e marcature con
- * i giocatori realmente disponibili.
+ * calcio d'inizio. Nella finestra si ricalcolano Analisi Partita (insight/falli,
+ * player performance, report pre-partita, intensità) e le marcature, con i
+ * giocatori realmente disponibili.
  *
- * Con un ticker ogni 10 minuti la finestra 35→5 fa scattare ogni partita una
- * volta sola, circa 30 minuti prima, e regge anche un ping saltato.
+ * I ping GitHub possono arrivare in ritardo: la finestra deve coprire anche un
+ * tick saltato. Le formazioni ufficiali escono circa un'ora prima del KO.
  */
 export const PREMATCH_REFRESH_CONFIG = {
   /** Minuti prima del calcio d'inizio da cui la partita entra in finestra. */
-  leadMinutes: 35,
+  leadMinutes: 55,
   /** Sotto questa soglia è troppo tardi: la partita sta per iniziare. */
   cutoffMinutes: 5,
   /** Tetto per invocazione: di sabato più partite cadono nella stessa finestra. */

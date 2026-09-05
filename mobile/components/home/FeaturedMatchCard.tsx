@@ -206,7 +206,11 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 0 }
   },
   gridBg: {
-    ...StyleSheet.absoluteFillObject,
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
     opacity: 0.35
   },
   gridLine: {

@@ -2,7 +2,6 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import type { UserAccessRole } from "@/lib/types";
 import { homeColors } from "@/components/home/home-theme";
-import { LanguageToggle } from "@/components/home/LanguageToggle";
 import { useLocale } from "@/contexts/LocaleContext";
 import { spacing } from "@/lib/theme";
 
@@ -41,7 +40,6 @@ export function HomeHeader({
       </View>
 
       <View style={styles.rightCol}>
-        <LanguageToggle />
         {onAdminRefresh ? (
           <Pressable
             onPress={onAdminRefresh}

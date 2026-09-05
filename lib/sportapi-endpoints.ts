@@ -86,6 +86,16 @@ export function sportApiEventStatisticsPath(
     : `/api/v1/event/${eventId}/statistics`;
 }
 
+/** Eventi partita (cartellini, gol, sostituzioni). FootAPI: `/api/match/{id}/incidents`. */
+export function sportApiEventIncidentsPath(
+  eventId: number | string,
+  host = env.SPORTAPI_RAPIDAPI_HOST
+): string {
+  return isFootApi(host)
+    ? `/api/match/${eventId}/incidents`
+    : `/api/v1/event/${eventId}/incidents`;
+}
+
 export function sportApiTeamPath(teamId: number, host = env.SPORTAPI_RAPIDAPI_HOST): string {
   return isFootApi(host) ? `/api/team/${teamId}` : `/api/v1/team/${teamId}`;
 }

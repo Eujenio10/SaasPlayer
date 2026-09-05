@@ -1,4 +1,5 @@
 export type { PreMatchReport, PreMatchReportInput } from "./types";
+export { buildPreMatchReportCacheKey, PRE_MATCH_REPORT_CACHE_VERSION } from "./cache-key";
 export {
   blueprintMatchesSeasonContext,
   loadPersistedTeamBlueprint,

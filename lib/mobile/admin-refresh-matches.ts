@@ -28,6 +28,7 @@ import { regenerateDifficultMarkingsSnapshotForOrganization } from "@/lib/diffic
 import { invalidateDifficultMarkingsSnapshotMemory } from "@/lib/difficult-markings/snapshot-memory-cache";
 import { regenerateMatchRadarForMatches } from "@/lib/match-radar/service";
 import { areMatchRadarDatabaseTablesAvailable } from "@/lib/match-radar/db-tables";
+import { refreshRefereeSeverityForMatches } from "@/lib/referee-severity/service";
 import { regenerateTrendsSnapshotForOrganization } from "@/lib/trends/snapshot";
 import { invalidateTrendsSnapshotMemory } from "@/lib/trends/snapshot-memory-cache";
 import { areTrendDatabaseTablesAvailable } from "@/lib/trends/db-tables";
@@ -537,6 +538,18 @@ async function runFinalizePhase(
         e instanceof Error ? e.message : String(e)
       );
     }
+  }
+
+  try {
+    await refreshRefereeSeverityForMatches({
+      organizationId,
+      matches: scopedMatches.length ? scopedMatches : targets
+    });
+  } catch (e) {
+    console.warn(
+      "[admin-refresh] referee_severity_error:",
+      e instanceof Error ? e.message : String(e)
+    );
   }
 
   if (await arePlayerPerformanceSnapshotTablesAvailable()) {

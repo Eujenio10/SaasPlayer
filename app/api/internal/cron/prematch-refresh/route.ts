@@ -7,10 +7,11 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 /**
- * Rinfresco pre-partita (Europe/Rome), pensato per un ping ogni 10 minuti.
+ * Rinfresco pre-partita (Europe/Rome), pensato per un ping GitHub ogni 5 minuti.
  *
  * A ogni chiamata legge il menu già salvato a DB, prende le partite con calcio
- * d'inizio tra 35 e 5 minuti e ne rigenera simulazione e marcature con le
+ * d'inizio tra 55 e 5 minuti e ne aggiorna Analisi Partita (insight/falli,
+ * player performance, report pre-partita, intensità) e le marcature con le
  * formazioni ufficiali. Se non c'è nulla in finestra esce subito senza costi API.
  */
 export async function GET(request: Request) {

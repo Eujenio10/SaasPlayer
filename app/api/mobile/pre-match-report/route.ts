@@ -16,7 +16,7 @@ import {
   translateCompetitionSlug,
   translateTeamName
 } from "@/lib/italian-sports-display";
-import { generatePreMatchReport } from "@/lib/prematch-report";
+import { buildPreMatchReportCacheKey, generatePreMatchReport } from "@/lib/prematch-report";
 import {
   ensureTeamTournamentBlueprintsForMatch,
   teamBlueprintFromProviderOnly
@@ -65,7 +65,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "public_access_unavailable" }, { status: 503 });
   }
 
-  const cacheKey = `prematch_report:v9:${productOrganizationId}:${eventId}`;
+  const cacheKey = buildPreMatchReportCacheKey(productOrganizationId, eventId);
   const forceRefresh = url.searchParams.get("refresh") === "1";
 
   if (!forceRefresh) {

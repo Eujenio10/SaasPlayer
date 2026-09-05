@@ -20,7 +20,25 @@ jobs:
         run: |
           if [ -z "$CRON_SECRET" ]; then
             echo "Manca il secret GitHub CRON_SECRET (stesso valore di Vercel → Environment Variables)."
+            echo "Repo → Settings → Secrets and variables → Actions → New repository secret."
             exit 1
           fi
-          curl -fsS -X GET "$APP_URL/api/internal/cron/daily-data-refresh" \
-            -H "Authorization: Bearer ${CRON_SECRET}"
+          echo "GET $APP_URL/api/internal/cron/daily-data-refresh"
+          HTTP_CODE=$(curl -sS --max-time 240 -o /tmp/morning-body.json -w "%{http_code}" \
+            -X GET "$APP_URL/api/internal/cron/daily-data-refresh" \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            -H "Accept: application/json") || {
+            echo "curl fallito (timeout o rete)."
+            exit 1
+          }
+          echo "HTTP $HTTP_CODE"
+          cat /tmp/morning-body.json
+          echo
+          if [ "$HTTP_CODE" = "401" ]; then
+            echo "Unauthorized: CRON_SECRET su GitHub non coincide con quello su Vercel."
+            exit 1
+          fi
+          if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+            echo "Endpoint morning refresh non OK."
+            exit 1
+          fi

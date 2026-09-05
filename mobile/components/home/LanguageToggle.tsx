@@ -1,11 +1,13 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { useLocale } from "@/contexts/LocaleContext";
 import type { AppLocale } from "@/lib/i18n";
 import { homeColors } from "@/components/home/home-theme";
+import { spacing } from "@/lib/theme";
 
-const OPTIONS: Array<{ id: AppLocale; short: string }> = [
-  { id: "it", short: "IT" },
-  { id: "en", short: "EN" }
+const OPTIONS: Array<{ id: AppLocale; flag: string; nameKey: "language.it" | "language.en" }> = [
+  { id: "it", flag: "🇮🇹", nameKey: "language.it" },
+  { id: "en", flag: "🇬🇧", nameKey: "language.en" }
 ];
 
 export function LanguageToggle() {
@@ -13,55 +15,103 @@ export function LanguageToggle() {
 
   return (
     <View
-      style={styles.wrap}
+      style={styles.card}
       accessibilityRole="adjustable"
       accessibilityLabel={t("language.accessibility")}
     >
-      {OPTIONS.map((option) => {
-        const selected = locale === option.id;
-        return (
-          <Pressable
-            key={option.id}
-            onPress={() => setLocale(option.id)}
-            accessibilityRole="button"
-            accessibilityState={{ selected }}
-            accessibilityLabel={t(`language.${option.id}`)}
-            style={({ pressed }) => [styles.chip, selected && styles.chipActive, pressed && { opacity: 0.85 }]}
-          >
-            <Text style={[styles.text, selected && styles.textActive]}>{option.short}</Text>
-          </Pressable>
-        );
-      })}
+      <View style={styles.labelRow}>
+        <Ionicons name="globe-outline" size={16} color={homeColors.green} />
+        <Text style={styles.label}>{t("language.choose")}</Text>
+      </View>
+      <Text style={styles.hint}>{t("language.hint")}</Text>
+      <View style={styles.row}>
+        {OPTIONS.map((option) => {
+          const selected = locale === option.id;
+          return (
+            <Pressable
+              key={option.id}
+              onPress={() => setLocale(option.id)}
+              accessibilityRole="button"
+              accessibilityState={{ selected }}
+              accessibilityLabel={t(option.nameKey)}
+              style={({ pressed }) => [
+                styles.option,
+                selected && styles.optionActive,
+                pressed && { opacity: 0.88 }
+              ]}
+            >
+              <Text style={styles.flag}>{option.flag}</Text>
+              <Text style={[styles.optionText, selected && styles.optionTextActive]}>
+                {t(option.nameKey)}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  wrap: {
+  card: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: homeColors.borderStrong,
+    backgroundColor: homeColors.card,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
+    marginBottom: spacing.md,
+    gap: 8
+  },
+  labelRow: {
     flexDirection: "row",
-    borderRadius: 999,
+    alignItems: "center",
+    gap: 8
+  },
+  label: {
+    color: homeColors.green,
+    fontSize: 13,
+    fontWeight: "800",
+    letterSpacing: 1.2,
+    textTransform: "uppercase"
+  },
+  hint: {
+    color: homeColors.textMuted,
+    fontSize: 13,
+    fontWeight: "500"
+  },
+  row: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 4
+  },
+  option: {
+    flex: 1,
+    minHeight: 48,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: homeColors.border,
-    backgroundColor: homeColors.card,
-    overflow: "hidden"
+    backgroundColor: homeColors.cardAlt,
+    paddingVertical: 12,
+    paddingHorizontal: 10
   },
-  chip: {
-    minWidth: 36,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    alignItems: "center",
-    justifyContent: "center"
+  optionActive: {
+    backgroundColor: homeColors.green,
+    borderColor: homeColors.green
   },
-  chipActive: {
-    backgroundColor: "rgba(154,242,56,0.16)"
+  flag: {
+    fontSize: 16
   },
-  text: {
+  optionText: {
     color: homeColors.textMuted,
-    fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 0.6
+    fontSize: 15,
+    fontWeight: "800"
   },
-  textActive: {
-    color: homeColors.green
+  optionTextActive: {
+    color: homeColors.ctaText
   }
 });

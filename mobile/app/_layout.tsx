@@ -1,6 +1,6 @@
 import 'react-native-reanimated';
 import { useEffect, useRef } from "react";
-import { DarkTheme, ThemeProvider } from "@react-navigation/native";
+import { DarkTheme, ThemeProvider } from "expo-router/react-navigation";
 import { Stack, useRouter, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { hideSplashSafe, keepSplashVisible } from "@/lib/splash-screen";
@@ -83,6 +83,10 @@ function LocalizedStack() {
       <Stack.Screen
         name="match-radar/[matchId]"
         options={{ headerShown: false, title: t("radar.title") }}
+      />
+      <Stack.Screen
+        name="referees/index"
+        options={{ headerShown: false, title: t("referees.title") }}
       />
     </Stack>
   );
