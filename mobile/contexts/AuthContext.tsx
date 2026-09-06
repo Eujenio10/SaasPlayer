@@ -13,6 +13,7 @@ import {
 import { getSessionSafely } from "@/lib/mobile-http";
 import { withTimeout } from "@/lib/with-timeout";
 import { supabase } from "@/lib/supabase";
+import { unregisterExpoPushToken } from "@/lib/notifications/register";
 import type { UserAccessSummary } from "@/lib/types";
 
 export interface SignUpResult {
@@ -232,6 +233,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signOut = useCallback(async () => {
     signingOutRef.current = true;
+    try {
+      await withTimeout(unregisterExpoPushToken(), 2_500, "push_unregister_timeout").catch(() => undefined);
+    } catch {
+      // ignore
+    }
     clearLocalAuth();
     try {
       await withTimeout(supabase.auth.signOut({ scope: "local" }), 3_000, "signout_timeout");

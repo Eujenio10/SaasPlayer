@@ -1,0 +1,41 @@
+name: Team notifications
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: team-notifications
+  cancel-in-progress: false
+
+jobs:
+  ping-team-notifications:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - name: Trigger PitchBrain team notifications
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          APP_URL: https://saas-player.vercel.app
+        run: |
+          CRON_SECRET="$(printf '%s' "$CRON_SECRET" | tr -d '\r\n')"
+          if [ -z "$CRON_SECRET" ]; then
+            echo "Manca il secret GitHub CRON_SECRET."
+            exit 1
+          fi
+          echo "GET $APP_URL/api/internal/cron/team-notifications"
+          HTTP_CODE=$(curl -sS --max-time 120 -o /tmp/team-notifications-body.json -w "%{http_code}" \
+            -X GET "$APP_URL/api/internal/cron/team-notifications" \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            -H "Accept: application/json") || {
+            echo "curl fallito."
+            exit 1
+          }
+          echo "HTTP $HTTP_CODE"
+          cat /tmp/team-notifications-body.json
+          echo
+          if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+            echo "Endpoint notifiche non OK."
+            exit 1
+          fi

@@ -29,7 +29,8 @@
     "android": {
       "package": "com.ildodicesimo.tacticalhub",
       "permissions": [
-        "com.android.vending.BILLING"
+        "com.android.vending.BILLING",
+        "android.permission.POST_NOTIFICATIONS"
       ],
       "adaptiveIcon": {
         "backgroundColor": "#000000",
@@ -56,6 +57,14 @@
       ],
       "expo-asset",
       "expo-font",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/icon.png",
+          "color": "#7CFF3A",
+          "defaultChannel": "pitchbrain"
+        }
+      ],
       [
         "react-native-google-mobile-ads",
         {
