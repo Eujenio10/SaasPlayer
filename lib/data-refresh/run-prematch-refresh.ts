@@ -468,7 +468,9 @@ export async function runPrematchRefreshTick(params: {
     matches.push(outcome);
   }
 
-  if (intensityTargets.length > 0) {
+  const overBudget = () => Date.now() - startedAt > PREMATCH_REFRESH_CONFIG.timeBudgetMs;
+
+  if (intensityTargets.length > 0 && !overBudget()) {
     try {
       await attachIntensityPreviewsToMatches(
         createSupabaseServiceClient(),
@@ -481,6 +483,8 @@ export async function runPrematchRefreshTick(params: {
         error instanceof Error ? error.message : String(error)
       );
     }
+  } else if (intensityTargets.length > 0) {
+    console.warn("[prematch-refresh] intensity_skipped_budget");
   }
 
   /**
@@ -490,6 +494,10 @@ export async function runPrematchRefreshTick(params: {
    */
   let markingsUpdated = false;
   for (const competitionId of refreshedCompetitions) {
+    if (overBudget()) {
+      console.warn("[prematch-refresh] markings_skipped_budget", { competitionId });
+      break;
+    }
     const competitionMatches = menu.filter(
       (match) => canonicalCompetitionId(match.competitionSlug) === competitionId
     );

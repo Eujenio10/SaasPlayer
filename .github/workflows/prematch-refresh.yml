@@ -23,19 +23,29 @@ jobs:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
           APP_URL: https://saas-player.vercel.app
         run: |
+          CRON_SECRET="$(printf '%s' "$CRON_SECRET" | tr -d '\r\n')"
           if [ -z "$CRON_SECRET" ]; then
             echo "Manca il secret GitHub CRON_SECRET (stesso valore di Vercel → Environment Variables)."
             echo "Repo → Settings → Secrets and variables → Actions → New repository secret."
             exit 1
           fi
           echo "GET $APP_URL/api/internal/cron/prematch-refresh"
-          HTTP_CODE=$(curl -sS --max-time 300 -o /tmp/prematch-body.json -w "%{http_code}" \
+          set +e
+          HTTP_CODE=$(curl -sS --max-time 240 -o /tmp/prematch-body.json -w "%{http_code}" \
             -X GET "$APP_URL/api/internal/cron/prematch-refresh" \
             -H "Authorization: Bearer ${CRON_SECRET}" \
-            -H "Accept: application/json") || {
-            echo "curl fallito (timeout o rete)."
+            -H "Accept: application/json")
+          CURL_EXIT=$?
+          set -e
+          if [ "$CURL_EXIT" -eq 28 ]; then
+            echo "Timeout curl: il rinfresco pre-partita sta ancora girando su Vercel (fino a 300s)."
+            echo "Non è un problema di CRON_SECRET. Il prossimo ping tra 5 minuti ritenta se serve."
+            exit 0
+          fi
+          if [ "$CURL_EXIT" -ne 0 ]; then
+            echo "curl fallito (rete). exit=$CURL_EXIT"
             exit 1
-          }
+          fi
           echo "HTTP $HTTP_CODE"
           cat /tmp/prematch-body.json
           echo
