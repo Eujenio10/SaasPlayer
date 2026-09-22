@@ -34,11 +34,17 @@ export const env = {
     return value;
   },
   get SPORTAPI_RAPIDAPI_KEY() {
-    const value = process.env.SPORTAPI_RAPIDAPI_KEY;
+    const value = process.env.FOOTAPI_KEY ?? process.env.SPORTAPI_RAPIDAPI_KEY;
     if (!value) {
       throw new Error("Missing required environment variable: SPORTAPI_RAPIDAPI_KEY");
     }
     return value;
+  },
+  get FOOTAPI_KEY() {
+    return this.SPORTAPI_RAPIDAPI_KEY;
+  },
+  get SUPABASE_SERVICE_KEY() {
+    return process.env.SUPABASE_SERVICE_KEY ?? this.SUPABASE_SERVICE_ROLE_KEY;
   },
   get SPORTAPI_RAPIDAPI_HOST() {
     const value = process.env.SPORTAPI_RAPIDAPI_HOST;

@@ -31,7 +31,42 @@ export const catalog = {
       simulator: "Simulatore match",
       referees: "Arbitri severi",
       fanta: "PitchBrain Fanta",
+      live: "Live Alerts",
       profile: "Profilo"
+    },
+    liveAlerts: {
+      title: "PitchBrain Live Alerts",
+      subtitle: "Monitora una partita live e ricevi una notifica al raggiungimento.",
+      empty: "Nessuna partita live nei campionati monitorati.",
+      create: "Crea Alert",
+      myAlerts: "I tuoi alert",
+      noAlerts: "Nessun alert attivo su questa partita.",
+      category: "Categoria",
+      team: "Squadra",
+      player: "Giocatore",
+      events: "Eventi",
+      stats: "Statistiche",
+      target: "Valore obiettivo",
+      save: "Attiva alert",
+      cancel: "Annulla",
+      loginRequired: "Accedi per creare un alert live.",
+      goalScored: "Gol segnato",
+      goalConceded: "Gol subito",
+      redCard: "Espulsione",
+      penalty: "Rigore",
+      shots: "Tiri",
+      shotsOnTarget: "Tiri nello specchio",
+      corners: "Corner",
+      fouls: "Falli",
+      yellowCards: "Cartellini",
+      goal: "Gol",
+      assist: "Assist",
+      card: "Cartellino",
+      foulsReceived: "Falli subiti",
+      saves: "Parate",
+      minute: "Minuto",
+      active: "Attivo",
+      delete: "Rimuovi"
     },
     fanta: {
       title: "PITCHBRAIN FANTA",
@@ -69,6 +104,7 @@ export const catalog = {
       duelPickB: "Cerca giocatore B",
       duelChange: "Cambia",
       duelIndicators: "Confronto indicatori",
+      duelRoleStats: "Stats di ruolo",
       duelRecommended: "Giocatore consigliato",
       duelTie: "Profili allineati",
       duelRoleError: "Seleziona due giocatori dello stesso ruolo per effettuare il confronto.",
@@ -78,6 +114,35 @@ export const catalog = {
       delta: "Variazione",
       last5: "Ultime 5 prestazioni",
       last10: "Trend rating ultime 10",
+      scoutStats: {
+        saves: "Media parate",
+        goalsConceded: "Media gol subiti",
+        goals: "Media gol",
+        assists: "Media assist",
+        shots: "Media tiri",
+        shotsOnTarget: "Media tiri in porta",
+        keyPasses: "Media passaggi chiave",
+        fouls: "Media falli",
+        cards: "Media cartellini"
+      },
+      vsLeague: {
+        high: "ALTO",
+        average: "NELLA MEDIA",
+        low: "BASSO"
+      },
+      scoutCol: {
+        rating: "Rt",
+        minutes: "Min",
+        saves: "Par",
+        goalsConceded: "Sub",
+        goals: "Gol",
+        assists: "Ass",
+        shots: "Tiri",
+        shotsOnTarget: "T.p.",
+        keyPasses: "P.ch.",
+        fouls: "Fal",
+        cards: "Car"
+      },
       why: "Perché",
       nextOpponent: "Prossimo avversario",
       positiveFactors: "Fattori positivi",
@@ -155,6 +220,66 @@ export const catalog = {
       title: "Aggiornamento necessario",
       body: "Questa versione di PitchBrain non è più supportata. Aggiorna l'app dallo store per continuare.",
       cta: "Aggiorna dallo store"
+    },
+    errors: {
+      serverNoResponse: "Il server non ha risposto. Riprova tra poco.",
+      serverUnreachable: "Impossibile raggiungere il server. Riprova tra poco.",
+      dashboardLoadFailed: "Impossibile caricare la dashboard.",
+      publicCalendarUnavailable:
+        "Calendario pubblico non disponibile al momento. Puoi comunque esplorare l'app.",
+      calendarUnavailable: "Calendario non disponibile al momento. Riprova tra poco.",
+      authRateLimit: "Troppe email inviate. Attendi qualche minuto e riprova.",
+      authAlreadyRegistered: "Questa email è già registrata. Accedi o recupera la password.",
+      authInvalidCredentials: "Email o password errate.",
+      authEmailNotConfirmed: "Conferma prima la tua email. Controlla la posta o richiedi un nuovo invio.",
+      authSignupDisabled: "La registrazione non è attiva. Contatta support@pitchbrain.it.",
+      authRedirectInvalid:
+        "Configurazione redirect non valida. Verifica gli URL in Supabase → URL Configuration.",
+      authEmailSendFailed:
+        "Invio email non riuscito. Controlla SMTP Aruba (no-reply@pitchbrain.it) e che l'hook Send Email sia spento.",
+      authWeakPassword: "La password è troppo debole. Usa almeno 8 caratteri.",
+      authInvalidEmail: "Indirizzo email non valido.",
+      authNetwork: "Connessione non riuscita. Controlla internet e riprova.",
+      authTimeout: "Connessione lenta. Riprova tra poco.",
+      authLinkExpired: "Link scaduto o già usato. Richiedi un nuovo invio dall'app.",
+      authPkce:
+        "Apri il link sullo stesso dispositivo dove hai richiesto l'email, oppure richiedine uno nuovo.",
+      authGeneric: "Operazione non riuscita. Riprova tra qualche istante.",
+      matchDataUnavailable: "I dati per questa partita non sono disponibili",
+      guestOrgMissing:
+        "Esplorazione Guest non disponibile: configura PITCHBRAIN_PUBLIC_ORG_ID sul server.",
+      rankingLoadFailed: "Impossibile caricare la classifica.",
+      rankingObscured: "Posizione non disponibile",
+      reportUnavailable: "Report non disponibile",
+      fieldAnalysisUnavailable: "Analisi di Campo non disponibile: servono i dati di entrambe le squadre.",
+      fieldReadingUnavailable: "Lettura non disponibile con i dati attuali.",
+      heatmapSeasonMissing: "Heatmap stagionale non disponibile per {name}.",
+      heatmapSeasonCaption: "Heatmap stagionale",
+      refreshFailed: "Aggiornamento non riuscito.",
+      refreshTimeout:
+        "Il server ha interrotto una fase per tempo scaduto. Riprova: l’aggiornamento riprende a fasi senza azzerare i dati già salvati.",
+      menuUpdated: "Menu partite aggiornato.",
+      refreshInsightsAll: "Statistiche aggiornate per {total} partite{scope}.{trends}{markings}",
+      refreshInsightsPartial:
+        "Statistiche aggiornate per {processed} di {total} partite{scope}.{trends}{markings}",
+      refreshTrendsPart: " Trend: {n}.",
+      refreshMarkingsPart: " Marcature: {n}.",
+      iapNeedAccount:
+        "Per attivare PitchBrain Pro è necessario creare un account. Ti servirà per recuperare il piano e usarlo su più dispositivi.",
+      iapUnavailableSession:
+        "Acquisti non disponibili in questa sessione. Riprova da un'installazione dell'app dallo store.",
+      iapCancelled: "Acquisto annullato.",
+      iapPurchaseFailed: "Acquisto non riuscito.",
+      iapNotConfirmed: "Pagamento non confermato dallo store. Riprova o usa Ripristina acquisti.",
+      iapActivatePending:
+        "Pagamento ricevuto ma attivazione non completata. Attendi qualche secondo e usa Ripristina acquisti.",
+      iapProActive: "PitchBrain Pro attivo. L'abbonamento si rinnova ogni mese dallo store.",
+      iapUnavailable: "Acquisto non disponibile al momento. Riprova più tardi.",
+      iapFailed: "Impossibile completare l'acquisto. Riprova più tardi.",
+      iapProductMissing: "Prodotto Pro mensile non trovato nello store.",
+      iapRestoreFailed: "Ripristino non riuscito.",
+      restoreProOk: "Piano Pro ripristinato correttamente.",
+      restoreProNone: "Nessun Piano Pro attivo trovato."
     },
     home: {
       tagline: "Intelligenza tattica calcistica",
@@ -268,7 +393,8 @@ export const catalog = {
       reliabilityLow: "Bassa",
       reliabilityMedium: "Media",
       reliabilityGood: "Buona",
-      reliabilityHigh: "Alta"
+      reliabilityHigh: "Alta",
+      dataUnavailable: "I dati per questa partita non sono disponibili"
     },
     markings: {
       title: "Marcature difficili",
@@ -287,13 +413,26 @@ export const catalog = {
       openAnalysis: "Apri per l'analisi",
       closeAnalysis: "Chiudi analisi",
       hardest: "Marcatura più difficile",
-      hardestLead: "Il marcatore che dovrà arginare gli avversari più difficili in questo match",
+      hardestLead: "Il difensore che dovrà affrontare il matchup più complesso.",
       hardestHint:
         "Indice di difficoltà per il marcatore, calcolato su falli subiti e dribbling riusciti degli avversari da marcare.",
-      hardOpponent: "avversario difficile da contenere",
-      hardOpponents: "avversari difficili da contenere",
+      hardOpponent: "avversario difficile",
+      hardOpponents: "avversari difficili",
+      insightTitle: "Insight PitchBrain",
+      highImpact: "Alto impatto",
+      foulsAvg: "{n} falli subiti medi",
+      dribblesAvg: "{n} dribbling riusciti medi",
+      positionTitle: "Posizione giocatori",
       overallDifficulty: "Difficoltà complessiva",
       noRelevant: "Nessuna marcatura sufficientemente rilevante per questo campionato.",
+      wrongCompetition:
+        "Snapshot marcature presente ({total} duelli pre-partita), ma nessuno per «{competition}». Campionati disponibili: {available}.",
+      noUpcomingWithCache:
+        "Nessuna marcatura pre-partita visibile. In cache ci sono {total} duelli ({available}): esegui Aggiorna dati partite da admin e riapri la scheda.",
+      noUpcoming:
+        "Nessuna marcatura pre-partita visibile. Da admin esegui Aggiorna dati partite, poi riapri questa scheda.",
+      snapshotMissing:
+        "Nessun dato marcature ancora generato. Da admin esegui Aggiorna dati partite, poi riapri questa scheda.",
       opponentsToMark: "Avversari da marcare",
       note: "Solo i 5 marcatori più sotto pressione: duello principale, avversari in zona e posizioni in campo.",
       reasonMotive: "Motivo",
@@ -312,7 +451,7 @@ export const catalog = {
     },
     trends: {
       title: "Trend",
-      subtitle: "Chi sta migliorando nelle ultime 5 presenze.",
+      subtitle: "Chi, nelle ultime 3 partite, ha fatto più tiri, tiri in porta, parate, falli commessi o falli subiti della sua media di stagione. Sono conteggi reali, non valori ogni 90 minuti.",
       competition: "Campionato",
       loadFailed: "Impossibile caricare i Trend."
     },
@@ -386,7 +525,12 @@ export const catalog = {
       registerSubtitle: "Gratis. Conferma l'email per completare la registrazione.",
       registerSentSubtitle: "Apri il link di conferma nell'email per attivare l'account.",
       recoverSubtitle: "Inserisci l'email dell'account: ti invieremo un link di reset.",
-      recoverSentSubtitle: "Apri il link nell'email per scegliere una nuova password."
+      recoverSentSubtitle: "Apri il link nell'email per scegliere una nuova password.",
+      alreadyRegistered:
+        "Questa email è già registrata. Accedi con la password o usa Recupera password.",
+      confirmEmailSent:
+        "Ti abbiamo inviato un'email di conferma. Apri il link per attivare l'account, poi accedi.",
+      accountCreated: "Account creato. Ora puoi accedere."
     },
     entitlements: {
       remaining: "Ti restano {remaining} sblocchi gratuiti oggi (max {limit})",
@@ -399,7 +543,17 @@ export const catalog = {
       lockBody:
         "Anteprima Free: un duello principale, un giocatore pericoloso e un'indicazione sul gioco delle due squadre. Sblocca con un video l'analisi completa di questa sola partita.",
       performanceLock:
-        "Sblocca l'analisi completa per vedere i giocatori più pericolosi nei tiri e nell'uno contro uno."
+        "Sblocca l'analisi completa per vedere i giocatori più pericolosi nei tiri e nell'uno contro uno.",
+      dailyLimitTitle: "Limite giornaliero raggiunto",
+      dailyLimitBody:
+        "Hai già usato {limit} sblocchi gratuiti oggi. Passa a Pro per analisi illimitate.",
+      videoNotCompletedTitle: "Video non completato",
+      videoNotCompletedBody:
+        "La pubblicità non è stata completata. Lo sblocco non è stato attivato.",
+      unlockFailedTitle: "Sblocco non riuscito",
+      matchUnlockedTitle: "Partita sbloccata",
+      matchUnlockedBody:
+        "Hai sbloccato l'analisi completa di questa partita. Ti restano {remaining} sblocchi gratuiti oggi."
     },
     paywall: {
       title: "Sblocca PitchBrain Pro",
@@ -421,7 +575,14 @@ export const catalog = {
       bodyBoth:
         "Guarda una breve pubblicità per usare Simulatore match e Duelli da monitorare per 15 minuti.",
       watching: "Pubblicità in corso…",
-      watch: "Guarda pubblicità"
+      watch: "Guarda pubblicità",
+      unlockTitle: "Funzioni sbloccate",
+      unlockBody: "Duelli da monitorare è disponibile per i prossimi 15 minuti.",
+      unlockBodyBoth:
+        "Simulatore match e Duelli da monitorare sono disponibili per i prossimi 15 minuti.",
+      understood: "Ho capito",
+      adErrorTitle: "Errore pubblicità",
+      adErrorBody: "Impossibile caricare o mostrare la pubblicità. Riprova più tardi."
     },
     intensity: {
       monitorDuels: "Duelli da monitorare",
@@ -524,6 +685,7 @@ export const catalog = {
       away: "Trasferta",
       competition: "Competizione",
       invalidMatch: "Partita non valida.",
+      unavailableTitle: "Report non disponibile",
       keyFactor: "Fattore principale",
       controlOf: "Controllo {team}",
       sections: "Sezioni del report",
@@ -637,11 +799,16 @@ export const catalog = {
       shots: "Tiri",
       shotsOnTarget: "Tiri in porta",
       saves: "Parate",
-      shotsUnit: "tiri/90",
-      shotsOnTargetUnit: "tiri in porta/90",
-      savesUnit: "parate/90",
+      foulsCommitted: "Falli commessi",
+      foulsDrawn: "Falli subiti",
+      shotsUnit: "tiri a partita",
+      shotsOnTargetUnit: "tiri in porta a partita",
+      savesUnit: "parate a partita",
+      foulsCommittedUnit: "falli commessi a partita",
+      foulsDrawnUnit: "falli subiti a partita",
       empty: "Nessun trend disponibile per il campionato selezionato.",
       best: "#1 Miglior trend",
+      rankBadge: "#{n} Trend",
       score: "Trend Score",
       matchday: "Giornata",
       statistic: "Statistica",
@@ -651,10 +818,43 @@ export const catalog = {
       loadFailed: "Impossibile caricare i Trend.",
       stable: "stabile",
       all: "Tutti",
-      lastFiveHint: "nelle ultime 5 presenze",
-      previousAvg: "Media precedente",
-      lastFive: "Ultime 5",
-      lastFiveA11y: "{arrow} {text} nelle ultime 5 presenze"
+      lastFiveHint: "Nelle ultime 3 partite rispetto alla sua media di stagione, sui conteggi reali.",
+      previousAvg: "Media stagione",
+      lastFive: "Media ultime 3",
+      lastFiveA11y: "{arrow} {text} nelle ultime 3 partite vs media stagione",
+      howTitle: "Come si legge",
+      howBody: "Confrontiamo i tiri, i tiri in porta, le parate, i falli commessi e i falli subiti realmente fatti (non per 90 minuti) nelle ultime 3 partite con la media della stagione, stessa statistica.",
+      notPer90: "Non sono valori ogni 90 minuti: è quello che ha fatto in campo.",
+      seasonHint: "Tutte le presenze valide",
+      lastTwoHint: "Conteggi realmente fatti",
+      compareSentence:
+        "Nelle ultime 3 partite ha realizzato una media di {recent} {noun} in {recentMinutes} minuti a partita, contro {season} {noun} in {seasonMinutes} minuti a partita di media stagionale.",
+      minutesSample: "{matches} presenze · {minutes}′ a partita",
+      avgInMinutes: "in {minutes}′ a partita",
+      compactAvg: "{recent} {noun} in {minutes}′ a partita",
+      aboveAverage: "{n} delle ultime 3 sopra la propria media",
+      consecutiveAbove: "{n} partite consecutive sopra la media stagionale.",
+      consecutiveAboveOne: "1 partita sopra la media stagionale.",
+      cardCompare: "stagione {season} → ultime 3: {recent}",
+      vsSeason: "vs la sua media stagione",
+      vsSeasonCaps: "Rispetto alla sua media stagionale",
+      headlineShots: "Sta tirando molto di più rispetto alla sua media.",
+      headlineSot: "Sta calciando in porta molto di più rispetto alla sua media.",
+      headlineSaves: "Sta parando molto di più rispetto alla sua media.",
+      headlineFoulsCommitted: "Sta commettendo molti più falli rispetto alla sua media.",
+      headlineFoulsDrawn: "Sta subendo molti più falli rispetto alla sua media.",
+      insightTitle: "Insight PitchBrain",
+      chartLastN: "Ultime {n} partite",
+      chartRecent: "Più recente",
+      seasonAvgShort: "media stagione",
+      sparkSeason: "Stagione",
+      sparkRecent: "Ultime 3",
+      dbNotReady:
+        "Database Trend non configurato. Applica la migration Supabase, riavvia il server e usa Aggiorna dati.",
+      wrongCompetition:
+        "Trend presenti ({total}), ma nessuno per «{competition}». Campionati disponibili: {available}.",
+      adminEmpty:
+        "Nessun trend disponibile. Da admin esegui Aggiorna dati partite, poi riapri questa scheda."
     },
     simulator: {
       title: "Simulatore match",
@@ -662,7 +862,14 @@ export const catalog = {
         "Scenario statistico pre-partita: distribuzione di gol, tiri, corner e cartellini da simulazioni ripetute.",
       loadFailed: "Impossibile caricare il simulatore di partita.",
       matchFailed: "Impossibile caricare i dati di questa partita.",
-      simFailed: "Impossibile caricare la simulazione."
+      simFailed: "Impossibile caricare la simulazione.",
+      noFixtures: "Nessuna partita disponibile per il campionato selezionato.",
+      apiUnavailable: "Accesso alle API non disponibile. Verifica l'URL del server e il login.",
+      matchNotFound: "Partita non trovata.",
+      simUnavailable: "Simulazione non disponibile.",
+      ready: "Simulazione disponibile",
+      live: "Partita in corso",
+      postponed: "Partita rinviata"
     },
     intensityPreview: {
       notComputable: "Intensità non calcolabile",
@@ -824,7 +1031,42 @@ export const catalog = {
       simulator: "Match simulator",
       referees: "Strict referees",
       fanta: "PitchBrain Fanta",
+      live: "Live Alerts",
       profile: "Profile"
+    },
+    liveAlerts: {
+      title: "PitchBrain Live Alerts",
+      subtitle: "Watch a live match and get notified when the condition is met.",
+      empty: "No live matches in the monitored competitions.",
+      create: "Create Alert",
+      myAlerts: "Your alerts",
+      noAlerts: "No active alerts on this match.",
+      category: "Category",
+      team: "Team",
+      player: "Player",
+      events: "Events",
+      stats: "Statistics",
+      target: "Target value",
+      save: "Enable alert",
+      cancel: "Cancel",
+      loginRequired: "Sign in to create a live alert.",
+      goalScored: "Goal scored",
+      goalConceded: "Goal conceded",
+      redCard: "Red card",
+      penalty: "Penalty",
+      shots: "Shots",
+      shotsOnTarget: "Shots on target",
+      corners: "Corners",
+      fouls: "Fouls",
+      yellowCards: "Cards",
+      goal: "Goal",
+      assist: "Assist",
+      card: "Card",
+      foulsReceived: "Fouls drawn",
+      saves: "Saves",
+      minute: "Minute",
+      active: "Active",
+      delete: "Remove"
     },
     fanta: {
       title: "PITCHBRAIN FANTA",
@@ -862,6 +1104,7 @@ export const catalog = {
       duelPickB: "Search player B",
       duelChange: "Change",
       duelIndicators: "Indicator comparison",
+      duelRoleStats: "Role stats",
       duelRecommended: "Recommended player",
       duelTie: "Profiles aligned",
       duelRoleError: "Select two players in the same position to compare them.",
@@ -871,6 +1114,35 @@ export const catalog = {
       delta: "Change",
       last5: "Last 5 performances",
       last10: "Last 10 rating trend",
+      scoutStats: {
+        saves: "Avg saves",
+        goalsConceded: "Avg goals conceded",
+        goals: "Avg goals",
+        assists: "Avg assists",
+        shots: "Avg shots",
+        shotsOnTarget: "Avg shots on target",
+        keyPasses: "Avg key passes",
+        fouls: "Avg fouls",
+        cards: "Avg cards"
+      },
+      vsLeague: {
+        high: "HIGH",
+        average: "AVERAGE",
+        low: "LOW"
+      },
+      scoutCol: {
+        rating: "Rt",
+        minutes: "Min",
+        saves: "Sav",
+        goalsConceded: "GC",
+        goals: "G",
+        assists: "A",
+        shots: "Sh",
+        shotsOnTarget: "SoT",
+        keyPasses: "KP",
+        fouls: "Fls",
+        cards: "Crd"
+      },
       why: "Why",
       nextOpponent: "Next opponent",
       positiveFactors: "Positive factors",
@@ -948,6 +1220,65 @@ export const catalog = {
       title: "Update required",
       body: "This version of PitchBrain is no longer supported. Update the app from the store to continue.",
       cta: "Update from the store"
+    },
+    errors: {
+      serverNoResponse: "The server did not respond. Please try again shortly.",
+      serverUnreachable: "Unable to reach the server. Please try again shortly.",
+      dashboardLoadFailed: "Unable to load the dashboard.",
+      publicCalendarUnavailable:
+        "The public fixture list is unavailable right now. You can still browse the app.",
+      calendarUnavailable: "Fixtures are unavailable right now. Please try again shortly.",
+      authRateLimit: "Too many emails sent. Wait a few minutes and try again.",
+      authAlreadyRegistered: "This email is already registered. Sign in or reset your password.",
+      authInvalidCredentials: "Incorrect email or password.",
+      authEmailNotConfirmed: "Confirm your email first. Check your inbox or request a new email.",
+      authSignupDisabled: "Registration is not active. Contact support@pitchbrain.it.",
+      authRedirectInvalid:
+        "Invalid redirect configuration. Check the URLs in Supabase → URL Configuration.",
+      authEmailSendFailed:
+        "Email could not be sent. Check Aruba SMTP (no-reply@pitchbrain.it) and that the Send Email hook is off.",
+      authWeakPassword: "The password is too weak. Use at least 8 characters.",
+      authInvalidEmail: "Invalid email address.",
+      authNetwork: "Connection failed. Check your internet and try again.",
+      authTimeout: "The connection is slow. Please try again shortly.",
+      authLinkExpired: "This link has expired or was already used. Request a new one from the app.",
+      authPkce: "Open the link on the same device where you requested the email, or request a new one.",
+      authGeneric: "Something went wrong. Please try again in a moment.",
+      matchDataUnavailable: "Data for this match is not available",
+      guestOrgMissing:
+        "Guest browsing is unavailable: configure PITCHBRAIN_PUBLIC_ORG_ID on the server.",
+      rankingLoadFailed: "Unable to load the ranking.",
+      rankingObscured: "Position unavailable",
+      reportUnavailable: "Report unavailable",
+      fieldAnalysisUnavailable: "Pitch analysis is unavailable: data from both teams is required.",
+      fieldReadingUnavailable: "Reading is unavailable with the current data.",
+      heatmapSeasonMissing: "Season heatmap is unavailable for {name}.",
+      heatmapSeasonCaption: "Season heatmap",
+      refreshFailed: "Update failed.",
+      refreshTimeout:
+        "The server stopped a step because it timed out. Try again: the update resumes in stages without wiping data already saved.",
+      menuUpdated: "Match menu updated.",
+      refreshInsightsAll: "Statistics updated for {total} matches{scope}.{trends}{markings}",
+      refreshInsightsPartial:
+        "Statistics updated for {processed} of {total} matches{scope}.{trends}{markings}",
+      refreshTrendsPart: " Trends: {n}.",
+      refreshMarkingsPart: " Markings: {n}.",
+      iapNeedAccount:
+        "To activate PitchBrain Pro you need to create an account. You'll need it to recover the plan and use it on more devices.",
+      iapUnavailableSession:
+        "Purchases are not available in this session. Try again from a store install of the app.",
+      iapCancelled: "Purchase cancelled.",
+      iapPurchaseFailed: "Purchase failed.",
+      iapNotConfirmed: "Payment was not confirmed by the store. Try again or use Restore purchases.",
+      iapActivatePending:
+        "Payment received but activation is not complete. Wait a few seconds and use Restore purchases.",
+      iapProActive: "PitchBrain Pro is active. The subscription renews every month from the store.",
+      iapUnavailable: "Purchases are unavailable right now. Please try again later.",
+      iapFailed: "Unable to complete the purchase. Please try again later.",
+      iapProductMissing: "Monthly Pro product not found in the store.",
+      iapRestoreFailed: "Restore failed.",
+      restoreProOk: "Pro plan restored successfully.",
+      restoreProNone: "No active Pro plan found."
     },
     home: {
       tagline: "Football tactical intelligence",
@@ -1061,7 +1392,8 @@ export const catalog = {
       reliabilityLow: "Low",
       reliabilityMedium: "Medium",
       reliabilityGood: "Good",
-      reliabilityHigh: "High"
+      reliabilityHigh: "High",
+      dataUnavailable: "Data for this match is not available"
     },
     markings: {
       title: "Difficult markings",
@@ -1080,13 +1412,26 @@ export const catalog = {
       openAnalysis: "Open analysis",
       closeAnalysis: "Close analysis",
       hardest: "Most difficult marking",
-      hardestLead: "The marker who has to contain the most difficult opponents in this match",
+      hardestLead: "The defender facing the most complex matchup.",
       hardestHint:
         "Difficulty index for the marker, based on fouls suffered and successful dribbles by the attackers to mark.",
-      hardOpponent: "difficult opponent to contain",
-      hardOpponents: "difficult opponents to contain",
+      hardOpponent: "difficult opponent",
+      hardOpponents: "difficult opponents",
+      insightTitle: "PitchBrain Insight",
+      highImpact: "High impact",
+      foulsAvg: "{n} fouls suffered on average",
+      dribblesAvg: "{n} successful dribbles on average",
+      positionTitle: "Player positions",
       overallDifficulty: "Overall difficulty",
       noRelevant: "No sufficiently relevant marking for this competition.",
+      wrongCompetition:
+        "Markings snapshot is present ({total} pre-match duels), but none for “{competition}”. Available competitions: {available}.",
+      noUpcomingWithCache:
+        "No visible pre-match markings. Cache has {total} duels ({available}): run Refresh match data from admin and reopen this tab.",
+      noUpcoming:
+        "No visible pre-match markings. From admin, run Refresh match data, then reopen this tab.",
+      snapshotMissing:
+        "No markings data has been generated yet. From admin, run Refresh match data, then reopen this tab.",
       opponentsToMark: "Opponents to mark",
       note: "Only the 5 markers under most pressure: main duel, opponents in the zone and pitch positions.",
       reasonMotive: "Reason",
@@ -1105,7 +1450,7 @@ export const catalog = {
     },
     trends: {
       title: "Trends",
-      subtitle: "Who is improving over the last 5 appearances.",
+      subtitle: "Players who, in their last 3 matches, made more shots, shots on target, saves, fouls committed or fouls suffered than their season average. These are real counts, not per-90 rates.",
       competition: "Competition",
       loadFailed: "Unable to load Trends."
     },
@@ -1179,7 +1524,11 @@ export const catalog = {
       registerSubtitle: "Free. Confirm your email to complete registration.",
       registerSentSubtitle: "Open the confirmation link in the email to activate your account.",
       recoverSubtitle: "Enter the account email: we'll send you a reset link.",
-      recoverSentSubtitle: "Open the link in the email to choose a new password."
+      recoverSentSubtitle: "Open the link in the email to choose a new password.",
+      alreadyRegistered: "This email is already registered. Sign in with your password or reset it.",
+      confirmEmailSent:
+        "We've sent you a confirmation email. Open the link to activate your account, then sign in.",
+      accountCreated: "Account created. You can now sign in."
     },
     entitlements: {
       remaining: "You have {remaining} free unlocks left today (max {limit})",
@@ -1192,7 +1541,16 @@ export const catalog = {
       lockBody:
         "Free preview: one main duel, one dangerous player and a note on both teams. Unlock the full analysis for this match with a video.",
       performanceLock:
-        "Unlock the full analysis to see the most dangerous players in shooting and one-v-one."
+        "Unlock the full analysis to see the most dangerous players in shooting and one-v-one.",
+      dailyLimitTitle: "Daily limit reached",
+      dailyLimitBody:
+        "You've already used {limit} free unlocks today. Go Pro for unlimited analysis.",
+      videoNotCompletedTitle: "Video not completed",
+      videoNotCompletedBody: "The ad was not completed. The unlock was not activated.",
+      unlockFailedTitle: "Unlock failed",
+      matchUnlockedTitle: "Match unlocked",
+      matchUnlockedBody:
+        "You've unlocked the full analysis for this match. You have {remaining} free unlocks left today."
     },
     paywall: {
       title: "Unlock PitchBrain Pro",
@@ -1213,7 +1571,13 @@ export const catalog = {
       bodyDuels: "Watch a short ad to use Duels to watch for 15 minutes.",
       bodyBoth: "Watch a short ad to use Match simulator and Duels to watch for 15 minutes.",
       watching: "Ad in progress…",
-      watch: "Watch ad"
+      watch: "Watch ad",
+      unlockTitle: "Features unlocked",
+      unlockBody: "Duels to watch is available for the next 15 minutes.",
+      unlockBodyBoth: "Match simulator and Duels to watch are available for the next 15 minutes.",
+      understood: "Got it",
+      adErrorTitle: "Ad error",
+      adErrorBody: "Unable to load or show the ad. Please try again later."
     },
     intensity: {
       monitorDuels: "Duels to watch",
@@ -1316,6 +1680,7 @@ export const catalog = {
       away: "Away",
       competition: "Competition",
       invalidMatch: "Invalid match.",
+      unavailableTitle: "Report unavailable",
       keyFactor: "Main factor",
       controlOf: "{team} control",
       sections: "Report sections",
@@ -1429,11 +1794,16 @@ export const catalog = {
       shots: "Shots",
       shotsOnTarget: "Shots on target",
       saves: "Saves",
-      shotsUnit: "shots/90",
-      shotsOnTargetUnit: "shots on target/90",
-      savesUnit: "saves/90",
+      foulsCommitted: "Fouls committed",
+      foulsDrawn: "Fouls suffered",
+      shotsUnit: "shots per match",
+      shotsOnTargetUnit: "shots on target per match",
+      savesUnit: "saves per match",
+      foulsCommittedUnit: "fouls committed per match",
+      foulsDrawnUnit: "fouls suffered per match",
       empty: "No trends available for the selected competition.",
       best: "#1 Best trend",
+      rankBadge: "#{n} Trend",
       score: "Trend Score",
       matchday: "Matchday",
       statistic: "Statistic",
@@ -1443,10 +1813,42 @@ export const catalog = {
       loadFailed: "Unable to load Trends.",
       stable: "stable",
       all: "All",
-      lastFiveHint: "in the last 5 appearances",
-      previousAvg: "Previous average",
-      lastFive: "Last 5",
-      lastFiveA11y: "{arrow} {text} in the last 5 appearances"
+      lastFiveHint: "In the last 3 matches versus their season average, using real counts.",
+      previousAvg: "Season average",
+      lastFive: "Last 3 average",
+      lastFiveA11y: "{arrow} {text} in the last 3 matches vs season average",
+      howTitle: "How to read this",
+      howBody: "We compare shots, shots on target, saves, fouls committed and fouls suffered actually made (not per 90 minutes) in the last 3 matches with the season average of the same stat.",
+      notPer90: "These are not per-90 values: they are what the player actually did on the pitch.",
+      seasonHint: "All valid appearances",
+      lastTwoHint: "Real events made",
+      compareSentence:
+        "In the last 3 matches they averaged {recent} {noun} in {recentMinutes} minutes per match, versus {season} {noun} in {seasonMinutes} minutes per match for the season.",
+      minutesSample: "{matches} appearances · {minutes}′ per match",
+      avgInMinutes: "in {minutes}′ per match",
+      compactAvg: "{recent} {noun} in {minutes}′ per match",
+      aboveAverage: "{n} of the last 3 above their own average",
+      consecutiveAbove: "{n} consecutive matches above the season average.",
+      consecutiveAboveOne: "1 match above the season average.",
+      cardCompare: "season {season} → last 3: {recent}",
+      vsSeason: "vs their season average",
+      vsSeasonCaps: "Versus their season average",
+      headlineShots: "They are shooting far more than their average.",
+      headlineSot: "They are putting more shots on target than their average.",
+      headlineSaves: "They are making far more saves than their average.",
+      headlineFoulsCommitted: "They are committing far more fouls than their average.",
+      headlineFoulsDrawn: "They are drawing far more fouls than their average.",
+      insightTitle: "PitchBrain insight",
+      chartLastN: "Last {n} matches",
+      chartRecent: "Most recent",
+      seasonAvgShort: "season avg",
+      sparkSeason: "Season",
+      sparkRecent: "Last 3",
+      dbNotReady:
+        "Trends database is not configured. Apply the Supabase migration, restart the server and use Refresh data.",
+      wrongCompetition:
+        "Trends are present ({total}), but none for “{competition}”. Available competitions: {available}.",
+      adminEmpty: "No trends available. From admin, run Refresh match data, then reopen this tab."
     },
     simulator: {
       title: "Match simulator",
@@ -1454,7 +1856,14 @@ export const catalog = {
         "Pre-match statistical scenario: distribution of goals, shots, corners and cards from repeated simulations.",
       loadFailed: "Unable to load the match simulator.",
       matchFailed: "Unable to load this match.",
-      simFailed: "Unable to load the simulation."
+      simFailed: "Unable to load the simulation.",
+      noFixtures: "No matches available for the selected competition.",
+      apiUnavailable: "API access is unavailable. Check the server URL and your sign-in.",
+      matchNotFound: "Match not found.",
+      simUnavailable: "Simulation unavailable.",
+      ready: "Simulation available",
+      live: "Match in progress",
+      postponed: "Match postponed"
     },
     intensityPreview: {
       notComputable: "Intensity not available",

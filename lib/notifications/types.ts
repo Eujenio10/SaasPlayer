@@ -1,4 +1,4 @@
-export type TeamNotificationType = "match_preview" | "key_matchup";
+export type TeamNotificationType = "match_preview" | "key_matchup" | "live_alert";
 
 export interface FollowedTeamRow {
   userId: string;

@@ -15,6 +15,7 @@ import { LocaleProvider, useLocale } from "@/contexts/LocaleContext";
 import { FavoriteTeamProvider } from "@/contexts/FavoriteTeamContext";
 import { AppSideMenu } from "@/components/app-menu/AppSideMenu";
 import { FavoriteTeamOnboarding } from "@/components/favorite-team/FavoriteTeamOnboarding";
+import { LanguageOnboarding } from "@/components/home/LanguageOnboarding";
 import { ForceUpdateGate } from "@/components/ForceUpdateGate";
 import { PushNotificationsBootstrap } from "@/components/notifications/PushNotificationsBootstrap";
 import { pitchbrainColors } from "@/lib/pitchbrain-theme";
@@ -83,6 +84,8 @@ function LocalizedStack() {
         name="your-team/index"
         options={{ headerShown: false, title: t("yourTeam.sectionTitle") }}
       />
+      <Stack.Screen name="live/index" options={{ headerShown: false, title: t("liveAlerts.title") }} />
+      <Stack.Screen name="live/[eventId]" options={{ headerShown: false, title: t("liveAlerts.title") }} />
       <Stack.Screen name="fanta/index" options={{ headerShown: false, title: t("fanta.title") }} />
       <Stack.Screen name="fanta/scout" options={{ headerShown: false, title: t("fanta.scout") }} />
       <Stack.Screen name="fanta/scout/[playerId]" options={{ headerShown: false, title: t("fanta.scout") }} />
@@ -145,6 +148,7 @@ export default function RootLayout() {
                     <StatusBar style="light" />
                     <LocalizedStack />
                     <AppSideMenu />
+                    <LanguageOnboarding />
                     <FavoriteTeamOnboarding />
                     <ProPaywallModal />
                     <GuestAdPreviewModal />

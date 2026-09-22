@@ -54,6 +54,19 @@ export function sportApiTopFootballMatchesByDatePath(date: string, host = env.SP
   return `/api/matches/top/${parts.day}/${parts.month}/${parts.year}`;
 }
 
+export function sportApiLiveMatchesPath(host = env.SPORTAPI_RAPIDAPI_HOST): string {
+  return isFootApi(host) ? "/api/matches/live" : "/api/v1/sport/football/events/live";
+}
+
+export function sportApiPlayerMatchStatisticsPath(
+  eventId: number | string,
+  host = env.SPORTAPI_RAPIDAPI_HOST
+): string {
+  return isFootApi(host)
+    ? `/api/match/${eventId}/player-statistics`
+    : `/api/v1/event/${eventId}/lineups`;
+}
+
 export function sportApiEventPath(eventId: number | string, host = env.SPORTAPI_RAPIDAPI_HOST): string {
   return isFootApi(host) ? `/api/match/${eventId}` : `/api/v1/event/${eventId}`;
 }
@@ -94,6 +107,15 @@ export function sportApiEventIncidentsPath(
   return isFootApi(host)
     ? `/api/match/${eventId}/incidents`
     : `/api/v1/event/${eventId}/incidents`;
+}
+
+export function sportApiRefereeStatisticsPath(
+  refereeId: string,
+  host = env.SPORTAPI_RAPIDAPI_HOST
+): string {
+  return isFootApi(host)
+    ? `/api/referee/${refereeId}/statistics`
+    : `/api/v1/referee/${refereeId}/statistics`;
 }
 
 export function sportApiRefereeStatisticsSeasonsPath(
@@ -152,6 +174,21 @@ export function sportApiTeamEventsNextPath(
   return isFootApi(host)
     ? `/api/team/${teamId}/matches/next/${page}`
     : `/api/v1/team/${teamId}/events/next/${page}`;
+}
+
+export function sportApiPlayerPath(playerId: number, host = env.SPORTAPI_RAPIDAPI_HOST): string {
+  return isFootApi(host) ? `/api/player/${playerId}` : `/api/v1/player/${playerId}`;
+}
+
+/** Ultime partite di un giocatore. FootAPI: `/api/player/{id}/matches/previous/{page}`. */
+export function sportApiPlayerEventsLastPath(
+  playerId: number,
+  page: number,
+  host = env.SPORTAPI_RAPIDAPI_HOST
+): string {
+  return isFootApi(host)
+    ? `/api/player/${playerId}/matches/previous/${page}`
+    : `/api/v1/player/${playerId}/events/last/${page}`;
 }
 
 export function sportApiPlayerSeasonStatisticsPath(
