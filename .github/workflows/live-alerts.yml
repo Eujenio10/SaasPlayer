@@ -1,10 +1,18 @@
 name: Live alerts
 
-# GitHub non garantisce cron sotto i 5 minuti: loop interno a 30s.
+# GitHub non mantiene i cron ogni 5 minuti (qui partono ogni 2-6 ore) e non
+# accetta schedule sotto i 5 minuti. Vercel Hobby ha un solo cron al giorno,
+# già usato dal refresh mattutino.
+# Il job resta acceso quasi 6 ore, chiama l'endpoint ogni 60 secondi e poi
+# rilancia se stesso. Lo schedule orario serve solo se la catena si interrompe.
 on:
   schedule:
-    - cron: "*/5 * * * *"
+    - cron: "17 * * * *"
   workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
 
 concurrency:
   group: live-alerts
@@ -13,39 +21,40 @@ concurrency:
 jobs:
   ping-live-alerts:
     runs-on: ubuntu-latest
-    timeout-minutes: 6
+    timeout-minutes: 360
     steps:
-      - name: Tick PitchBrain Live Alerts
+      - name: Tick PitchBrain Live Alerts every minute
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
           APP_URL: https://saas-player.vercel.app
+          GH_TOKEN: ${{ github.token }}
         run: |
           CRON_SECRET="$(printf '%s' "$CRON_SECRET" | tr -d '\r\n')"
           if [ -z "$CRON_SECRET" ]; then
             echo "Manca il secret GitHub CRON_SECRET."
             exit 1
           fi
-          for i in 1 2 3 4 5 6 7 8 9; do
-            echo "GET $APP_URL/api/internal/cron/live-alerts tick=$i"
+          deadline=$((SECONDS + 330 * 60))
+          tick=0
+          while [ "$SECONDS" -lt "$deadline" ]; do
+            tick=$((tick + 1))
+            started=$SECONDS
+            echo "GET $APP_URL/api/internal/cron/live-alerts tick=$tick"
             HTTP_CODE=$(curl -sS --max-time 50 -o /tmp/live-alerts-body.json -w "%{http_code}" \
               -X GET "$APP_URL/api/internal/cron/live-alerts" \
               -H "Authorization: Bearer ${CRON_SECRET}" \
-              -H "Accept: application/json") || {
-              echo "curl fallito al tick $i"
-              exit 1
-            }
-            echo "HTTP $HTTP_CODE"
-            cat /tmp/live-alerts-body.json
-            echo
-            if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
-              echo "Endpoint live alerts non OK."
+              -H "Accept: application/json") || HTTP_CODE="000"
+            monitored=$(grep -o '"monitored":[0-9]*' /tmp/live-alerts-body.json 2>/dev/null | head -n 1 || true)
+            echo "HTTP $HTTP_CODE ${monitored:-}"
+            if [ "$HTTP_CODE" = "401" ]; then
+              echo "Unauthorized: CRON_SECRET su GitHub non coincide con quello su Vercel."
               exit 1
             fi
-            if grep -q '"monitored":0' /tmp/live-alerts-body.json; then
-              echo "Nessuna partita monitorata, esco."
-              break
-            fi
-            if [ "$i" -lt 9 ]; then
-              sleep 30
+            spent=$((SECONDS - started))
+            wait=$((60 - spent))
+            if [ "$wait" -gt 0 ] && [ "$SECONDS" -lt "$deadline" ]; then
+              sleep "$wait"
             fi
           done
+          echo "Ciclo concluso, rilancio il workflow."
+          gh workflow run live-alerts.yml --ref "${GITHUB_REF_NAME}"
