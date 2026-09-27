@@ -4,13 +4,59 @@
  * (es. "Zaniolo" e "Nicolò Zaniolo").
  */
 
+/** Lettere che NFKD non scompone in A–Z (es. Ł, Ø, ß). */
+const LETTER_FOLD: Record<string, string> = {
+  Æ: "AE",
+  æ: "AE",
+  Œ: "OE",
+  œ: "OE",
+  Ø: "O",
+  ø: "O",
+  Ł: "L",
+  ł: "L",
+  Đ: "D",
+  đ: "D",
+  Ð: "D",
+  ð: "D",
+  Þ: "TH",
+  þ: "TH",
+  ß: "SS",
+  ẞ: "SS",
+  İ: "I",
+  ı: "I"
+};
+
+function foldSpecialLetters(name: string): string {
+  return Array.from(name ?? "")
+    .map((ch) => LETTER_FOLD[ch] ?? ch)
+    .join("");
+}
+
 export function normalizePlayerNameKey(name: string): string {
-  return (name ?? "")
+  return foldSpecialLetters(name)
     .normalize("NFKD")
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/\s+/g, " ")
     .trim()
     .toUpperCase();
+}
+
+/** Chiave per ricerca utente: senza accenti, apostrofi e trattini. */
+export function playerSearchKey(name: string): string {
+  return normalizePlayerNameKey(name)
+    .replace(/['’`.]/g, "")
+    .replace(/[-–—]/g, " ")
+    .replace(/[^A-Z0-9 ]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function playerNameMatchesQuery(name: string, query: string): boolean {
+  const q = playerSearchKey(query);
+  if (q.length < 2) return false;
+  const n = playerSearchKey(name);
+  if (n.includes(q)) return true;
+  return n.replace(/ /g, "").includes(q.replace(/ /g, ""));
 }
 
 export function playerLastNameKey(name: string): string {
